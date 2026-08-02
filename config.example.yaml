@@ -23,7 +23,7 @@ workers:
     permission_mode: acceptEdits
   codex:
     bin: codex
-    extra_args: ["--full-auto"]    # codexのバージョンに合わせて調整
+    extra_args: ["--sandbox", "workspace-write", "--skip-git-repo-check"]  # codex 0.146+。--full-autoは非推奨、git外workdirには--skip-git-repo-check必須
   shell:                           # 他LLM CLI用の汎用枠 (例: gemini)
     argv: ["gemini", "-p", "{prompt}"]
 
