@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
+from pathlib import Path
 
-from . import ingest, planner, watcher
+from . import ingest, planner, report, watcher
 from .orchestrator import run_mission
 from .state import RunStore, load_config
 from . import worktree
@@ -26,6 +28,10 @@ def main() -> None:
 
     sub.add_parser("scan")
     sub.add_parser("watch")
+
+    rp = sub.add_parser("report")
+    rp.add_argument("--days", type=int)
+    rp.add_argument("--vault", action="store_true")
 
     runp = sub.add_parser("run")
     runp.add_argument("--note")
@@ -51,6 +57,17 @@ def main() -> None:
                                      cfg["vault"].get("mission_tag", "mission"))
         for n in cands:
             print(f"- {n.title}  ({n.path})")
+        return
+
+    if args.cmd == "report":
+        out = report.build_report(cfg, days=args.days)
+        print(out)
+        if args.vault:
+            d = Path(cfg["vault"]["path"]).expanduser() / "orgh" / "reports"
+            d.mkdir(parents=True, exist_ok=True)
+            fp = d / f"{datetime.now():%Y-%m-%d}.md"
+            fp.write_text(out)
+            print(f"report written: {fp}")
         return
 
     if args.cmd == "run":

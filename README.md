@@ -56,6 +56,8 @@ orgh cancel <mission_id>
 
 # vault監視デーモン(ノート投稿で自動着火)
 orgh watch
+
+orgh report [--days N] [--vault]  # 初回合格率・差し戻し率の週次等を集計
 ```
 
 実行結果は `runs/<mission_id>/` に永続化(mission.json / ledger.jsonl / artifacts/)。
@@ -118,8 +120,17 @@ Budgetはルートで確保した共有プールを親から子へ`split()`で�
 ## 育て方(推奨ループ)
 
 1. まず小さいミッションで2〜3周回す
-2. `runs/*/ledger.jsonl` を見て差し戻しパターンを確認
+2. `runs/*/ledger.jsonl` を見て差し戻しパターンを確認(`orgh report` でも集計できる)
 3. `prompts/*.md` と `playbooks/` を手で編集 — ここがこのハーネスの「経営」
+
+### 計器(orgh report)
+
+`orgh report` はledgerを集計し、初回attempt合格率と差し戻し率の週次推移
+(改善ループが効いているか=増幅が実在するかを測る最重要メトリクス)・
+ミッション別コスト/所要時間・worker別失敗率を出す。`--vault` を付けると
+`<vault>/orgh/reports/<date>.md` にも書き出す。Plannerに渡した
+`context_digest` は毎ミッション `runs/<id>/artifacts/context_digest.md` に
+保存され、「なぜこの計画になったか」の監査線になる。
 
 ## テスト
 

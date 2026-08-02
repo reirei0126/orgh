@@ -180,6 +180,7 @@ def run_mission(cfg: dict, mission: Mission, store: RunStore,
     workers = cfg.get("loop", {}).get("parallel", 3)
     budget = _setup_budget(cfg, mission)
     store.save(mission)
+    store.artifact("context_digest.md", mission.context_digest)
     cancelling = False
     budget_stopped = False
     with ThreadPoolExecutor(max_workers=workers) as pool:

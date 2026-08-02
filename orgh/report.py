@@ -1,0 +1,129 @@
+"""orgh report: ledgerからの集計(HANDOFF タスク7a)。
+
+- 初回attempt合格率と差し戻し率の週次時系列(増幅の実在を示す最重要メトリクス)
+- ミッション別コスト・所要時間
+- worker別の失敗率
+
+runs/<mission_id>/{mission.json,ledger.jsonl} を直接読む(RunStore.load()は
+実行中系ステータスの巻き戻しなど実行用の副作用を持つため、集計では素のJSONを
+読む)。
+"""
+from __future__ import annotations
+
+import json
+import time
+from datetime import datetime
+from pathlib import Path
+
+
+def _load_missions(runs_dir: str | Path) -> list[tuple[dict, list[dict]]]:
+    """mission.json を持つ各ミッションディレクトリから (mission, events) を集める。"""
+    root = Path(runs_dir)
+    if not root.exists():
+        return []
+    out = []
+    for d in sorted(root.iterdir()):
+        if not d.is_dir():
+            continue
+        mp = d / "mission.json"
+        if not mp.exists():
+            continue
+        mission = json.loads(mp.read_text())
+        events = []
+        lp = d / "ledger.jsonl"
+        if lp.exists():
+            for line in lp.read_text().splitlines():
+                if line.strip():
+                    events.append(json.loads(line))
+        out.append((mission, events))
+    return out
+
+
+def _weekly_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, dict]:
+    """タスク単位で最初のtask.reviewから週次の初回合格・差し戻しを集計する。"""
+    weekly: dict[str, dict] = {}
+    for mission, events in missions:
+        by_task: dict[str, list[dict]] = {}
+        for e in events:
+            if e.get("event") == "task.review":
+                by_task.setdefault(e["task"], []).append(e)
+        for revs in by_task.values():
+            first = revs[0]
+            week = datetime.fromtimestamp(first["ts"]).strftime("%G-W%V")
+            bucket = weekly.setdefault(
+                week, {"total": 0, "first_pass": 0, "rework": 0})
+            bucket["total"] += 1
+            if first.get("passed"):
+                bucket["first_pass"] += 1
+            if any(not r.get("passed") for r in revs):
+                bucket["rework"] += 1
+    return weekly
+
+
+def _mission_line(mission: dict, events: list[dict]) -> str:
+    mission_id = mission["id"]
+    intent = mission.get("intent", "")[:30]
+    budget = mission.get("budget")
+    cost = budget["spent_usd"] if budget else 0.0
+    if events:
+        first_ts = events[0]["ts"]
+        finished = next(
+            (e for e in events if e.get("event") == "mission.finished"), None)
+        last_ts = finished["ts"] if finished else events[-1]["ts"]
+        duration = int(last_ts - first_ts)
+    else:
+        duration = 0
+    tasks = mission.get("tasks", [])
+    done = sum(1 for t in tasks if t.get("status") == "done")
+    return (f"- {mission_id}: {intent} cost={cost:.2f} USD "
+            f"duration={duration}s done={done}/{len(tasks)}")
+
+
+def _worker_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, tuple[int, int]]:
+    stats: dict[str, tuple[int, int]] = {}
+    for mission, _events in missions:
+        for t in mission.get("tasks", []):
+            worker = t.get("worker")
+            failed, n = stats.get(worker, (0, 0))
+            n += 1
+            if t.get("status") == "failed":
+                failed += 1
+            stats[worker] = (failed, n)
+    return stats
+
+
+def build_report(cfg: dict, days: int | None = None) -> str:
+    missions = _load_missions(cfg.get("runs_dir", "runs"))
+
+    if days is not None:
+        cutoff = time.time() - days * 86400
+        missions = [(m, e) for m, e in missions if e and e[0]["ts"] >= cutoff]
+
+    scope = "all time" if days is None else f"last {days} days"
+    lines = [f"# orgh report ({scope})", ""]
+
+    lines.append("## 週次: 初回attempt合格率と差し戻し率")
+    weekly = _weekly_stats(missions)
+    for week in sorted(weekly):
+        s = weekly[week]
+        total = s["total"]
+        fp_pct = round(s["first_pass"] / total * 100) if total else 0
+        rw_pct = round(s["rework"] / total * 100) if total else 0
+        lines.append(
+            f"- {week}: 初回合格 {s['first_pass']}/{total} ({fp_pct}%) / "
+            f"差し戻し {s['rework']}/{total} ({rw_pct}%)")
+    lines.append("")
+
+    lines.append("## ミッション別コスト・所要時間")
+    for mission, events in missions:
+        lines.append(_mission_line(mission, events))
+    lines.append("")
+
+    lines.append("## worker別失敗率")
+    worker_stats = _worker_stats(missions)
+    for worker in sorted(worker_stats):
+        failed, n = worker_stats[worker]
+        pct = round(failed / n * 100) if n else 0
+        lines.append(f"- {worker}: {failed}/{n} failed ({pct}%)")
+
+    return "\n".join(lines)
