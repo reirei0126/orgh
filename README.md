@@ -50,9 +50,27 @@ orgh run --intent "このリポジトリのテストカバレッジを60%まで�
 # 中断・失敗したミッションの再開 / 状況確認
 orgh resume <mission_id>
 orgh status <mission_id>
+
+# vault監視デーモン(ノート投稿で自動着火)
+orgh watch
 ```
 
 実行結果は `runs/<mission_id>/` に永続化(mission.json / ledger.jsonl / artifacts/)。
+
+### vault完結のフィードバック(orgh watch)
+
+`orgh watch` はinbox配下や `#mission` タグだけでは着火しない。ノート本文に
+明示的な `#go` インラインタグを付けるか、frontmatterに `orgh: go` を書いた
+ときだけ着火する(`inbox`/`mission_tag` はあくまで候補としての認識)。
+
+着火すると元ノートには結果ノートへのリンクが1行追記されるだけで、以後
+そのノートに書き込むことはない(競合安全)。進行状況・タスクごとの状態・
+差し戻し理由・検収ポイントは `<vault>/orgh/results/<mission_id>.md` に集約
+され、タスクの完了/失敗のたびに全文が更新される。スマホのObsidianアプリで
+このノートを開くだけでフィードバックが完結する。成果物(テキスト系
+ファイル)は `<vault>/orgh/artifacts/<mission_id>/` にコピーされ、結果ノート
+からリンクされる。Planner失敗などミッション採番前のエラーも元ノートに
+`[!failure]` コールアウトで通知され、ノートを編集し直せば再着火する。
 
 ### git worktree分離
 

@@ -91,7 +91,8 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task) -> Task:
     return t
 
 
-def run_mission(cfg: dict, mission: Mission, store: RunStore) -> Mission:
+def run_mission(cfg: dict, mission: Mission, store: RunStore,
+                on_update=None) -> Mission:
     workers = cfg.get("loop", {}).get("parallel", 3)
     store.save(mission)
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -109,6 +110,8 @@ def run_mission(cfg: dict, mission: Mission, store: RunStore) -> Mission:
             finished = fut.result()
             futures = {k: v for k, v in futures.items() if v is not fut}
             store.save(mission)
+            if on_update:
+                on_update(mission)
             print(f"  [{finished.status}] {finished.title}")
             if all(t.status in ("done", "failed") for t in mission.tasks) and not futures:
                 break

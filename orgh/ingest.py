@@ -48,6 +48,27 @@ def scan_vault(vault: str | Path, inbox: str = "inbox",
     return candidates, index
 
 
+def is_triggered(note: Note, trigger_tag: str = "go") -> bool:
+    """明示着火判定(HANDOFF タスク4)。
+
+    inbox配置や mission_tag だけでは着火しない。ノート本文のインラインタグ
+    #<trigger_tag>、または frontmatterに `orgh: <trigger_tag>` がある場合のみ
+    着火する。
+    """
+    if trigger_tag in note.tags:
+        return True
+    m = FRONTMATTER_RE.match(note.body)
+    if m and re.search(rf"^orgh:\s*{re.escape(trigger_tag)}\s*$", m.group(1), re.M):
+        return True
+    return False
+
+
+def append_callout(note_path: Path, line: str) -> None:
+    """元ノート末尾にコールアウト1行を追記する(競合安全writeback)。"""
+    with open(note_path, "a") as f:
+        f.write(f"\n{line}\n")
+
+
 def build_context_digest(note: Note, index: dict[str, Note],
                          depth: int = 1, max_chars: int = 24000) -> str:
     """ミッションノート + wikilinkで辿れる関連ノートを連結してPlannerに渡す素材を作る。"""

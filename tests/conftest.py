@@ -49,6 +49,59 @@ def cfg(tmp_path, mock_state_dir) -> dict:
     }
 
 
+# --- watcher系の共有フィクスチャ ---------------------------------------------
+# watch.interval に入れるセンチネル。time.sleep がこの値で呼ばれたときだけ
+# ループを打ち切る(subprocess等が内部で呼ぶ time.sleep を誤爆させない)
+INTERVAL_SENTINEL = 7.654321
+
+
+@pytest.fixture
+def vault(tmp_path) -> Path:
+    v = tmp_path / "vault"
+    (v / "inbox").mkdir(parents=True)
+    return v
+
+
+@pytest.fixture
+def wcfg(cfg, vault) -> dict:
+    cfg["vault"] = {"path": str(vault), "inbox": "inbox",
+                    "mission_tag": "mission"}
+    cfg["watch"] = {"interval": INTERVAL_SENTINEL,
+                    "stabilize_seconds": 20, "writeback": True}
+    return cfg
+
+
+@pytest.fixture
+def one_pass(monkeypatch):
+    """watch()のループ末尾のsleep(interval)で抜けさせ、1パスだけ実行させる。"""
+    import time as _time
+
+    from orgh import watcher
+
+    real_sleep = _time.sleep
+
+    def _sleep(seconds):
+        if seconds == INTERVAL_SENTINEL:
+            raise KeyboardInterrupt
+        real_sleep(seconds)
+    monkeypatch.setattr(watcher.time, "sleep", _sleep)
+
+
+def mission_dirs(runs_dir: str | Path) -> list[Path]:
+    root = Path(runs_dir)
+    if not root.exists():
+        return []
+    return [p for p in root.iterdir() if p.is_dir()]
+
+
+def age(p: Path, seconds: int = 60) -> None:
+    """stabilize判定を満たすようにmtimeを過去に飛ばす。"""
+    import os
+    import time as _time
+    past = _time.time() - seconds
+    os.utime(p, (past, past))
+
+
 def read_calls(state_dir: Path) -> list[dict]:
     fp = state_dir / "calls.jsonl"
     if not fp.exists():

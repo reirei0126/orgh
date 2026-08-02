@@ -10,6 +10,7 @@
   MOCK_REVIEW_ALWAYS_FAIL カンマ区切りマーカー: レビュー常時差し戻し
   MOCK_WORKER_FAIL        カンマ区切りマーカー: worker実行が常にエラー
   MOCK_PLAN_JSON          Planner応答の上書き(inline JSON か ファイルパス)
+  MOCK_PLANNER_FAIL       "1" ならPlannerがis_errorを返す(着火前失敗試験用)
   MOCK_NO_SLEEP           "1" なら sleep 系を全て無視(resume試験用)
   MOCK_SLEEP_ALL          秒数: workerロールの呼び出しを常にsleep
                           (リトライプロンプトでマーカーが失われても眠らせ続ける)
@@ -72,6 +73,9 @@ def main() -> int:
 
     if "(Planner)" in prompt:
         _log_call(state, {"role": "planner", "marker": marker, "resume": resume})
+        if os.environ.get("MOCK_PLANNER_FAIL") == "1":
+            print(_envelope("simulated planner failure", is_error=True))
+            return 0
         spec = os.environ.get("MOCK_PLAN_JSON", "")
         if spec.lstrip().startswith("{"):
             plan = spec
@@ -79,7 +83,7 @@ def main() -> int:
             plan = Path(spec).read_text()
         else:
             plan = json.dumps({"tasks": [{
-                "id": "t1", "title": "mock task",
+                "id": "w1", "title": "mock task",
                 "prompt": "モックタスクを実行 [[MARK:w1]]",
                 "worker": "claude_code", "deps": [],
                 "acceptance": ["mock acceptance"], "workdir": ".",

@@ -1,7 +1,10 @@
 vault:
   path: ~/obsidian/main        # Obsidian vaultのパス
   inbox: inbox                 # このフォルダ配下のノートはミッション候補
-  mission_tag: mission         # または #mission タグ付きノート
+  mission_tag: mission         # 候補として認識(scan用)。着火はtrigger_tag
+  trigger_tag: go              # 明示着火タグ。inbox配置だけでは着火しない。
+                                # ノート本文の #go インラインタグ、または
+                                # frontmatterの `orgh: go` で着火する
 
 runs_dir: runs
 prompts_dir: prompts         # 役割プロンプト(planner/reviewer/retro/worker_preamble)の置き場
@@ -48,4 +51,4 @@ worktree:                      # タスクごとのgit worktree分離(並列タ�
 watch:                         # orgh watch (イベント駆動デーモン)
   interval: 5                  # 監視間隔(秒)
   stabilize_seconds: 20        # 書きかけノートを拾わない猶予
-  writeback: true              # 完了後ノート末尾に結果コールアウトを追記
+  writeback: true              # 着火直後にノート末尾へ結果ノートへのリンクを1行追記

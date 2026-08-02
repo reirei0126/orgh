@@ -34,6 +34,7 @@ class VaultCfg:
     path: str = ""
     inbox: str = "inbox"
     mission_tag: str = "mission"
+    trigger_tag: str = "go"
 
 
 @dataclass
