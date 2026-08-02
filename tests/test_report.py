@@ -19,6 +19,8 @@ from orgh import cli, report
 from orgh.orchestrator import run_mission
 from orgh.state import Budget, Mission, RunStore, Task
 
+from .conftest import write_config
+
 
 # 2026-07-06(W28月曜)/ 2026-07-13(W29月曜)12:00 のts(ローカルtz非依存の週判定)
 _W28 = datetime(2026, 7, 6, 12, 0).timestamp()
@@ -116,8 +118,7 @@ class TestReport:
         vault = tmp_path / "vault"
         vault.mkdir()
         cfg["vault"] = {"path": str(vault)}
-        cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+        cfg_path = write_config(tmp_path, cfg)
         monkeypatch.setattr(sys, "argv", [
             "orgh", "--config", str(cfg_path), "report", "--vault"])
         cli.main()

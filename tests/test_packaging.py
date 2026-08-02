@@ -39,7 +39,10 @@ class TestPackaging:
                       "retro": {"bin": MOCK_CLAUDE}},
             "loop": {"parallel": 2, "max_attempts": 2, "task_timeout": 60},
         }
-        cfg_path = workdir / "config.yaml"
+        # configはworkdirの外に置く(workdirがconfigを含むと自己改変ガード対象)
+        cfg_dir = tmp_path / "orgh-config"
+        cfg_dir.mkdir()
+        cfg_path = cfg_dir / "config.yaml"
         cfg_path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
 
         orgh_bin = venv / "bin" / "orgh"

@@ -16,7 +16,7 @@ from orgh import cli
 from orgh.orchestrator import run_mission
 from orgh.state import Mission, RunStore
 
-from .conftest import read_calls, read_ledger
+from .conftest import read_calls, read_ledger, write_config
 
 
 def _mission(tasks: list[dict]) -> Mission:
@@ -151,8 +151,7 @@ class TestResumeRetryFailed:
 
         # 原因(常時fail)を解消してCLI経由でresume
         monkeypatch.delenv("MOCK_REVIEW_ALWAYS_FAIL")
-        cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+        cfg_path = write_config(tmp_path, cfg)
         monkeypatch.setattr(sys, "argv", [
             "orgh", "--config", str(cfg_path), "resume", m.id, "--retry-failed"])
         cli.main()

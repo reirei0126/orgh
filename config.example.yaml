@@ -16,7 +16,7 @@ workers:
     bin: claude
     model: sonnet              # 実働はSonnet。三層フレームワークに合わせて変更可
     max_turns: 60
-    allowed_tools: "Read,Write,Edit,Bash,Glob,Grep"
+    allowed_tools: "Read,Write,Edit,Glob,Grep"   # Bashはデフォルト付与しない。必要なタスクにはPlannerがtoolsで明示付与
     permission_mode: acceptEdits
   codex:
     bin: codex

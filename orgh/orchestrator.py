@@ -15,6 +15,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from . import procreg
 from .adapters.base import get_adapter
+from .guard import needs_approval
 from .planner import review, worker_prompt
 from .state import Budget, Mission, RunStore, Task
 from .worktree import ensure_task_worktree
@@ -84,7 +85,8 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         res = adapter.run(prompt, workdir=t.workdir,
                           resume=t.session_id,
                           timeout=cfg.get("loop", {}).get("task_timeout", 3600),
-                          registry_key=store.dir.name)
+                          registry_key=store.dir.name,
+                          allowed_tools=t.tools)
         with store.lock:
             t.last_output = res.output
             t.session_id = res.session_id or t.session_id
@@ -196,11 +198,23 @@ def run_mission(cfg: dict, mission: Mission, store: RunStore,
                 _initiate_budget_stop(mission, store, budget)
             if not cancelling and not budget_stopped:
                 for t in _ready(mission):
-                    if t.id not in futures:
+                    if t.id in futures:
+                        continue
+                    # 自己改変ガード: orgh自身を指すworkdirは承認なしに実行しない
+                    # (watcher経由でもスキップ不可。configでも無効化不可)
+                    if (needs_approval(cfg, t.workdir)
+                            and not (store.dir / "APPROVED").exists()):
                         with store.lock:
-                            t.status = "queued"
-                        futures[t.id] = pool.submit(_run_task, cfg, store, t,
-                                                    budget)
+                            t.status = "awaiting_approval"
+                        store.log("task.awaiting_approval", task=t.id,
+                                  workdir=t.workdir)
+                        print(f"  [awaiting_approval] {t.title} — "
+                              f"orgh approve {store.dir.name} で続行")
+                        continue
+                    with store.lock:
+                        t.status = "queued"
+                    futures[t.id] = pool.submit(_run_task, cfg, store, t,
+                                                budget)
             if not futures:
                 break
             done, _ = wait(list(futures.values()), timeout=_POLL_INTERVAL,

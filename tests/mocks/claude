@@ -119,6 +119,7 @@ def main() -> int:
         return 0
 
     # worker
+    _log_argv = sys.argv[1:]  # allowed_tools等のフラグ検証用
     sleep_all = os.environ.get("MOCK_SLEEP_ALL")
     if sleep_all and os.environ.get("MOCK_NO_SLEEP") != "1":
         time.sleep(float(sleep_all))
@@ -129,7 +130,8 @@ def main() -> int:
     session_id = resume or f"sess-{marker}"
     fail = marker in _env_set("MOCK_WORKER_FAIL")
     _log_call(state, {"role": "worker", "marker": marker,
-                      "resume": resume, "session_id": session_id, "ok": not fail})
+                      "resume": resume, "session_id": session_id,
+                      "ok": not fail, "argv": _log_argv})
     if fail:
         print(_envelope(f"simulated worker error: {marker}",
                         session_id=session_id, is_error=True))

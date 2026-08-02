@@ -21,7 +21,7 @@ from orgh import cli, procreg, watcher
 from orgh.orchestrator import run_mission
 from orgh.state import Mission, RunStore
 
-from .conftest import age, mission_dirs, read_ledger
+from .conftest import age, mission_dirs, read_ledger, write_config
 
 
 def _task(id: str, deps: list[str] | None = None,
@@ -69,8 +69,7 @@ class TestCliCancelOffline:
         store = RunStore(cfg["runs_dir"], m.id)
         store.save(m)
 
-        cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+        cfg_path = write_config(tmp_path, cfg)
         monkeypatch.setattr(sys, "argv", [
             "orgh", "--config", str(cfg_path), "cancel", m.id])
         cli.main()
@@ -122,8 +121,7 @@ class TestCancelRunningMission:
         store.save(m)
         (store.dir / "CANCEL").touch()
 
-        cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+        cfg_path = write_config(tmp_path, cfg)
         monkeypatch.setattr(sys, "argv", [
             "orgh", "--config", str(cfg_path), "resume", m.id])
         cli.main()

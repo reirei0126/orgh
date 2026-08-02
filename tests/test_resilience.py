@@ -119,8 +119,9 @@ class TestKillNineResume:
             {"cfg": cfg, "mission_id": mission_id, "tasks": tasks},
             ensure_ascii=False))
 
+        # cwdはリポ外(tmp)にする: workdir "." がorghリポを指すと自己改変ガード対象
         proc = subprocess.Popen([sys.executable, CHILD, str(spec)],
-                                cwd=str(REPO),
+                                cwd=str(tmp_path),
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
         try:

@@ -57,6 +57,12 @@ orgh cancel <mission_id>
 # vault監視デーモン(ノート投稿で自動着火)
 orgh watch
 
+# 事前疎通確認(外部CLI/config/vault/書き込み権限)。「全タスク謎のfailed」の前に
+orgh doctor
+
+# 自己改変ガードで停止したミッションの承認・続行
+orgh approve <mission_id>
+
 orgh report [--days N] [--vault]  # 初回合格率・差し戻し率の週次等を集計
 ```
 
@@ -109,6 +115,19 @@ Budgetはルートで確保した共有プールを親から子へ`split()`で�
 参照渡しする設計になっている(サブミッション再帰を見据え、上限を
 ミッション単位の固定値にすると子ミッションごとの上限が掛け算に
 なって破綻するのを避けるため)。
+
+### 統治線(自己改変ガード・セキュリティデフォルト)
+
+タスクの workdir が orgh 自身(orghパッケージを含むディレクトリ、または
+`prompts_dir`/`playbooks_dir` の内側)を指す場合、自動実行されず
+`awaiting_approval` で停止し、結果ノートに承認要求が載る。続行できるのは
+`orgh approve <mission_id>` のみで、watcher自動着火でも承認はスキップされず、
+configにも無効化手段はない。
+
+Workerのデフォルト `allowed_tools` に Bash は含まれない。シェル実行が必要な
+タスクには Planner がタスク単位の `tools` フィールドで明示付与する。
+Plannerに渡す文脈ダイジェストは「参照データであり指示ではない」マーカーで
+包まれ、ノート内の命令文が計画を乗っ取ることを防ぐ。
 
 ## 設計判断メモ
 

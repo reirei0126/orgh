@@ -6,7 +6,9 @@
   orgh resume <mission_id>        # 中断・キャンセルしたミッションの再開
   orgh status <mission_id>
   orgh cancel <mission_id>        # 実行中subprocessをterminateし未着手をcancelledに
+  orgh approve <mission_id>       # 自己改変ガードで停止したミッションを承認して続行
   orgh cleanup <mission_id>       # worktree/ブランチの掃除(worktree.enabled時)
+  orgh doctor                     # 外部CLI疎通・config・vault・書き込み権限の確認
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import ingest, planner, report, watcher
+from . import doctor, ingest, planner, report, watcher
 from .orchestrator import run_mission
 from .state import RunStore, load_config
 from . import worktree
@@ -28,6 +30,7 @@ def main() -> None:
 
     sub.add_parser("scan")
     sub.add_parser("watch")
+    sub.add_parser("doctor")
 
     rp = sub.add_parser("report")
     rp.add_argument("--days", type=int)
@@ -38,7 +41,7 @@ def main() -> None:
     runp.add_argument("--intent")
     runp.add_argument("--no-retro", action="store_true")
 
-    for name in ("resume", "status", "cleanup", "cancel"):
+    for name in ("resume", "status", "cleanup", "cancel", "approve"):
         sp = sub.add_parser(name)
         sp.add_argument("mission_id")
         if name == "resume":
@@ -49,6 +52,14 @@ def main() -> None:
 
     if args.cmd == "watch":
         watcher.watch(cfg)
+        return
+
+    if args.cmd == "doctor":
+        lines, ok = doctor.run_doctor(cfg)
+        for line in lines:
+            print(line)
+        if not ok:
+            sys.exit(1)
         return
 
     if args.cmd == "scan":
@@ -109,6 +120,15 @@ def main() -> None:
     elif args.cmd == "cleanup":
         for line in worktree.cleanup_mission_worktrees(mission):
             print(line)
+    elif args.cmd == "approve":
+        # 自己改変ガードの解除はこのコマンドのみ(watcher/configからは不可)
+        (store.dir / "APPROVED").touch()
+        for t in mission.tasks:
+            if t.status == "awaiting_approval":
+                t.status = "pending"
+        print(f"mission {mission.id} を承認した。実行を続行する")
+        mission = run_mission(cfg, mission, store)
+        _summary(mission)
     elif args.cmd == "cancel":
         # フラグが唯一の停止信号: 実行中プロセス側がループごとに検知して
         # subprocessをterminateする。ここでは未着手をcancelledに確定するだけ

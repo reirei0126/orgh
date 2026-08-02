@@ -19,7 +19,7 @@ from orgh import cli
 from orgh.orchestrator import run_mission
 from orgh.state import Mission, RunStore, Task
 
-from .conftest import read_calls
+from .conftest import read_calls, write_config
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -156,8 +156,7 @@ class TestCleanup:
         run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
         assert (repo / ".orgh-worktrees" / f"{m.id}-t1").exists()
 
-        cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text(yaml.safe_dump(wt_cfg, allow_unicode=True))
+        cfg_path = write_config(tmp_path, wt_cfg)
         monkeypatch.setattr(sys, "argv", [
             "orgh", "--config", str(cfg_path), "cleanup", m.id])
         cli.main()

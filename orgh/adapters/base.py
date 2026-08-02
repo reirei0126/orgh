@@ -32,9 +32,9 @@ class BaseAdapter:
         self.cfg = cfg
 
     def run(self, prompt: str, workdir: str, resume: str | None = None,
-            timeout: int = 3600,
-            registry_key: str | None = None) -> WorkerResult:
-        cmd, stdin = self._command(prompt, resume)
+            timeout: int = 3600, registry_key: str | None = None,
+            allowed_tools: str | None = None) -> WorkerResult:
+        cmd, stdin = self._command(prompt, resume, allowed_tools)
         proc = subprocess.Popen(
             cmd, cwd=workdir,
             stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
@@ -54,7 +54,8 @@ class BaseAdapter:
         return self._parse(
             subprocess.CompletedProcess(cmd, proc.returncode, out, err))
 
-    def _command(self, prompt: str, resume: str | None) -> tuple[list[str], str | None]:
+    def _command(self, prompt: str, resume: str | None,
+                 allowed_tools: str | None = None) -> tuple[list[str], str | None]:
         raise NotImplementedError
 
     def _parse(self, proc: subprocess.CompletedProcess) -> WorkerResult:
@@ -65,14 +66,16 @@ class ClaudeCodeAdapter(BaseAdapter):
     """claude -p headless. --output-format json で result / session_id / cost を取得。"""
     name = "claude_code"
 
-    def _command(self, prompt: str, resume: str | None) -> tuple[list[str], str | None]:
+    def _command(self, prompt: str, resume: str | None,
+                 allowed_tools: str | None = None) -> tuple[list[str], str | None]:
         c = self.cfg
         cmd = [c.get("bin", "claude"), "-p", "--output-format", "json",
                "--max-turns", str(c.get("max_turns", 40))]
         if c.get("model"):
             cmd += ["--model", c["model"]]
-        if c.get("allowed_tools"):
-            cmd += ["--allowedTools", c["allowed_tools"]]
+        # タスク単位のtools(Planner明示付与)がworker既定より優先
+        if allowed_tools or c.get("allowed_tools"):
+            cmd += ["--allowedTools", allowed_tools or c["allowed_tools"]]
         if c.get("permission_mode"):
             cmd += ["--permission-mode", c["permission_mode"]]
         if resume:
@@ -98,7 +101,8 @@ class CodexAdapter(BaseAdapter):
     """codex exec 非対話モード。フラグは config で調整可能にしてある。"""
     name = "codex"
 
-    def _command(self, prompt: str, resume: str | None) -> tuple[list[str], str | None]:
+    def _command(self, prompt: str, resume: str | None,
+                 allowed_tools: str | None = None) -> tuple[list[str], str | None]:
         cmd = [self.cfg.get("bin", "codex"), "exec"] + self.cfg.get("extra_args", [])
         cmd.append(prompt)
         return cmd, None
@@ -112,7 +116,8 @@ class ShellAdapter(BaseAdapter):
     """任意のCLI LLM(gemini, llm 等)を config の template で叩く汎用アダプタ。"""
     name = "shell"
 
-    def _command(self, prompt: str, resume: str | None) -> tuple[list[str], str | None]:
+    def _command(self, prompt: str, resume: str | None,
+                 allowed_tools: str | None = None) -> tuple[list[str], str | None]:
         return [a if a != "{prompt}" else prompt for a in self.cfg["argv"]], None
 
     def _parse(self, proc: subprocess.CompletedProcess) -> WorkerResult:

@@ -16,7 +16,8 @@ from pathlib import Path
 # 結果ノートの「成果物」節へコピーする対象拡張子(テキスト系のみ)
 _TEXT_EXTS = {".md", ".txt", ".json", ".yaml", ".log"}
 
-_TASK_ICONS = {"done": "✅", "failed": "❌", "cancelled": "⊘"}
+_TASK_ICONS = {"done": "✅", "failed": "❌", "cancelled": "⊘",
+               "skipped": "⊘", "awaiting_approval": "🔒"}
 
 
 def _task_icon(status: str) -> str:
@@ -59,6 +60,8 @@ class ResultsNote:
             label = "❌ 失敗あり"
         elif any(s == "cancelled" for s in statuses):
             label = "⊘ 中止"
+        elif any(s == "awaiting_approval" for s in statuses):
+            label = "🔒 承認待ち"
         else:
             label = "⏳ 実行中"
         return label, done, n
@@ -75,6 +78,14 @@ class ResultsNote:
             f"> 着火: {created} / intent: {mission.intent}",
             "",
         ]
+
+        # 自己改変ガード: 承認要求を明示(承認はターミナルからのみ)
+        if any(t.status == "awaiting_approval" for t in mission.tasks):
+            lines += [
+                f"> [!warning] orgh自身を対象とするタスクが承認待ち。"
+                f"続行するには `orgh approve {mission.id}` を実行",
+                "",
+            ]
 
         if finalize:
             lines += self._acceptance_lines(mission, done, n)

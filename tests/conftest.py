@@ -17,6 +17,13 @@ MOCK_ENV_VARS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path, monkeypatch):
+    """テストのcwdをtmpに隔離する。workdir "." のタスクがorghリポ自身を指すと
+    自己改変ガード(タスク7)が発動してしまうため、中立なcwdで実行する。"""
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture
 def mock_state_dir(tmp_path, monkeypatch) -> Path:
     """モックの呼び出し履歴・状態の置き場。MOCK_*環境変数を毎テスト初期化する。"""
@@ -100,6 +107,18 @@ def age(p: Path, seconds: int = 60) -> None:
     import time as _time
     past = _time.time() - seconds
     os.utime(p, (past, past))
+
+
+def write_config(tmp_path: Path, cfg: dict) -> Path:
+    """CLI試験用のconfig.yamlをタスクworkdir(tmp直下)の外に書く。
+    workdirがconfigファイルを含むと自己改変ガード(タスク7)の保護対象になる
+    ため、専用サブディレクトリに隔離する。"""
+    import yaml
+    d = tmp_path / "orgh-config"
+    d.mkdir(exist_ok=True)
+    p = d / "config.yaml"
+    p.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+    return p
 
 
 def read_calls(state_dir: Path) -> list[dict]:

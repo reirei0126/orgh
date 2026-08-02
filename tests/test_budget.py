@@ -19,7 +19,7 @@ from orgh import cli, watcher
 from orgh.orchestrator import run_mission
 from orgh.state import Budget, Mission, RunStore
 
-from .conftest import age, mission_dirs, read_calls, read_ledger
+from .conftest import age, mission_dirs, read_calls, read_ledger, write_config
 
 
 def _task(id: str, deps: list[str] | None = None) -> dict:
@@ -94,8 +94,7 @@ class TestMissionBudget:
         assert {t.status for t in m.tasks} == {"done", "skipped"}
 
         cfg["loop"]["budget_usd"] = 1.0            # 予算を上げてresume
-        cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+        cfg_path = write_config(tmp_path, cfg)
         monkeypatch.setattr(sys, "argv", [
             "orgh", "--config", str(cfg_path), "resume", m.id])
         cli.main()
@@ -153,8 +152,7 @@ class TestStatusShowsBudget:
         store = RunStore(cfg["runs_dir"], m.id)
         run_mission(cfg, m, store)
 
-        cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text(yaml.safe_dump(cfg, allow_unicode=True))
+        cfg_path = write_config(tmp_path, cfg)
         monkeypatch.setattr(sys, "argv", [
             "orgh", "--config", str(cfg_path), "status", m.id])
         cli.main()
