@@ -61,6 +61,23 @@ def _playbook_context(cfg: dict, max_chars: int = 8000) -> str:
     return "\n".join(picked) if picked else "(no playbooks yet)"
 
 
+def _projects_context(cfg: dict) -> str:
+    """プロジェクトマップ(対象リポの絶対パス⇔説明の対応表)をPlannerに注入する。
+
+    ノートに対象リポのパスが書かれていないと Planner は workdir "." を出力し、
+    orgh自身のリポで実行されてしまう(実運用7307189eで実証)。マップは
+    ユーザーがvault側で育てる前提のためconfigのパス指定(projects_map)で受ける。
+    """
+    fp = cfg.get("projects_map")
+    if not fp:
+        return "(no project map)"
+    p = Path(fp).expanduser()
+    if not p.is_file():
+        return "(no project map)"
+    text = p.read_text().strip()
+    return text or "(no project map)"
+
+
 def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
               budget: Budget | None = None) -> dict:
     adapter = get_adapter("claude_code", {**cfg["workers"],
@@ -87,6 +104,7 @@ def plan(cfg: dict, intent: str, context_digest: str,
     tmpl = _read_prompt(cfg, "planner.md")
     prompt = tmpl.format(intent=intent, context=context_digest,
                          playbooks=_playbook_context(cfg),
+                         projects=_projects_context(cfg),
                          workers=", ".join(cfg["workers"]["enabled"]))
     data = _ask_json(cfg, "planner", prompt, budget=budget)
     mission = Mission.new(intent=intent, context_digest=context_digest,

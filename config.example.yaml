@@ -12,6 +12,10 @@ source:                        # 入力ソースの選択(将来Notion等を差�
 runs_dir: runs
 prompts_dir: prompts         # 役割プロンプト(planner/reviewer/retro/worker_preamble)の置き場
 playbooks_dir: playbooks     # Retroが蒸留した組織知の置き場
+# projects_map: ~/obsidian/main/orgh/projects-map.md
+#                              # 対象プロジェクトの「絶対パス ⇔ 説明(通称含む)」対応表。
+#                              # Plannerのworkdir解決に注入される。曖昧なノート
+#                              # (パス未記載)でも正しいリポで実行させるために使う
 
 workers:
   enabled: [claude_code, codex]
