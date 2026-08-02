@@ -202,6 +202,7 @@ class Task:
     branch: str | None = None            # worktree分離時のブランチ名
     cost_usd: float = 0.0                # このタスクの累計コスト(attempt横断)
     tools: str | None = None             # Plannerが明示付与するallowed_tools(worker既定を上書き)
+    replans: int = 0                     # REPLAN再設計の回数(1タスク1回まで)
 
 
 @dataclass

@@ -8,6 +8,9 @@
   MOCK_STATE_DIR          呼び出し履歴・reject-once状態の置き場(必須)
   MOCK_REJECT_ONCE        カンマ区切りマーカー: 初回レビューのみ差し戻し
   MOCK_REVIEW_ALWAYS_FAIL カンマ区切りマーカー: レビュー常時差し戻し
+  MOCK_REVIEW_REPLAN      カンマ区切りマーカー: 初回レビューをREPLAN:差し戻し
+  MOCK_REVIEW_REPLAN_ALWAYS 同上だが毎回REPLAN:差し戻し(上限試験用)
+  MOCK_REPLAN_JSON        Planner再設計応答の上書き(inline JSON)
   MOCK_WORKER_FAIL        カンマ区切りマーカー: worker実行が常にエラー
   MOCK_PLAN_JSON          Planner応答の上書き(inline JSON か ファイルパス)
   MOCK_PLANNER_FAIL       "1" ならPlannerがis_errorを返す(着火前失敗試験用)
@@ -71,6 +74,18 @@ def main() -> int:
     if sm and os.environ.get("MOCK_NO_SLEEP") != "1":
         time.sleep(float(sm.group(1)))
 
+    if "(Planner)" in prompt and "REPLAN理由" in prompt:
+        # タスク再設計(REPLAN)への応答
+        _log_call(state, {"role": "planner", "kind": "replan",
+                          "marker": marker, "resume": resume})
+        spec = os.environ.get("MOCK_REPLAN_JSON", "")
+        out = spec or json.dumps({
+            "prompt": f"再設計済みの指示 [[MARK:{marker}]]",
+            "acceptance": ["機械検証可能な条件: 成果物ファイルが存在する"],
+        }, ensure_ascii=False)
+        print(_envelope(out, session_id="sess-replan"))
+        return 0
+
     if "(Planner)" in prompt:
         _log_call(state, {"role": "planner", "marker": marker, "resume": resume})
         if os.environ.get("MOCK_PLANNER_FAIL") == "1":
@@ -94,7 +109,21 @@ def main() -> int:
     if "(Reviewer)" in prompt:
         reject_once = marker in _env_set("MOCK_REJECT_ONCE")
         always_fail = marker in _env_set("MOCK_REVIEW_ALWAYS_FAIL")
+        replan_once = marker in _env_set("MOCK_REVIEW_REPLAN")
+        replan_always = marker in _env_set("MOCK_REVIEW_REPLAN_ALWAYS")
         once_flag = state / f"reviewed_once_{marker}"
+        replan_flag = state / f"replan_once_{marker}"
+        if replan_always or (replan_once and not replan_flag.exists()):
+            replan_flag.touch()
+            verdict = {"pass": False,
+                       "feedback": f"REPLAN: acceptanceが主観的で検証不能 "
+                                   f"[[MARK:{marker}]]"}
+            _log_call(state, {"role": "reviewer", "marker": marker,
+                              "resume": resume, "passed": False,
+                              "replan": True})
+            print(_envelope(json.dumps(verdict, ensure_ascii=False),
+                            session_id="sess-reviewer"))
+            return 0
         # feedbackにマーカーを埋め込む: 差し戻し後の再実行プロンプトは
         # feedback文で構築されるため、これがないと2回目以降のタスク識別が切れる
         if always_fail:

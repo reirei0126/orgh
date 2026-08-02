@@ -103,6 +103,17 @@ def retro(cfg: dict, mission: Mission) -> str:
     return ""
 
 
+def replan_task(cfg: dict, task: Task, reason: str,
+                budget: Budget | None = None) -> dict:
+    """REPLANエスカレーション: 計画の欠陥が指摘されたタスクの指示と受け入れ条件を
+    Plannerに再設計させる(HANDOFF タスク5)。"""
+    tmpl = _read_prompt(cfg, "replan.md")
+    prompt = tmpl.format(title=task.title, prompt=task.prompt,
+                         acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                         reason=reason)
+    return _ask_json(cfg, "planner", prompt, budget=budget)
+
+
 def worker_prompt(cfg: dict, task: Task) -> str:
     tmpl = _read_prompt(cfg, "worker_preamble.md")
     return tmpl.format(title=task.title, prompt=task.prompt,

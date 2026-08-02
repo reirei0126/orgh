@@ -16,7 +16,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from . import procreg
 from .adapters.base import get_adapter
 from .guard import needs_approval
-from .planner import review, worker_prompt
+from .planner import replan_task, review, worker_prompt
 from .state import Budget, Mission, RunStore, Task
 from .worktree import ensure_task_worktree
 
@@ -125,6 +125,25 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             with store.lock:
                 t.status = "done"
             return t
+
+        if feedback.startswith("REPLAN:"):
+            # 計画自体の欠陥: Workerを回しても直らないのでPlannerへエスカレーション
+            if t.replans >= 1:
+                with store.lock:
+                    t.status = "failed"
+                    t.review_notes = f"REPLAN上限超過(再設計は1回まで): {feedback[:500]}"
+                store.log("task.replan_exceeded", task=t.id)
+                return t
+            redesigned = replan_task(cfg, t, feedback, budget)
+            with store.lock:
+                t.prompt = redesigned.get("prompt", t.prompt)
+                t.acceptance = redesigned.get("acceptance", t.acceptance)
+                t.replans += 1
+                t.attempts -= 1          # REPLAN再実行はattemptsを消費しない
+            store.log("task.replan", task=t.id, reason=feedback[:500])
+            prompt = worker_prompt(cfg, t)  # 再設計後の指示で最初から
+            continue
+
         # 改善ループ: レビューのフィードバックをそのままresumeセッションへ
         prompt = (f"レビューで差し戻し。以下を修正して受け入れ条件を満たせ。\n"
                   f"## Feedback\n{feedback}")
