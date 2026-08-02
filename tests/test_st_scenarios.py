@@ -111,6 +111,49 @@ class TestImprovementLoop:
         assert worker_calls[1]["resume"] == worker_calls[0]["session_id"]
 
 
+class TestNonResumableRetryContext:
+    """差し戻し・エラー後の再実行: codexはセッションresume不可のため、再実行
+    プロンプトは元タスク一式(preamble込み)+追記の自己完結形でなければならない。
+    実運用7307189e t3で発見: フィードバック断片だけを受けたcodexが文脈を失い、
+    実装せずに確認質問だけ返して失敗した。"""
+
+    def test_codex_reject_retry_is_self_contained(self, cfg, mock_state_dir,
+                                                  monkeypatch):
+        monkeypatch.setenv("MOCK_REJECT_ONCE", "tcx")
+        m = _mission([_task("tcx", worker="codex")])
+        run_mission(cfg, m, _store(cfg, m))
+
+        assert m.tasks[0].status == "done"
+        calls = [c for c in read_calls(mock_state_dir)
+                 if c.get("worker") == "codex"]
+        assert len(calls) == 2
+        # 修正前はフィードバック文のみ("レビューで差し戻し…")で始まっていた
+        assert "## タスク:" in calls[1]["prompt_head"]
+
+    def test_codex_error_retry_is_self_contained(self, cfg, mock_state_dir,
+                                                 monkeypatch):
+        monkeypatch.setenv("MOCK_WORKER_FAIL", "tce")
+        m = _mission([_task("tce", worker="codex")])
+        run_mission(cfg, m, _store(cfg, m))
+
+        assert m.tasks[0].status == "failed"
+        calls = [c for c in read_calls(mock_state_dir)
+                 if c.get("worker") == "codex"]
+        assert len(calls) == 2
+        assert "## タスク:" in calls[1]["prompt_head"]
+
+    def test_claude_retry_stays_feedback_only(self, cfg, mock_state_dir,
+                                              monkeypatch):
+        """resume可能なclaudeは従来どおりフィードバックのみ(セッションが文脈を持つ)。"""
+        monkeypatch.setenv("MOCK_REJECT_ONCE", "tr")
+        m = _mission([_task("tr")])
+        run_mission(cfg, m, _store(cfg, m))
+
+        calls = [c for c in read_calls(mock_state_dir)
+                 if c["role"] == "worker" and c["marker"] == "tr"]
+        assert calls[1]["resume"] == calls[0]["session_id"]
+
+
 class TestFailurePath:
     """③ 差し戻し上限超過 → failed。依存タスクはpendingのまま停止。"""
 

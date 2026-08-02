@@ -27,6 +27,9 @@ class WorkerResult:
 class BaseAdapter:
     """テンプレート: サブクラスは _command()(引数列とstdin)と _parse() を実装する。"""
     name = "base"
+    # セッション継続(resume)でプロンプト間の文脈を保持できるか。Falseの
+    # workerには再試行時に自己完結プロンプトを渡す必要がある(orchestrator参照)
+    supports_resume = False
 
     def __init__(self, cfg: dict):
         self.cfg = cfg
@@ -65,6 +68,7 @@ class BaseAdapter:
 class ClaudeCodeAdapter(BaseAdapter):
     """claude -p headless. --output-format json で result / session_id / cost を取得。"""
     name = "claude_code"
+    supports_resume = True
 
     def _command(self, prompt: str, resume: str | None,
                  allowed_tools: str | None = None) -> tuple[list[str], str | None]:

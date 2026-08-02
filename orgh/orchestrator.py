@@ -58,6 +58,16 @@ def _run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         return t
 
 
+def _retry_prompt(adapter, cfg: dict, t: Task, followup: str) -> str:
+    """再試行プロンプトの構築。セッションresumeできるworkerはフィードバックのみで
+    よい(セッションが文脈を保持する)が、できないworker(codex等)は元タスクの
+    文脈を全て失うため、タスク一式(preamble込み)+追記の自己完結形にする。
+    実運用7307189e t3で発見: 断片だけ受けたcodexが実装せず確認質問を返して失敗した。"""
+    if adapter.supports_resume:
+        return followup
+    return f"{worker_prompt(cfg, t)}\n\n## 再実行の指示\n{followup}"
+
+
 def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     wt_cfg = cfg.get("worktree") or {}
     if wt_cfg.get("enabled"):
@@ -112,7 +122,9 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                 with store.lock:
                     t.status = "cancelled"
                 return t
-            prompt = f"前回の実行がエラーで終了した。原因を特定して完了させろ。\n---\n{res.output[:4000]}"
+            prompt = _retry_prompt(
+                adapter, cfg, t,
+                f"前回の実行がエラーで終了した。原因を特定して完了させろ。\n---\n{res.output[:4000]}")
             continue
 
         with store.lock:
@@ -144,9 +156,11 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             prompt = worker_prompt(cfg, t)  # 再設計後の指示で最初から
             continue
 
-        # 改善ループ: レビューのフィードバックをそのままresumeセッションへ
-        prompt = (f"レビューで差し戻し。以下を修正して受け入れ条件を満たせ。\n"
-                  f"## Feedback\n{feedback}")
+        # 改善ループ: レビューのフィードバックを次のattemptへ
+        prompt = _retry_prompt(
+            adapter, cfg, t,
+            f"レビューで差し戻し。以下を修正して受け入れ条件を満たせ。\n"
+            f"## Feedback\n{feedback}")
 
     with store.lock:
         t.status = "failed"

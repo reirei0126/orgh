@@ -34,7 +34,8 @@ def main() -> int:
     with open(state / "calls.jsonl", "a") as f:
         f.write(json.dumps({"role": "worker", "worker": "codex", "marker": marker,
                             "ok": not fail, "ts": time.time(),
-                            "cwd": os.getcwd()},
+                            "cwd": os.getcwd(),
+                            "prompt_head": prompt[:600]},
                            ensure_ascii=False) + "\n")
     if fail:
         print(f"codex simulated failure: {marker}", file=sys.stderr)
