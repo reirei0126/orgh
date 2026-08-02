@@ -9,6 +9,7 @@
   orgh approve <mission_id>       # 自己改変ガードで停止したミッションを承認して続行
   orgh cleanup <mission_id>       # worktree/ブランチの掃除(worktree.enabled時)
   orgh doctor                     # 外部CLI疎通・config・vault・書き込み権限の確認
+  orgh gc                         # playbookの統合・退避とruns/のアーカイブ
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import doctor, planner, report, watcher
+from . import doctor, gc, planner, report, watcher
 from .orchestrator import run_mission
 from .sources.base import get_source
 from .state import RunStore, load_config
@@ -32,6 +33,7 @@ def main() -> None:
     sub.add_parser("scan")
     sub.add_parser("watch")
     sub.add_parser("doctor")
+    sub.add_parser("gc")
 
     rp = sub.add_parser("report")
     rp.add_argument("--days", type=int)
@@ -61,6 +63,11 @@ def main() -> None:
             print(line)
         if not ok:
             sys.exit(1)
+        return
+
+    if args.cmd == "gc":
+        for line in gc.run_gc(cfg):
+            print(line)
         return
 
     if args.cmd == "scan":

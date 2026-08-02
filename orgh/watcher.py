@@ -13,13 +13,40 @@
 """
 from __future__ import annotations
 
+import json
 import time
 import traceback
+from pathlib import Path
 
-from . import planner
+from . import gc, planner
 from .orchestrator import run_mission
 from .sources.base import get_source
 from .state import RunStore
+
+
+def _maybe_gc(cfg: dict, runs_dir: str, gc_interval_days) -> None:
+    """playbookの代謝を定期的に自動実行する(HANDOFF タスク6)。
+
+    stateファイルが無ければ現在時刻をベースラインとして書き込むだけで、
+    gcは走らせない(初回パスでいきなり実playbooksを書き換えないため)。
+    """
+    if not gc_interval_days:
+        return
+    state_fp = Path(runs_dir) / "_gc_state.json"
+    now = time.time()
+    if not state_fp.exists():
+        state_fp.parent.mkdir(parents=True, exist_ok=True)
+        state_fp.write_text(json.dumps({"last_gc": now}))
+        return
+    last_gc = json.loads(state_fp.read_text()).get("last_gc", now)
+    if now - last_gc < gc_interval_days * 86400:
+        return
+    try:
+        for line in gc.run_gc(cfg):
+            print(line)
+    except Exception as e:
+        print(f"gc failed: {e!r}")
+    state_fp.write_text(json.dumps({"last_gc": now}))
 
 
 def watch(cfg: dict) -> None:
@@ -61,6 +88,7 @@ def watch(cfg: dict) -> None:
                     print(f"mission failed for {note.title}:\n{traceback.format_exc()}")
                 fb.finalize(mission, store)
                 print(f"mission {mission.id} finished")
+            _maybe_gc(cfg, runs_dir, wcfg.get("gc_interval_days", 14))
             time.sleep(interval)
         except KeyboardInterrupt:
             print("\nstopped.")

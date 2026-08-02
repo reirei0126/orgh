@@ -51,6 +51,7 @@ class WatchCfg:
     interval: float = 5
     stabilize_seconds: float = 20
     writeback: bool = True
+    gc_interval_days: float | None = 14   # この日数ごとに自動でorgh gc相当を実行(null=無効)
 
 
 @dataclass
@@ -67,6 +68,12 @@ class SourceCfg:
 
 
 @dataclass
+class GcCfg:
+    """orgh gc(playbookの代謝とruns保持)の設定(HANDOFF タスク6)。"""
+    retention_days: int = 90   # これより古いミッションはruns/_archive/へ退避
+
+
+@dataclass
 class ConfigSchema:
     """既知のトップレベルキー。workers/rolesは名前が自由なため深掘りしない。"""
     workers: dict | None = None          # 必須
@@ -76,6 +83,7 @@ class ConfigSchema:
     watch: WatchCfg | None = None
     worktree: WorktreeCfg | None = None
     source: SourceCfg | None = None
+    gc: GcCfg | None = None
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     playbooks_dir: str = "playbooks"
@@ -83,7 +91,7 @@ class ConfigSchema:
 
 _REQUIRED_KEYS = ("workers",)
 _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
-                    "worktree": WorktreeCfg, "source": SourceCfg}
+                    "worktree": WorktreeCfg, "source": SourceCfg, "gc": GcCfg}
 # from __future__ import annotations により field.type は文字列
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,

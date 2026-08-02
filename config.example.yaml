@@ -57,3 +57,7 @@ watch:                         # orgh watch (イベント駆動デーモン)
   interval: 5                  # 監視間隔(秒)
   stabilize_seconds: 20        # 書きかけノートを拾わない猶予
   writeback: true              # 着火直後にノート末尾へ結果ノートへのリンクを1行追記
+  gc_interval_days: 14         # この日数ごとにwatcherが自動でorgh gc相当を実行(null=無効)
+
+gc:                            # orgh gc(playbookの代謝とruns保持)
+  retention_days: 90           # これより古いミッションは runs/_archive/ へ退避

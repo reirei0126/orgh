@@ -11,6 +11,8 @@
   MOCK_REVIEW_REPLAN      カンマ区切りマーカー: 初回レビューをREPLAN:差し戻し
   MOCK_REVIEW_REPLAN_ALWAYS 同上だが毎回REPLAN:差し戻し(上限試験用)
   MOCK_REPLAN_JSON        Planner再設計応答の上書き(inline JSON)
+  MOCK_RETRO_JSON         Retro応答の上書き(inline JSON)
+  MOCK_GC_JSON            統合Retro(GC)応答の上書き(inline JSON)
   MOCK_WORKER_FAIL        カンマ区切りマーカー: worker実行が常にエラー
   MOCK_PLAN_JSON          Planner応答の上書き(inline JSON か ファイルパス)
   MOCK_PLANNER_FAIL       "1" ならPlannerがis_errorを返す(着火前失敗試験用)
@@ -141,10 +143,19 @@ def main() -> int:
                         session_id="sess-reviewer"))
         return 0
 
+    if "(GC)" in prompt:
+        # playbook統合Retro(orgh gc)への応答
+        _log_call(state, {"role": "gc", "marker": marker, "resume": resume})
+        out = os.environ.get("MOCK_GC_JSON") or json.dumps(
+            {"lessons": "- 統合済みの教訓"}, ensure_ascii=False)
+        print(_envelope(out, session_id="sess-gc"))
+        return 0
+
     if "(Retro)" in prompt:
         _log_call(state, {"role": "retro", "marker": marker, "resume": resume})
-        print(_envelope(json.dumps({"playbook_name": "general", "lessons": ""}),
-                        session_id="sess-retro"))
+        out = os.environ.get("MOCK_RETRO_JSON") or json.dumps(
+            {"playbook_name": "general", "lessons": ""})
+        print(_envelope(out, session_id="sess-retro"))
         return 0
 
     # worker

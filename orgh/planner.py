@@ -6,10 +6,13 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 from pathlib import Path
 
 from .adapters.base import get_adapter
 from .state import Budget, Mission, Task
+
+_META_RE = re.compile(r"<!-- m:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
 
 
 def _prompts_dir(cfg: dict) -> Path:
@@ -30,14 +33,32 @@ def _read_prompt(cfg: dict, name: str) -> str:
 
 
 def _playbook_context(cfg: dict, max_chars: int = 8000) -> str:
-    """過去のRetroで蒸留された組織知をPlanner/Workerに注入する(増幅の核)。"""
+    """過去のRetroで蒸留された組織知をPlanner/Workerに注入する(増幅の核)。
+
+    capは「先頭から切り捨て」ではなく「日付降順で詰める」: 全playbookの全行を
+    メタデータ日付でソートし、新しい教訓から順にmax_charsへ詰める。こうすると
+    playbookが育つほど古い教訓から溢れ、常に最新の教訓が注入に生き残る。
+    """
     playbooks_dir = _playbooks_dir(cfg)
     if not playbooks_dir.is_dir():
         return "(no playbooks yet)"
-    chunks = []
+    entries: list[tuple[str, str]] = []  # (date, line) メタデータ無しは最古扱い
     for p in sorted(playbooks_dir.glob("*.md")):
-        chunks.append(f"## {p.stem}\n{p.read_text()}")
-    return "\n".join(chunks)[:max_chars] or "(no playbooks yet)"
+        for line in p.read_text().splitlines():
+            if not line.strip():
+                continue
+            m = _META_RE.search(line)
+            entries.append((m.group(2) if m else "0000-00-00", line))
+    entries.sort(key=lambda e: e[0], reverse=True)
+
+    picked: list[str] = []
+    total = 0
+    for _, line in entries:
+        total += len(line) + 1  # 結合時の改行分
+        if total > max_chars and picked:
+            break
+        picked.append(line)
+    return "\n".join(picked) if picked else "(no playbooks yet)"
 
 
 def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
@@ -97,8 +118,14 @@ def retro(cfg: dict, mission: Mission) -> str:
     if body:
         _playbooks_dir(cfg).mkdir(parents=True, exist_ok=True)
         fp = _playbooks_dir(cfg) / f"{name}.md"
+        today = date.today().isoformat()
+        tagged = [
+            f"{line} <!-- m:{mission.id} d:{today} -->"
+            if line.startswith("-") else line
+            for line in body.split("\n")
+        ]
         with open(fp, "a") as f:
-            f.write(f"\n<!-- mission {mission.id} -->\n{body}\n")
+            f.write("\n".join(tagged) + "\n")
         return str(fp)
     return ""
 

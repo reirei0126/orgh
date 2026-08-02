@@ -60,6 +60,8 @@ orgh watch
 # 事前疎通確認(外部CLI/config/vault/書き込み権限)。「全タスク謎のfailed」の前に
 orgh doctor
 
+orgh gc  # playbookの統合・退避とruns/のアーカイブ(実行前に全量バックアップ)
+
 # 自己改変ガードで停止したミッションの承認・続行
 orgh approve <mission_id>
 
@@ -141,6 +143,15 @@ Plannerに渡す文脈ダイジェストは「参照データであり指示で�
 1. まず小さいミッションで2〜3周回す
 2. `runs/*/ledger.jsonl` を見て差し戻しパターンを確認(`orgh report` でも集計できる)
 3. `prompts/*.md` と `playbooks/` を手で編集 — ここがこのハーネスの「経営」
+
+### playbookの代謝(orgh gc)
+
+playbooksは追記onlyのままだと、矛盾・重複・陳腐化した教訓が淘汰されずに
+増え続け、「増幅」がある時点からノイズ増幅に反転する。`orgh gc` は各playbook
+に統合Retroをかけて重複を1つにまとめ、矛盾は新しい日付の教訓を優先して
+解消し、6ヶ月無参照の教訓は`playbooks/_archive/`へ退避する(実行前に必ず
+全量バックアップ)。Planner/Workerへの注入も「先頭から切り捨て」ではなく
+日付降順で詰めるため、playbookがどれだけ育っても最新の教訓が必ず注入される。
 
 ### 計器(orgh report)
 

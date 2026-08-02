@@ -13,7 +13,7 @@ import subprocess
 from pathlib import Path
 
 _REQUIRED_PROMPTS = ("planner.md", "reviewer.md", "retro.md",
-                     "worker_preamble.md", "replan.md")
+                     "worker_preamble.md", "replan.md", "gc.md")
 
 
 def _check_binary(name: str, bin_path: str) -> tuple[bool, str]:
