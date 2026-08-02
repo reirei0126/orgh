@@ -46,6 +46,16 @@ class TestObsidianAdapter:
         assert not src.should_trigger(by_title["a"])
         assert not src.should_trigger(by_title["b"])
 
+    def test_inbox_folder_name_is_case_insensitive(self, wcfg, vault):
+        """実運用バグの固定: PARA構成の "00-Inbox" など大文字入りのinbox名でも
+        候補として認識されること(パス部品は小文字化して比較されるため、
+        config側のinbox名も小文字化しないと永遠にマッチしない)。"""
+        (vault / "00-Inbox").mkdir()
+        (vault / "00-Inbox" / "note.md").write_text("やること #go\n")
+        wcfg["vault"]["inbox"] = "00-Inbox"
+        src = get_source(wcfg)
+        assert "note" in {n.title for n in src.list_candidates()}
+
     def test_find_by_partial_title(self, wcfg, vault):
         (vault / "inbox" / "オントロジーMVP.md").write_text("x\n")
         src = get_source(wcfg)

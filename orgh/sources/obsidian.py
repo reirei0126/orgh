@@ -48,7 +48,8 @@ def scan_vault(vault: str | Path, inbox: str = "inbox",
             continue
         n = _parse(p)
         index[n.title] = n
-        in_inbox = inbox in (part.lower() for part in p.parts)
+        # パス部品と同様にinbox名も小文字化する("00-Inbox"等の大文字入りに対応)
+        in_inbox = inbox.lower() in (part.lower() for part in p.parts)
         if in_inbox or mission_tag in n.tags:
             candidates.append(n)
     return candidates, index
