@@ -6,6 +6,9 @@ vault:
                                 # ノート本文の #go インラインタグ、または
                                 # frontmatterの `orgh: go` で着火する
 
+source:                        # 入力ソースの選択(将来Notion等を差し替え可能にする拡張点)
+  type: obsidian               # 現状は obsidian のみ
+
 runs_dir: runs
 prompts_dir: prompts         # 役割プロンプト(planner/reviewer/retro/worker_preamble)の置き場
 playbooks_dir: playbooks     # Retroが蒸留した組織知の置き場

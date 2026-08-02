@@ -61,6 +61,12 @@ class WorktreeCfg:
 
 
 @dataclass
+class SourceCfg:
+    """入力ソースの選択(HANDOFF タスク3)。将来Notion等を差し替え可能にする拡張点。"""
+    type: str = "obsidian"
+
+
+@dataclass
 class ConfigSchema:
     """既知のトップレベルキー。workers/rolesは名前が自由なため深掘りしない。"""
     workers: dict | None = None          # 必須
@@ -69,6 +75,7 @@ class ConfigSchema:
     loop: LoopCfg | None = None
     watch: WatchCfg | None = None
     worktree: WorktreeCfg | None = None
+    source: SourceCfg | None = None
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     playbooks_dir: str = "playbooks"
@@ -76,7 +83,7 @@ class ConfigSchema:
 
 _REQUIRED_KEYS = ("workers",)
 _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
-                    "worktree": WorktreeCfg}
+                    "worktree": WorktreeCfg, "source": SourceCfg}
 # from __future__ import annotations により field.type は文字列
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,

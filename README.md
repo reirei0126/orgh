@@ -131,7 +131,7 @@ Plannerに渡す文脈ダイジェストは「参照データであり指示で�
 
 ## 設計判断メモ
 
-- **ObsidianはMCPではなくファイル直読み**。MCPのsandbox問題を回避し、wikilink1ホップまで辿って文脈ダイジェストを構築
+- **入力層は SourceAdapter で抽象化**(`source.type` で選択、現状はObsidianのみ)。ファイル直読みでMCPのsandbox問題を回避し、wikilink1ホップまで辿って文脈ダイジェストを構築
 - **モデル三層に対応**: `roles.planner=opus`, workers=sonnet がデフォルト。長時間自律スプリントは`model: fable`に切替
 - **Reviewerにも Read/Bash を許可** — 報告文ではなく実ファイル・テスト実行で判定させる
 - **アダプタは3行で増やせる** (`orgh/adapters/base.py` の REGISTRY)
@@ -163,3 +163,4 @@ pytest tests/
 ## 既知の割り切り / 次の拡張候補
 
 - Codexにはresume相当がないため差し戻しはプロンプト再構築で対応
+- Notionアダプタ(`orgh/sources/base.py` の SourceAdapter実装を足すだけ)

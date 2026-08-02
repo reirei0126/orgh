@@ -13,6 +13,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from .sources.base import MissionFeedback
+
 # 結果ノートの「成果物」節へコピーする対象拡張子(テキスト系のみ)
 _TEXT_EXTS = {".md", ".txt", ".json", ".yaml", ".log"}
 
@@ -24,7 +26,7 @@ def _task_icon(status: str) -> str:
     return _TASK_ICONS.get(status, "⏳")
 
 
-class ResultsNote:
+class ResultsNote(MissionFeedback):
     def __init__(self, cfg: dict, mission_id: str) -> None:
         self.mission_id = mission_id
         self.vault = Path(cfg["vault"]["path"]).expanduser()

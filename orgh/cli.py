@@ -17,8 +17,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import doctor, ingest, planner, report, watcher
+from . import doctor, planner, report, watcher
 from .orchestrator import run_mission
+from .sources.base import get_source
 from .state import RunStore, load_config
 from . import worktree
 
@@ -63,10 +64,8 @@ def main() -> None:
         return
 
     if args.cmd == "scan":
-        cands, _ = ingest.scan_vault(cfg["vault"]["path"],
-                                     cfg["vault"].get("inbox", "inbox"),
-                                     cfg["vault"].get("mission_tag", "mission"))
-        for n in cands:
+        src = get_source(cfg)
+        for n in src.list_candidates():
             print(f"- {n.title}  ({n.path})")
         return
 
@@ -83,13 +82,12 @@ def main() -> None:
 
     if args.cmd == "run":
         if args.note:
-            cands, index = ingest.scan_vault(cfg["vault"]["path"])
-            note = index.get(args.note) or next(
-                (n for n in cands if args.note.lower() in n.title.lower()), None)
+            src = get_source(cfg)
+            note = src.find(args.note)
             if not note:
                 sys.exit(f"note '{args.note}' not found")
             intent = args.intent or f"ノート「{note.title}」の内容を実行可能な成果に落とし込む"
-            digest = ingest.build_context_digest(note, index)
+            digest = src.build_context(note)
         else:
             if not args.intent:
                 sys.exit("--note か --intent のどちらかは必須")
