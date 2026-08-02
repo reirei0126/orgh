@@ -42,6 +42,8 @@ loop:
   parallel: 3                  # 同時セッション数
   max_attempts: 3              # 実行+差し戻しの上限
   task_timeout: 3600
+  budget_usd: null             # ルートミッション全体のコスト上限USD(null=無制限)
+  task_budget_usd: null        # 1タスクあたりの上限USD(null=無制限)
 
 worktree:                      # タスクごとのgit worktree分離(並列タスクの同一リポ衝突を回避)
   enabled: false               # デフォルト無効(後方互換)

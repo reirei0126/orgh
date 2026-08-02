@@ -42,6 +42,8 @@ class LoopCfg:
     parallel: int = 3
     max_attempts: int = 3
     task_timeout: int = 3600
+    budget_usd: float | None = None       # ルートミッション全体の上限(null=無制限)
+    task_budget_usd: float | None = None  # 1タスク上限(null=無制限)
 
 
 @dataclass
@@ -78,6 +80,7 @@ _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
 # from __future__ import annotations により field.type は文字列
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,
+    "float | None": (int, float),
 }
 
 
@@ -130,6 +133,52 @@ def load_config(path: str | Path = "config.yaml") -> dict:
 
 # ------------------------------------------------------------------- run state
 @dataclass
+class Budget:
+    """予算の共有プール(HANDOFF タスク2)。
+
+    再帰(タスクのサブミッション分解)前提の設計: 上限をミッション単位の固定値に
+    すると子ミッションごとの上限が掛け算になって破綻するため、ルートで確保した
+    プールを split() で親から子へ分割し、参照渡しする。子の charge() は親へ
+    伝播し、親プールの枯渇は子の exceeded() にも波及する。
+
+    永続化されるのは limit/task_limit/spent のみ(親リンクは実行時の参照)。
+    """
+    limit_usd: float | None = None       # このプール(割当)の上限。None=無制限
+    task_budget_usd: float | None = None  # 1タスクあたりの上限
+    spent_usd: float = 0.0
+
+    def __post_init__(self) -> None:
+        self._lock = threading.Lock()
+        self._parent: "Budget | None" = None
+
+    def charge(self, amount: float | None) -> None:
+        if not amount:
+            return
+        with self._lock:
+            self.spent_usd += amount
+        if self._parent is not None:
+            self._parent.charge(amount)
+
+    def exceeded(self) -> bool:
+        if self.limit_usd is not None and self.spent_usd >= self.limit_usd:
+            return True
+        return self._parent.exceeded() if self._parent is not None else False
+
+    def remaining(self) -> float | None:
+        if self.limit_usd is None:
+            return None
+        return max(0.0, self.limit_usd - self.spent_usd)
+
+    def split(self, limit_usd: float | None = None) -> "Budget":
+        """子ミッションへの割当を切り出す(プール自体は共有のまま)。"""
+        child = Budget(
+            limit_usd=self.remaining() if limit_usd is None else limit_usd,
+            task_budget_usd=self.task_budget_usd)
+        child._parent = self
+        return child
+
+
+@dataclass
 class Task:
     id: str
     title: str
@@ -144,6 +193,7 @@ class Task:
     last_output: str = ""
     review_notes: str = ""
     branch: str | None = None            # worktree分離時のブランチ名
+    cost_usd: float = 0.0                # このタスクの累計コスト(attempt横断)
 
 
 @dataclass
@@ -153,6 +203,7 @@ class Mission:
     context_digest: str
     tasks: list[Task]
     created_at: float = field(default_factory=time.time)
+    budget: Budget | None = None         # 共有プール(参照渡し。再帰の前提)
 
     @staticmethod
     def new(intent: str, context_digest: str, tasks: list[dict]) -> "Mission":
@@ -190,6 +241,8 @@ class RunStore:
     def load(self) -> Mission:
         data = json.loads((self.dir / "mission.json").read_text())
         data["tasks"] = [Task(**t) for t in data["tasks"]]
+        if data.get("budget"):
+            data["budget"] = Budget(**data["budget"])
         mission = Mission(**data)
         for t in mission.tasks:
             if t.status in _INFLIGHT_STATUSES:

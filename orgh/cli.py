@@ -80,6 +80,7 @@ def main() -> None:
         if not args.no_retro:
             print("== retro ==")
             fp = planner.retro(cfg, mission)
+            store.save(mission)
             print(f"playbook updated: {fp or '(no lessons)'}")
         _summary(mission)
         return
@@ -105,7 +106,7 @@ def main() -> None:
     else:  # resume
         (store.dir / "CANCEL").unlink(missing_ok=True)  # cancel後の再開
         for t in mission.tasks:
-            if t.status == "cancelled":
+            if t.status in ("cancelled", "skipped"):
                 t.status, t.attempts = "pending", 0
         if getattr(args, "retry_failed", False):
             for t in mission.tasks:
@@ -118,8 +119,15 @@ def main() -> None:
 def _summary(m) -> None:
     print(f"\nmission {m.id}: {m.intent}")
     for t in m.tasks:
-        mark = {"done": "✓", "failed": "✗", "cancelled": "⊘"}.get(t.status, "…")
+        mark = {"done": "✓", "failed": "✗", "cancelled": "⊘",
+                "skipped": "⊘"}.get(t.status, "…")
         print(f"  {mark} {t.title} [{t.status}] attempts={t.attempts}")
+    b = getattr(m, "budget", None)
+    if b and b.spent_usd:
+        line = f"  cost: {b.spent_usd:.4f} USD"
+        if b.limit_usd:
+            line += f" / budget {b.limit_usd} USD ({b.spent_usd / b.limit_usd * 100:.0f}%)"
+        print(line)
 
 
 if __name__ == "__main__":

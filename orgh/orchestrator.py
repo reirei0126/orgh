@@ -16,11 +16,11 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from . import procreg
 from .adapters.base import get_adapter
 from .planner import review, worker_prompt
-from .state import Mission, RunStore, Task
+from .state import Budget, Mission, RunStore, Task
 from .worktree import ensure_task_worktree
 
 # 終端ステータス(これ以外は実行中系としてresume時にpendingへ巻き戻される)
-TERMINAL = ("done", "failed", "cancelled")
+TERMINAL = ("done", "failed", "cancelled", "skipped")
 
 # キャンセル検知のポーリング間隔(秒)。タスク完了イベントもこの粒度で拾う
 _POLL_INTERVAL = 0.5
@@ -43,11 +43,11 @@ def _cancel_flag(store: RunStore):
     return store.dir / "CANCEL"
 
 
-def _run_task(cfg: dict, store: RunStore, t: Task) -> Task:
+def _run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     """最外周の薄いラッパ: 実処理(_attempt_loop)の全例外を1タスクのfailedに閉じ込め、
     ミッション全体を道連れにしない。"""
     try:
-        return _attempt_loop(cfg, store, t)
+        return _attempt_loop(cfg, store, t, budget)
     except Exception as e:
         with store.lock:
             t.status = "failed"
@@ -57,7 +57,7 @@ def _run_task(cfg: dict, store: RunStore, t: Task) -> Task:
         return t
 
 
-def _attempt_loop(cfg: dict, store: RunStore, t: Task) -> Task:
+def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     wt_cfg = cfg.get("worktree") or {}
     if wt_cfg.get("enabled"):
         got = ensure_task_worktree(wt_cfg, store.dir.name, t)
@@ -88,8 +88,21 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task) -> Task:
         with store.lock:
             t.last_output = res.output
             t.session_id = res.session_id or t.session_id
+            t.cost_usd += res.cost_usd or 0.0
+        budget.charge(res.cost_usd)
         store.artifact(f"{t.id}_attempt{t.attempts}.md", res.output)
         store.log("task.output", task=t.id, ok=res.ok, cost=res.cost_usd)
+
+        # タスク上限超過: 次のattemptにもレビューにも進まない
+        if (budget.task_budget_usd is not None
+                and t.cost_usd >= budget.task_budget_usd):
+            with store.lock:
+                t.status = "failed"
+                t.review_notes = (f"task予算超過: {t.cost_usd:.4f} USD >= "
+                                  f"{budget.task_budget_usd} USD")
+            store.log("task.budget_exceeded", task=t.id, cost=t.cost_usd,
+                      limit=budget.task_budget_usd)
+            return t
 
         if not res.ok:
             if cancel_flag.exists():
@@ -102,7 +115,7 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task) -> Task:
 
         with store.lock:
             t.status = "review"
-        passed, feedback = review(cfg, t, workdir=t.workdir)
+        passed, feedback = review(cfg, t, workdir=t.workdir, budget=budget)
         with store.lock:
             t.review_notes = feedback
         store.log("task.review", task=t.id, passed=passed)
@@ -134,11 +147,41 @@ def _initiate_cancel(mission: Mission, store: RunStore) -> None:
     print(f"  mission {store.dir.name} cancelling... ({n} proc terminated)")
 
 
+def _setup_budget(cfg: dict, mission: Mission) -> Budget:
+    """ミッションの予算プールを用意する。初回はconfigから確保、resume時は
+    消費(spent)を引き継ぎつつ上限だけconfigから更新する(予算を上げて続行
+    できるように)。split()で割当を受けた子ミッションは上限を上書きしない。"""
+    lcfg = cfg.get("loop", {})
+    if mission.budget is None:
+        mission.budget = Budget(limit_usd=lcfg.get("budget_usd"),
+                                task_budget_usd=lcfg.get("task_budget_usd"))
+    elif mission.budget._parent is None:
+        mission.budget.limit_usd = lcfg.get("budget_usd")
+        mission.budget.task_budget_usd = lcfg.get("task_budget_usd")
+    return mission.budget
+
+
+def _initiate_budget_stop(mission: Mission, store: RunStore,
+                          budget: Budget) -> None:
+    """予算超過: 実行中タスクの完了は待つが、未着手はdispatchせずskippedに。"""
+    with store.lock:
+        for t in mission.tasks:
+            if t.status == "pending":
+                t.status = "skipped"
+    store.save(mission)
+    store.log("mission.budget_exceeded", spent=budget.spent_usd,
+              limit=budget.limit_usd)
+    print(f"  mission {store.dir.name} budget exceeded "
+          f"({budget.spent_usd:.4f}/{budget.limit_usd} USD) — 未着手をskip")
+
+
 def run_mission(cfg: dict, mission: Mission, store: RunStore,
                 on_update=None, poll_cancel=None) -> Mission:
     workers = cfg.get("loop", {}).get("parallel", 3)
+    budget = _setup_budget(cfg, mission)
     store.save(mission)
     cancelling = False
+    budget_stopped = False
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {}
         while True:
@@ -147,12 +190,16 @@ def run_mission(cfg: dict, mission: Mission, store: RunStore,
                     or (poll_cancel and poll_cancel())):
                 cancelling = True
                 _initiate_cancel(mission, store)
-            if not cancelling:
+            if not cancelling and not budget_stopped and budget.exceeded():
+                budget_stopped = True
+                _initiate_budget_stop(mission, store, budget)
+            if not cancelling and not budget_stopped:
                 for t in _ready(mission):
                     if t.id not in futures:
                         with store.lock:
                             t.status = "queued"
-                        futures[t.id] = pool.submit(_run_task, cfg, store, t)
+                        futures[t.id] = pool.submit(_run_task, cfg, store, t,
+                                                    budget)
             if not futures:
                 break
             done, _ = wait(list(futures.values()), timeout=_POLL_INTERVAL,

@@ -93,6 +93,21 @@ watcherが検知し、実行中のsubprocessをterminate・未着手タスクを
 orgh cleanup <mission_id>   # 該当ミッションのworktreeとブランチを削除
 ```
 
+### 予算ガード
+
+`config.yaml` の `loop.budget_usd`(ミッション全体の上限)/
+`loop.task_budget_usd`(1タスクあたりの上限)でコスト上限を設定できる
+(いずれも `null` で無制限)。超過すると、実行中タスクの完了は待つが
+未着手タスクは `skipped` になりミッションが停止する。予算を上げて
+`orgh resume <mission_id>` すれば `skipped` タスクは `pending` に戻り
+続行する。Planner/Reviewer/Retroの呼び出しコストも累計に含まれる。
+`orgh status <mission_id>` で累計コストと予算消化率(%)を表示する。
+
+Budgetはルートで確保した共有プールを親から子へ`split()`で分割して
+参照渡しする設計になっている(サブミッション再帰を見据え、上限を
+ミッション単位の固定値にすると子ミッションごとの上限が掛け算に
+なって破綻するのを避けるため)。
+
 ## 設計判断メモ
 
 - **ObsidianはMCPではなくファイル直読み**。MCPのsandbox問題を回避し、wikilink1ホップまで辿って文脈ダイジェストを構築
@@ -118,4 +133,3 @@ pytest tests/
 ## 既知の割り切り / 次の拡張候補
 
 - Codexにはresume相当がないため差し戻しはプロンプト再構築で対応
-- 予算ガード: ledgerに`cost_usd`は記録済み。上限超過でmission停止する閾値をloopに足すだけ

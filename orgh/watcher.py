@@ -104,6 +104,7 @@ def watch(cfg: dict) -> None:
                                           on_update=results.update,
                                           poll_cancel=results.cancel_requested)
                     planner.retro(cfg, mission)
+                    store.save(mission)
                 except Exception:
                     print(f"mission failed for {note.title}:\n{traceback.format_exc()}")
                 results.finalize(mission, store)
