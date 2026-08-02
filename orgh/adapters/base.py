@@ -1,4 +1,9 @@
-"""Worker adapters: どのCLIエージェントも「prompt in -> WorkerResult out」に正規化する。"""
+"""Worker adapters: どのCLIエージェントも「prompt in -> WorkerResult out」に正規化する。
+
+タイムアウト(subprocess.TimeoutExpired)はここで捕捉し
+WorkerResult(ok=False, output="timeout") に変換する。それ以外の例外
+(バイナリ不在等)は orchestrator 側の例外隔離に委ねる。
+"""
 from __future__ import annotations
 
 import json
@@ -16,6 +21,7 @@ class WorkerResult:
 
 
 class BaseAdapter:
+    """テンプレート: サブクラスは _command()(引数列とstdin)と _parse() を実装する。"""
     name = "base"
 
     def __init__(self, cfg: dict):
@@ -23,23 +29,27 @@ class BaseAdapter:
 
     def run(self, prompt: str, workdir: str, resume: str | None = None,
             timeout: int = 3600) -> WorkerResult:
+        cmd, stdin = self._command(prompt, resume)
+        try:
+            proc = subprocess.run(cmd, cwd=workdir, input=stdin,
+                                  capture_output=True, text=True,
+                                  timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return WorkerResult(ok=False, output="timeout")
+        return self._parse(proc)
+
+    def _command(self, prompt: str, resume: str | None) -> tuple[list[str], str | None]:
         raise NotImplementedError
 
-    @staticmethod
-    def _exec(cmd: list[str], workdir: str, stdin: str | None,
-              timeout: int) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            cmd, cwd=workdir, input=stdin, capture_output=True,
-            text=True, timeout=timeout,
-        )
+    def _parse(self, proc: subprocess.CompletedProcess) -> WorkerResult:
+        raise NotImplementedError
 
 
 class ClaudeCodeAdapter(BaseAdapter):
     """claude -p headless. --output-format json で result / session_id / cost を取得。"""
     name = "claude_code"
 
-    def run(self, prompt: str, workdir: str, resume: str | None = None,
-            timeout: int = 3600) -> WorkerResult:
+    def _command(self, prompt: str, resume: str | None) -> tuple[list[str], str | None]:
         c = self.cfg
         cmd = [c.get("bin", "claude"), "-p", "--output-format", "json",
                "--max-turns", str(c.get("max_turns", 40))]
@@ -51,7 +61,9 @@ class ClaudeCodeAdapter(BaseAdapter):
             cmd += ["--permission-mode", c["permission_mode"]]
         if resume:
             cmd += ["--resume", resume]
-        proc = self._exec(cmd, workdir, stdin=prompt, timeout=timeout)
+        return cmd, prompt
+
+    def _parse(self, proc: subprocess.CompletedProcess) -> WorkerResult:
         try:
             data = json.loads(proc.stdout.strip().splitlines()[-1])
             return WorkerResult(
@@ -70,12 +82,12 @@ class CodexAdapter(BaseAdapter):
     """codex exec 非対話モード。フラグは config で調整可能にしてある。"""
     name = "codex"
 
-    def run(self, prompt: str, workdir: str, resume: str | None = None,
-            timeout: int = 3600) -> WorkerResult:
-        c = self.cfg
-        cmd = [c.get("bin", "codex"), "exec"] + c.get("extra_args", [])
+    def _command(self, prompt: str, resume: str | None) -> tuple[list[str], str | None]:
+        cmd = [self.cfg.get("bin", "codex"), "exec"] + self.cfg.get("extra_args", [])
         cmd.append(prompt)
-        proc = self._exec(cmd, workdir, stdin=None, timeout=timeout)
+        return cmd, None
+
+    def _parse(self, proc: subprocess.CompletedProcess) -> WorkerResult:
         return WorkerResult(ok=proc.returncode == 0,
                             output=proc.stdout, raw=proc.stdout + proc.stderr)
 
@@ -84,10 +96,10 @@ class ShellAdapter(BaseAdapter):
     """任意のCLI LLM(gemini, llm 等)を config の template で叩く汎用アダプタ。"""
     name = "shell"
 
-    def run(self, prompt: str, workdir: str, resume: str | None = None,
-            timeout: int = 3600) -> WorkerResult:
-        cmd = [a if a != "{prompt}" else prompt for a in self.cfg["argv"]]
-        proc = self._exec(cmd, workdir, stdin=None, timeout=timeout)
+    def _command(self, prompt: str, resume: str | None) -> tuple[list[str], str | None]:
+        return [a if a != "{prompt}" else prompt for a in self.cfg["argv"]], None
+
+    def _parse(self, proc: subprocess.CompletedProcess) -> WorkerResult:
         return WorkerResult(ok=proc.returncode == 0,
                             output=proc.stdout, raw=proc.stdout + proc.stderr)
 

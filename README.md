@@ -32,6 +32,9 @@ cp config.example.yaml config.yaml   # vaultパスとworker設定を編集
 
 前提: `claude`(Claude Code CLI)と`codex`がPATHにあり認証済み。
 
+`prompts_dir` / `playbooks_dir` は config で指定する(パッケージ相対ではなくconfig駆動)。
+非editableでインストールした場合や作業ディレクトリがリポ外の場合は、絶対パスで指定すること。
+
 ## 使い方
 
 ```bash
@@ -64,9 +67,17 @@ orgh status <mission_id>
 2. `runs/*/ledger.jsonl` を見て差し戻しパターンを確認
 3. `prompts/*.md` と `playbooks/` を手で編集 — ここがこのハーネスの「経営」
 
+## テスト
+
+```bash
+pip install -e ".[test]"
+pytest tests/
+```
+
+モックバイナリ方式のSTスイート(`tests/mocks/claude`・`tests/mocks/codex`)が走る。~30秒。
+
 ## 既知の割り切り / 次の拡張候補
 
 - git worktree分離は未実装(現状は`workdir`指定のみ)。並列タスクが同一リポを触るなら worktree per task を`_run_task`に足す
 - Codexにはresume相当がないため差し戻しはプロンプト再構築で対応
 - 予算ガード: ledgerに`cost_usd`は記録済み。上限超過でmission停止する閾値をloopに足すだけ
-- cron/Routines化: `orgh scan`→未処理ノートを自動`run`するデーモンは20行程度で書ける

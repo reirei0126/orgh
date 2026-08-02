@@ -10,7 +10,9 @@
   MOCK_REVIEW_ALWAYS_FAIL カンマ区切りマーカー: レビュー常時差し戻し
   MOCK_WORKER_FAIL        カンマ区切りマーカー: worker実行が常にエラー
   MOCK_PLAN_JSON          Planner応答の上書き(inline JSON か ファイルパス)
-  MOCK_NO_SLEEP           "1" なら [[SLEEP:n]] を無視(resume試験用)
+  MOCK_NO_SLEEP           "1" なら sleep 系を全て無視(resume試験用)
+  MOCK_SLEEP_ALL          秒数: workerロールの呼び出しを常にsleep
+                          (リトライプロンプトでマーカーが失われても眠らせ続ける)
 
 プロンプト中の [[SLEEP:<秒>]] で応答前に sleep(タイムアウト/kill試験用)。
 """
@@ -110,6 +112,9 @@ def main() -> int:
         return 0
 
     # worker
+    sleep_all = os.environ.get("MOCK_SLEEP_ALL")
+    if sleep_all and os.environ.get("MOCK_NO_SLEEP") != "1":
+        time.sleep(float(sleep_all))
     session_id = resume or f"sess-{marker}"
     fail = marker in _env_set("MOCK_WORKER_FAIL")
     _log_call(state, {"role": "worker", "marker": marker,

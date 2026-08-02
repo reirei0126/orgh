@@ -4,6 +4,8 @@ vault:
   mission_tag: mission         # または #mission タグ付きノート
 
 runs_dir: runs
+prompts_dir: prompts         # 役割プロンプト(planner/reviewer/retro/worker_preamble)の置き場
+playbooks_dir: playbooks     # Retroが蒸留した組織知の置き場
 
 workers:
   enabled: [claude_code, codex]

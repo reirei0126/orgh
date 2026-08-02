@@ -11,14 +11,31 @@ from pathlib import Path
 from .adapters.base import get_adapter
 from .state import Mission, Task
 
-PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
-PLAYBOOKS = Path(__file__).resolve().parent.parent / "playbooks"
+
+def _prompts_dir(cfg: dict) -> Path:
+    return Path(cfg.get("prompts_dir", "prompts")).expanduser()
 
 
-def _playbook_context(max_chars: int = 8000) -> str:
+def _playbooks_dir(cfg: dict) -> Path:
+    return Path(cfg.get("playbooks_dir", "playbooks")).expanduser()
+
+
+def _read_prompt(cfg: dict, name: str) -> str:
+    fp = _prompts_dir(cfg) / name
+    try:
+        return fp.read_text()
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"prompt template not found: {fp}. config の prompts_dir を確認せよ")
+
+
+def _playbook_context(cfg: dict, max_chars: int = 8000) -> str:
     """過去のRetroで蒸留された組織知をPlanner/Workerに注入する(増幅の核)。"""
+    playbooks_dir = _playbooks_dir(cfg)
+    if not playbooks_dir.is_dir():
+        return "(no playbooks yet)"
     chunks = []
-    for p in sorted(PLAYBOOKS.glob("*.md")):
+    for p in sorted(playbooks_dir.glob("*.md")):
         chunks.append(f"## {p.stem}\n{p.read_text()}")
     return "\n".join(chunks)[:max_chars] or "(no playbooks yet)"
 
@@ -36,9 +53,9 @@ def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".") -> dict:
 
 
 def plan(cfg: dict, intent: str, context_digest: str) -> Mission:
-    tmpl = (PROMPTS / "planner.md").read_text()
+    tmpl = _read_prompt(cfg, "planner.md")
     prompt = tmpl.format(intent=intent, context=context_digest,
-                         playbooks=_playbook_context(),
+                         playbooks=_playbook_context(cfg),
                          workers=", ".join(cfg["workers"]["enabled"]))
     data = _ask_json(cfg, "planner", prompt)
     return Mission.new(intent=intent, context_digest=context_digest,
@@ -46,7 +63,7 @@ def plan(cfg: dict, intent: str, context_digest: str) -> Mission:
 
 
 def review(cfg: dict, task: Task, workdir: str) -> tuple[bool, str]:
-    tmpl = (PROMPTS / "reviewer.md").read_text()
+    tmpl = _read_prompt(cfg, "reviewer.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
                          acceptance="\n".join(f"- {a}" for a in task.acceptance),
                          output=task.last_output[:12000])
@@ -56,7 +73,7 @@ def review(cfg: dict, task: Task, workdir: str) -> tuple[bool, str]:
 
 def retro(cfg: dict, mission: Mission) -> str:
     """完了ミッションから学びを抽出して playbooks/ に追記 → 次回以降の全員が賢くなる。"""
-    tmpl = (PROMPTS / "retro.md").read_text()
+    tmpl = _read_prompt(cfg, "retro.md")
     summary = "\n".join(
         f"- [{t.status}] {t.title} (attempts={t.attempts}) "
         f"review: {t.review_notes[:200]}"
@@ -67,15 +84,16 @@ def retro(cfg: dict, mission: Mission) -> str:
     name = data.get("playbook_name", "general")
     body = data.get("lessons", "")
     if body:
-        fp = PLAYBOOKS / f"{name}.md"
+        _playbooks_dir(cfg).mkdir(parents=True, exist_ok=True)
+        fp = _playbooks_dir(cfg) / f"{name}.md"
         with open(fp, "a") as f:
             f.write(f"\n<!-- mission {mission.id} -->\n{body}\n")
         return str(fp)
     return ""
 
 
-def worker_prompt(task: Task) -> str:
-    tmpl = (PROMPTS / "worker_preamble.md").read_text()
+def worker_prompt(cfg: dict, task: Task) -> str:
+    tmpl = _read_prompt(cfg, "worker_preamble.md")
     return tmpl.format(title=task.title, prompt=task.prompt,
                        acceptance="\n".join(f"- {a}" for a in task.acceptance),
-                       playbooks=_playbook_context(4000))
+                       playbooks=_playbook_context(cfg, 4000))

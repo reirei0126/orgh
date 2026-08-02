@@ -8,6 +8,12 @@ dependencies = ["pyyaml"]
 [project.scripts]
 orgh = "orgh.cli:main"
 
+[project.optional-dependencies]
+test = ["pytest"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["orgh", "orgh.adapters"]

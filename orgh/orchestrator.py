@@ -4,6 +4,7 @@ Claude Codeタスクは session_id を保持し --resume でフィードバッ�
 """
 from __future__ import annotations
 
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .adapters.base import get_adapter
@@ -25,19 +26,35 @@ def _blocked_forever(m: Mission) -> bool:
 
 
 def _run_task(cfg: dict, store: RunStore, t: Task) -> Task:
+    """最外周の薄いラッパ: 実処理(_attempt_loop)の全例外を1タスクのfailedに閉じ込め、
+    ミッション全体を道連れにしない。"""
+    try:
+        return _attempt_loop(cfg, store, t)
+    except Exception as e:
+        with store.lock:
+            t.status = "failed"
+            t.review_notes = f"internal error: {e!r}"
+        store.log("task.error", task=t.id, error=repr(e),
+                  trace=traceback.format_exc()[-2000:])
+        return t
+
+
+def _attempt_loop(cfg: dict, store: RunStore, t: Task) -> Task:
     adapter = get_adapter(t.worker, cfg["workers"])
     max_attempts = cfg.get("loop", {}).get("max_attempts", 3)
 
-    prompt = worker_prompt(t)
+    prompt = worker_prompt(cfg, t)
     while t.attempts < max_attempts:
-        t.attempts += 1
-        t.status = "running"
+        with store.lock:
+            t.attempts += 1
+            t.status = "running"
         store.log("task.start", task=t.id, worker=t.worker, attempt=t.attempts)
         res = adapter.run(prompt, workdir=t.workdir,
                           resume=t.session_id,
                           timeout=cfg.get("loop", {}).get("task_timeout", 3600))
-        t.last_output = res.output
-        t.session_id = res.session_id or t.session_id
+        with store.lock:
+            t.last_output = res.output
+            t.session_id = res.session_id or t.session_id
         store.artifact(f"{t.id}_attempt{t.attempts}.md", res.output)
         store.log("task.output", task=t.id, ok=res.ok, cost=res.cost_usd)
 
@@ -45,18 +62,22 @@ def _run_task(cfg: dict, store: RunStore, t: Task) -> Task:
             prompt = f"前回の実行がエラーで終了した。原因を特定して完了させろ。\n---\n{res.output[:4000]}"
             continue
 
-        t.status = "review"
+        with store.lock:
+            t.status = "review"
         passed, feedback = review(cfg, t, workdir=t.workdir)
-        t.review_notes = feedback
+        with store.lock:
+            t.review_notes = feedback
         store.log("task.review", task=t.id, passed=passed)
         if passed:
-            t.status = "done"
+            with store.lock:
+                t.status = "done"
             return t
         # 改善ループ: レビューのフィードバックをそのままresumeセッションへ
         prompt = (f"レビューで差し戻し。以下を修正して受け入れ条件を満たせ。\n"
                   f"## Feedback\n{feedback}")
 
-    t.status = "failed"
+    with store.lock:
+        t.status = "failed"
     return t
 
 
@@ -68,7 +89,8 @@ def run_mission(cfg: dict, mission: Mission, store: RunStore) -> Mission:
         while True:
             for t in _ready(mission):
                 if t.id not in futures:
-                    t.status = "queued"
+                    with store.lock:
+                        t.status = "queued"
                     futures[t.id] = pool.submit(_run_task, cfg, store, t)
             if not futures:
                 break
