@@ -1,16 +1,29 @@
 """Orchestrator: DAGに従いWorkerを並列起動。
 task: pending -> running -> review -> done / (feedback付きで再実行) -> failed
 Claude Codeタスクは session_id を保持し --resume でフィードバックを渡す(文脈を捨てない)。
+
+キャンセル(HANDOFF タスク4): runs/<mission_id>/CANCEL フラグファイルが唯一の
+停止信号。orgh cancel(別プロセス)はフラグを置くだけで、ミッションを実行中の
+プロセス自身がループごとにフラグを検知し、実行中subprocessをterminate・
+未着手タスクをcancelledにして停止する。poll_cancel(watcherが渡す結果ノートの
+#cancel検知)がTrueを返した場合もフラグを置いて同じ経路に合流する。
 """
 from __future__ import annotations
 
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
+from . import procreg
 from .adapters.base import get_adapter
 from .planner import review, worker_prompt
 from .state import Mission, RunStore, Task
 from .worktree import ensure_task_worktree
+
+# 終端ステータス(これ以外は実行中系としてresume時にpendingへ巻き戻される)
+TERMINAL = ("done", "failed", "cancelled")
+
+# キャンセル検知のポーリング間隔(秒)。タスク完了イベントもこの粒度で拾う
+_POLL_INTERVAL = 0.5
 
 
 def _ready(m: Mission) -> list[Task]:
@@ -20,10 +33,14 @@ def _ready(m: Mission) -> list[Task]:
 
 
 def _blocked_forever(m: Mission) -> bool:
-    failed = {t.id for t in m.tasks if t.status == "failed"}
+    dead = {t.id for t in m.tasks if t.status in ("failed", "cancelled")}
     pend = [t for t in m.tasks if t.status == "pending"]
-    return bool(failed) and all(
-        any(d in failed for d in t.deps) for t in pend) if pend else False
+    return bool(dead) and all(
+        any(d in dead for d in t.deps) for t in pend) if pend else False
+
+
+def _cancel_flag(store: RunStore):
+    return store.dir / "CANCEL"
 
 
 def _run_task(cfg: dict, store: RunStore, t: Task) -> Task:
@@ -52,16 +69,22 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task) -> Task:
 
     adapter = get_adapter(t.worker, cfg["workers"])
     max_attempts = cfg.get("loop", {}).get("max_attempts", 3)
+    cancel_flag = _cancel_flag(store)
 
     prompt = worker_prompt(cfg, t)
     while t.attempts < max_attempts:
+        if cancel_flag.exists():
+            with store.lock:
+                t.status = "cancelled"
+            return t
         with store.lock:
             t.attempts += 1
             t.status = "running"
         store.log("task.start", task=t.id, worker=t.worker, attempt=t.attempts)
         res = adapter.run(prompt, workdir=t.workdir,
                           resume=t.session_id,
-                          timeout=cfg.get("loop", {}).get("task_timeout", 3600))
+                          timeout=cfg.get("loop", {}).get("task_timeout", 3600),
+                          registry_key=store.dir.name)
         with store.lock:
             t.last_output = res.output
             t.session_id = res.session_id or t.session_id
@@ -69,6 +92,11 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task) -> Task:
         store.log("task.output", task=t.id, ok=res.ok, cost=res.cost_usd)
 
         if not res.ok:
+            if cancel_flag.exists():
+                # terminateによる異常終了は失敗ではなくキャンセル扱い
+                with store.lock:
+                    t.status = "cancelled"
+                return t
             prompt = f"前回の実行がエラーで終了した。原因を特定して完了させろ。\n---\n{res.output[:4000]}"
             continue
 
@@ -91,34 +119,61 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task) -> Task:
     return t
 
 
+def _initiate_cancel(mission: Mission, store: RunStore) -> None:
+    """キャンセル開始: フラグを確定し、実行中subprocessをterminate、
+    未着手タスクをcancelledにする。実行中タスクの完了(cancelled化)は
+    _attempt_loop側がフラグを見て行う。"""
+    _cancel_flag(store).touch()
+    n = procreg.terminate(store.dir.name)
+    with store.lock:
+        for t in mission.tasks:
+            if t.status == "pending":
+                t.status = "cancelled"
+    store.save(mission)
+    store.log("mission.cancelled", terminated=n)
+    print(f"  mission {store.dir.name} cancelling... ({n} proc terminated)")
+
+
 def run_mission(cfg: dict, mission: Mission, store: RunStore,
-                on_update=None) -> Mission:
+                on_update=None, poll_cancel=None) -> Mission:
     workers = cfg.get("loop", {}).get("parallel", 3)
     store.save(mission)
+    cancelling = False
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {}
         while True:
-            for t in _ready(mission):
-                if t.id not in futures:
-                    with store.lock:
-                        t.status = "queued"
-                    futures[t.id] = pool.submit(_run_task, cfg, store, t)
+            if not cancelling and (
+                    _cancel_flag(store).exists()
+                    or (poll_cancel and poll_cancel())):
+                cancelling = True
+                _initiate_cancel(mission, store)
+            if not cancelling:
+                for t in _ready(mission):
+                    if t.id not in futures:
+                        with store.lock:
+                            t.status = "queued"
+                        futures[t.id] = pool.submit(_run_task, cfg, store, t)
             if not futures:
                 break
-            done_iter = as_completed(list(futures.values()), timeout=None)
-            fut = next(done_iter)
-            finished = fut.result()
-            futures = {k: v for k, v in futures.items() if v is not fut}
-            store.save(mission)
-            if on_update:
-                on_update(mission)
-            print(f"  [{finished.status}] {finished.title}")
-            if all(t.status in ("done", "failed") for t in mission.tasks) and not futures:
+            done, _ = wait(list(futures.values()), timeout=_POLL_INTERVAL,
+                           return_when=FIRST_COMPLETED)
+            for fut in done:
+                finished = fut.result()
+                futures = {k: v for k, v in futures.items() if v is not fut}
+                store.save(mission)
+                if on_update:
+                    on_update(mission)
+                print(f"  [{finished.status}] {finished.title}")
+            if not done:
+                continue
+            if all(t.status in TERMINAL for t in mission.tasks) and not futures:
                 break
             if _blocked_forever(mission) and not futures:
                 break
     store.save(mission)
     store.log("mission.finished",
               done=[t.id for t in mission.tasks if t.status == "done"],
-              failed=[t.id for t in mission.tasks if t.status == "failed"])
+              failed=[t.id for t in mission.tasks if t.status == "failed"],
+              cancelled=[t.id for t in mission.tasks
+                         if t.status == "cancelled"])
     return mission

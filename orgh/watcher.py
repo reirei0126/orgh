@@ -99,8 +99,10 @@ def watch(cfg: dict) -> None:
                         note.path, f"> 🚀 orgh: [[orgh/results/{mission.id}]]")
                     ws.mark(note.path)  # writeback分でhashが変わるので再mark
                 try:
+                    # poll_cancel: 結果ノートの#cancelタグ(スマホから停止)を検知
                     mission = run_mission(cfg, mission, store,
-                                          on_update=results.update)
+                                          on_update=results.update,
+                                          poll_cancel=results.cancel_requested)
                     planner.retro(cfg, mission)
                 except Exception:
                     print(f"mission failed for {note.title}:\n{traceback.format_exc()}")

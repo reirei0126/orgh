@@ -3,8 +3,9 @@
   orgh scan                       # vaultからミッション候補を一覧
   orgh run --note "ノート名"       # ノート起点でplan->execute->review->retro全部
   orgh run --intent "..."         # ノートなしで直接指示
-  orgh resume <mission_id>        # 中断ミッション再開
+  orgh resume <mission_id>        # 中断・キャンセルしたミッションの再開
   orgh status <mission_id>
+  orgh cancel <mission_id>        # 実行中subprocessをterminateし未着手をcancelledに
   orgh cleanup <mission_id>       # worktree/ブランチの掃除(worktree.enabled時)
 """
 from __future__ import annotations
@@ -31,7 +32,7 @@ def main() -> None:
     runp.add_argument("--intent")
     runp.add_argument("--no-retro", action="store_true")
 
-    for name in ("resume", "status", "cleanup"):
+    for name in ("resume", "status", "cleanup", "cancel"):
         sp = sub.add_parser(name)
         sp.add_argument("mission_id")
         if name == "resume":
@@ -90,7 +91,22 @@ def main() -> None:
     elif args.cmd == "cleanup":
         for line in worktree.cleanup_mission_worktrees(mission):
             print(line)
+    elif args.cmd == "cancel":
+        # フラグが唯一の停止信号: 実行中プロセス側がループごとに検知して
+        # subprocessをterminateする。ここでは未着手をcancelledに確定するだけ
+        (store.dir / "CANCEL").touch()
+        for t in mission.tasks:
+            if t.status == "pending":
+                t.status = "cancelled"
+        store.save(mission)
+        print(f"mission {mission.id} にCANCELフラグを置いた。"
+              f"実行中のプロセスがあればまもなく停止する")
+        _summary(mission)
     else:  # resume
+        (store.dir / "CANCEL").unlink(missing_ok=True)  # cancel後の再開
+        for t in mission.tasks:
+            if t.status == "cancelled":
+                t.status, t.attempts = "pending", 0
         if getattr(args, "retry_failed", False):
             for t in mission.tasks:
                 if t.status == "failed":
@@ -102,7 +118,7 @@ def main() -> None:
 def _summary(m) -> None:
     print(f"\nmission {m.id}: {m.intent}")
     for t in m.tasks:
-        mark = {"done": "✓", "failed": "✗"}.get(t.status, "…")
+        mark = {"done": "✓", "failed": "✗", "cancelled": "⊘"}.get(t.status, "…")
         print(f"  {mark} {t.title} [{t.status}] attempts={t.attempts}")
 
 

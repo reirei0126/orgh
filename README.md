@@ -47,9 +47,12 @@ orgh run --note "オントロジーレイヤーMVP"
 # ノートなしで直接指示
 orgh run --intent "このリポジトリのテストカバレッジを60%まで上げる"
 
-# 中断・失敗したミッションの再開 / 状況確認
+# 中断・失敗・キャンセルしたミッションの再開 / 状況確認
 orgh resume <mission_id>
 orgh status <mission_id>
+
+# 実行中ミッションの停止(subprocessをterminate、未着手はcancelledに)
+orgh cancel <mission_id>
 
 # vault監視デーモン(ノート投稿で自動着火)
 orgh watch
@@ -71,6 +74,12 @@ orgh watch
 ファイル)は `<vault>/orgh/artifacts/<mission_id>/` にコピーされ、結果ノート
 からリンクされる。Planner失敗などミッション採番前のエラーも元ノートに
 `[!failure]` コールアウトで通知され、ノートを編集し直せば再着火する。
+
+キャンセルもvaultから完結する: 結果ノートに `#cancel` タグを書き足すと
+watcherが検知し、実行中のsubprocessをterminate・未着手タスクをcancelledに
+して停止する(ターミナルからは `orgh cancel <mission_id>` で同じ処理。
+どちらも `runs/<mission_id>/CANCEL` フラグが唯一の停止信号)。キャンセル後は
+`orgh resume` でcancelledタスクをpendingに戻して続行できる。
 
 ### git worktree分離
 

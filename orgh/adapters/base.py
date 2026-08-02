@@ -1,14 +1,18 @@
 """Worker adapters: どのCLIエージェントも「prompt in -> WorkerResult out」に正規化する。
 
-タイムアウト(subprocess.TimeoutExpired)はここで捕捉し
-WorkerResult(ok=False, output="timeout") に変換する。それ以外の例外
-(バイナリ不在等)は orchestrator 側の例外隔離に委ねる。
+- タイムアウト(subprocess.TimeoutExpired)はここで捕捉し
+  WorkerResult(ok=False, output="timeout") に変換する。それ以外の例外
+  (バイナリ不在等)は orchestrator 側の例外隔離に委ねる
+- subprocessはPopenで起動し、registry_key(mission_id)が渡された場合は
+  procreg に登録する(orgh cancel がterminate対象を特定できるようにする)
 """
 from __future__ import annotations
 
 import json
 import subprocess
 from dataclasses import dataclass
+
+from .. import procreg
 
 
 @dataclass
@@ -28,15 +32,27 @@ class BaseAdapter:
         self.cfg = cfg
 
     def run(self, prompt: str, workdir: str, resume: str | None = None,
-            timeout: int = 3600) -> WorkerResult:
+            timeout: int = 3600,
+            registry_key: str | None = None) -> WorkerResult:
         cmd, stdin = self._command(prompt, resume)
+        proc = subprocess.Popen(
+            cmd, cwd=workdir,
+            stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if registry_key:
+            procreg.register(registry_key, proc)
         try:
-            proc = subprocess.run(cmd, cwd=workdir, input=stdin,
-                                  capture_output=True, text=True,
-                                  timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return WorkerResult(ok=False, output="timeout")
-        return self._parse(proc)
+            try:
+                out, err = proc.communicate(stdin, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+                return WorkerResult(ok=False, output="timeout")
+        finally:
+            if registry_key:
+                procreg.unregister(registry_key, proc)
+        return self._parse(
+            subprocess.CompletedProcess(cmd, proc.returncode, out, err))
 
     def _command(self, prompt: str, resume: str | None) -> tuple[list[str], str | None]:
         raise NotImplementedError
