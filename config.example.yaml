@@ -30,7 +30,7 @@ workers:
 roles:                         # 経営層・ゲート層のモデル割り当て
   planner:
     model: opus                # 設計判断はOpus (or fable)
-    max_turns: 10
+    max_turns: 40              # 計画前の探索(Read/Glob)分を含む。10だと走査系ミッションで上限死する
     allowed_tools: "Read,Glob,Grep"
   reviewer:
     model: sonnet

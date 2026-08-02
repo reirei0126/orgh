@@ -67,7 +67,9 @@ def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
                           "claude_code": cfg["roles"][role]})
     res = adapter.run(prompt, workdir=workdir)
     if not res.ok:
-        raise RuntimeError(f"{role} failed: {res.output[:500]}")
+        # resultが空のことがある(max_turns超過等)。rawのsubtypeに理由が残る
+        detail = res.output[:500] or res.raw[-500:]
+        raise RuntimeError(f"{role} failed: {detail}")
     if budget is not None:
         budget.charge(res.cost_usd)
     m = re.search(r"\{.*\}", res.output, re.S)
