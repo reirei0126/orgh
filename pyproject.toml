@@ -1,0 +1,13 @@
+[project]
+name = "orgh"
+version = "0.1.0"
+description = "Autonomous amplifying AI-org harness: Obsidian -> plan -> Claude Code/Codex sessions -> review & improve loop"
+requires-python = ">=3.10"
+dependencies = ["pyyaml"]
+
+[project.scripts]
+orgh = "orgh.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

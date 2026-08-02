@@ -1,0 +1,44 @@
+vault:
+  path: ~/obsidian/main        # Obsidian vaultのパス
+  inbox: inbox                 # このフォルダ配下のノートはミッション候補
+  mission_tag: mission         # または #mission タグ付きノート
+
+runs_dir: runs
+
+workers:
+  enabled: [claude_code, codex]
+  claude_code:
+    bin: claude
+    model: sonnet              # 実働はSonnet。三層フレームワークに合わせて変更可
+    max_turns: 60
+    allowed_tools: "Read,Write,Edit,Bash,Glob,Grep"
+    permission_mode: acceptEdits
+  codex:
+    bin: codex
+    extra_args: ["--full-auto"]    # codexのバージョンに合わせて調整
+  shell:                           # 他LLM CLI用の汎用枠 (例: gemini)
+    argv: ["gemini", "-p", "{prompt}"]
+
+roles:                         # 経営層・ゲート層のモデル割り当て
+  planner:
+    model: opus                # 設計判断はOpus (or fable)
+    max_turns: 10
+    allowed_tools: "Read,Glob,Grep"
+  reviewer:
+    model: sonnet
+    max_turns: 15
+    allowed_tools: "Read,Bash,Glob,Grep"   # 実ファイル・テストを検証させる
+  retro:
+    model: sonnet
+    max_turns: 5
+    allowed_tools: "Read"
+
+loop:
+  parallel: 3                  # 同時セッション数
+  max_attempts: 3              # 実行+差し戻しの上限
+  task_timeout: 3600
+
+watch:                         # orgh watch (イベント駆動デーモン)
+  interval: 5                  # 監視間隔(秒)
+  stabilize_seconds: 20        # 書きかけノートを拾わない猶予
+  writeback: true              # 完了後ノート末尾に結果コールアウトを追記
