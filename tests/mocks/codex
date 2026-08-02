@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""codex exec のモック。プロンプトは最終引数、出力はplain text、成否はreturn code。
+
+環境変数(claudeモックと共通):
+  MOCK_STATE_DIR   呼び出し履歴の置き場
+  MOCK_WORKER_FAIL カンマ区切りマーカー: 常にrc 1
+  MOCK_NO_SLEEP    "1" なら [[SLEEP:n]] を無視
+"""
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+
+
+def main() -> int:
+    prompt = sys.argv[-1] if len(sys.argv) > 1 else ""
+    m = re.search(r"\[\[MARK:([\w-]+)\]\]", prompt)
+    marker = m.group(1) if m else "none"
+
+    sm = re.search(r"\[\[SLEEP:(\d+(?:\.\d+)?)\]\]", prompt)
+    if sm and os.environ.get("MOCK_NO_SLEEP") != "1":
+        time.sleep(float(sm.group(1)))
+
+    fail = marker in {x.strip() for x in
+                      os.environ.get("MOCK_WORKER_FAIL", "").split(",") if x.strip()}
+    state = Path(os.environ.get("MOCK_STATE_DIR", ".mock_state"))
+    state.mkdir(parents=True, exist_ok=True)
+    with open(state / "calls.jsonl", "a") as f:
+        f.write(json.dumps({"role": "worker", "worker": "codex", "marker": marker,
+                            "ok": not fail, "ts": time.time()},
+                           ensure_ascii=False) + "\n")
+    if fail:
+        print(f"codex simulated failure: {marker}", file=sys.stderr)
+        return 1
+    print(f"CODEX_DONE {marker}: 変更を実施した")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

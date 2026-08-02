@@ -1,0 +1,63 @@
+"""ST共通フィクスチャ: モックバイナリを指すconfigと隔離されたruns/state。"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parent.parent
+MOCK_CLAUDE = str(REPO / "tests" / "mocks" / "claude")
+MOCK_CODEX = str(REPO / "tests" / "mocks" / "codex")
+
+MOCK_ENV_VARS = [
+    "MOCK_STATE_DIR", "MOCK_REJECT_ONCE", "MOCK_REVIEW_ALWAYS_FAIL",
+    "MOCK_WORKER_FAIL", "MOCK_PLAN_JSON", "MOCK_NO_SLEEP",
+]
+
+
+@pytest.fixture
+def mock_state_dir(tmp_path, monkeypatch) -> Path:
+    """モックの呼び出し履歴・状態の置き場。MOCK_*環境変数を毎テスト初期化する。"""
+    for v in MOCK_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    d = tmp_path / "mock_state"
+    d.mkdir()
+    monkeypatch.setenv("MOCK_STATE_DIR", str(d))
+    return d
+
+
+@pytest.fixture
+def cfg(tmp_path, mock_state_dir) -> dict:
+    return {
+        "runs_dir": str(tmp_path / "runs"),
+        "prompts_dir": str(REPO / "prompts"),
+        "playbooks_dir": str(REPO / "playbooks"),
+        "workers": {
+            "enabled": ["claude_code", "codex"],
+            "claude_code": {"bin": MOCK_CLAUDE, "model": "sonnet",
+                            "max_turns": 10},
+            "codex": {"bin": MOCK_CODEX, "extra_args": ["--full-auto"]},
+        },
+        "roles": {
+            "planner": {"bin": MOCK_CLAUDE, "model": "opus"},
+            "reviewer": {"bin": MOCK_CLAUDE, "model": "sonnet"},
+            "retro": {"bin": MOCK_CLAUDE, "model": "sonnet"},
+        },
+        "loop": {"parallel": 3, "max_attempts": 2, "task_timeout": 60},
+    }
+
+
+def read_calls(state_dir: Path) -> list[dict]:
+    fp = state_dir / "calls.jsonl"
+    if not fp.exists():
+        return []
+    return [json.loads(l) for l in fp.read_text().splitlines() if l.strip()]
+
+
+def read_ledger(runs_dir: str | Path, mission_id: str) -> list[dict]:
+    fp = Path(runs_dir) / mission_id / "ledger.jsonl"
+    if not fp.exists():
+        return []
+    return [json.loads(l) for l in fp.read_text().splitlines() if l.strip()]

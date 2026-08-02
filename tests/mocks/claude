@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""claude -p (headless) のモック。JSON封筒契約を模す。
+
+役割はプロンプト内マーカーで分岐:
+  "(Planner)" / "(Reviewer)" / "(Retro)" を含む → 各役割、それ以外 → worker
+
+タスク識別はプロンプト中の [[MARK:<id>]]。挙動は環境変数で制御:
+  MOCK_STATE_DIR          呼び出し履歴・reject-once状態の置き場(必須)
+  MOCK_REJECT_ONCE        カンマ区切りマーカー: 初回レビューのみ差し戻し
+  MOCK_REVIEW_ALWAYS_FAIL カンマ区切りマーカー: レビュー常時差し戻し
+  MOCK_WORKER_FAIL        カンマ区切りマーカー: worker実行が常にエラー
+  MOCK_PLAN_JSON          Planner応答の上書き(inline JSON か ファイルパス)
+  MOCK_NO_SLEEP           "1" なら [[SLEEP:n]] を無視(resume試験用)
+
+プロンプト中の [[SLEEP:<秒>]] で応答前に sleep(タイムアウト/kill試験用)。
+"""
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+
+
+def _env_set(name: str) -> set[str]:
+    v = os.environ.get(name, "")
+    return {x.strip() for x in v.split(",") if x.strip()}
+
+
+def _state_dir() -> Path:
+    d = Path(os.environ.get("MOCK_STATE_DIR", ".mock_state"))
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _log_call(state: Path, rec: dict) -> None:
+    rec["ts"] = time.time()
+    with open(state / "calls.jsonl", "a") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def _envelope(result: str, session_id: str | None = None,
+              is_error: bool = False) -> str:
+    return json.dumps({
+        "type": "result",
+        "is_error": is_error,
+        "result": result,
+        "session_id": session_id,
+        "total_cost_usd": 0.01,
+    }, ensure_ascii=False)
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    resume = None
+    if "--resume" in args:
+        resume = args[args.index("--resume") + 1]
+
+    prompt = sys.stdin.read()
+    m = re.search(r"\[\[MARK:([\w-]+)\]\]", prompt)
+    marker = m.group(1) if m else "none"
+    state = _state_dir()
+
+    sm = re.search(r"\[\[SLEEP:(\d+(?:\.\d+)?)\]\]", prompt)
+    if sm and os.environ.get("MOCK_NO_SLEEP") != "1":
+        time.sleep(float(sm.group(1)))
+
+    if "(Planner)" in prompt:
+        _log_call(state, {"role": "planner", "marker": marker, "resume": resume})
+        spec = os.environ.get("MOCK_PLAN_JSON", "")
+        if spec.lstrip().startswith("{"):
+            plan = spec
+        elif spec:
+            plan = Path(spec).read_text()
+        else:
+            plan = json.dumps({"tasks": [{
+                "id": "t1", "title": "mock task",
+                "prompt": "モックタスクを実行 [[MARK:w1]]",
+                "worker": "claude_code", "deps": [],
+                "acceptance": ["mock acceptance"], "workdir": ".",
+            }]}, ensure_ascii=False)
+        print(_envelope(plan, session_id="sess-planner"))
+        return 0
+
+    if "(Reviewer)" in prompt:
+        reject_once = marker in _env_set("MOCK_REJECT_ONCE")
+        always_fail = marker in _env_set("MOCK_REVIEW_ALWAYS_FAIL")
+        once_flag = state / f"reviewed_once_{marker}"
+        # feedbackにマーカーを埋め込む: 差し戻し後の再実行プロンプトは
+        # feedback文で構築されるため、これがないと2回目以降のタスク識別が切れる
+        if always_fail:
+            verdict = {"pass": False,
+                       "feedback": f"モック差し戻し(常時fail): [[MARK:{marker}]]"}
+        elif reject_once and not once_flag.exists():
+            once_flag.touch()
+            verdict = {"pass": False,
+                       "feedback": f"モック差し戻し(初回のみ): [[MARK:{marker}]] を修正せよ"}
+        else:
+            verdict = {"pass": True, "feedback": ""}
+        _log_call(state, {"role": "reviewer", "marker": marker,
+                          "resume": resume, "passed": verdict["pass"]})
+        print(_envelope(json.dumps(verdict, ensure_ascii=False),
+                        session_id="sess-reviewer"))
+        return 0
+
+    if "(Retro)" in prompt:
+        _log_call(state, {"role": "retro", "marker": marker, "resume": resume})
+        print(_envelope(json.dumps({"playbook_name": "general", "lessons": ""}),
+                        session_id="sess-retro"))
+        return 0
+
+    # worker
+    session_id = resume or f"sess-{marker}"
+    fail = marker in _env_set("MOCK_WORKER_FAIL")
+    _log_call(state, {"role": "worker", "marker": marker,
+                      "resume": resume, "session_id": session_id, "ok": not fail})
+    if fail:
+        print(_envelope(f"simulated worker error: {marker}",
+                        session_id=session_id, is_error=True))
+        return 0  # claudeはis_errorでもrc 0のことがある。封筒側で判定させる
+    print(_envelope(f"WORKER_DONE {marker}: 変更を実施し受け入れ条件を満たした",
+                    session_id=session_id))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
