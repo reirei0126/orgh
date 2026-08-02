@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .adapters.base import get_adapter
 from .planner import review, worker_prompt
 from .state import Mission, RunStore, Task
+from .worktree import ensure_task_worktree
 
 
 def _ready(m: Mission) -> list[Task]:
@@ -40,6 +41,15 @@ def _run_task(cfg: dict, store: RunStore, t: Task) -> Task:
 
 
 def _attempt_loop(cfg: dict, store: RunStore, t: Task) -> Task:
+    wt_cfg = cfg.get("worktree") or {}
+    if wt_cfg.get("enabled"):
+        got = ensure_task_worktree(wt_cfg, store.dir.name, t)
+        if got:
+            path, branch = got
+            with store.lock:
+                t.workdir, t.branch = str(path), branch
+            store.log("task.worktree", task=t.id, path=str(path), branch=branch)
+
     adapter = get_adapter(t.worker, cfg["workers"])
     max_attempts = cfg.get("loop", {}).get("max_attempts", 3)
 

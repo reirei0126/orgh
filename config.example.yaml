@@ -40,6 +40,11 @@ loop:
   max_attempts: 3              # 実行+差し戻しの上限
   task_timeout: 3600
 
+worktree:                      # タスクごとのgit worktree分離(並列タスクの同一リポ衝突を回避)
+  enabled: false               # デフォルト無効(後方互換)
+  base_ref: HEAD               # 分岐元
+  root: .orgh-worktrees        # worktree置き場(taskのworkdir相対)
+
 watch:                         # orgh watch (イベント駆動デーモン)
   interval: 5                  # 監視間隔(秒)
   stabilize_seconds: 20        # 書きかけノートを拾わない猶予

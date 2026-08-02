@@ -15,6 +15,8 @@
                           (リトライプロンプトでマーカーが失われても眠らせ続ける)
 
 プロンプト中の [[SLEEP:<秒>]] で応答前に sleep(タイムアウト/kill試験用)。
+[[WRITE:<相対パス>:<内容>]] でworkerがcwdにファイルを書く(worktree分離試験用)。
+全呼び出しは cwd 付きで calls.jsonl に記録される。
 """
 import json
 import os
@@ -37,6 +39,7 @@ def _state_dir() -> Path:
 
 def _log_call(state: Path, rec: dict) -> None:
     rec["ts"] = time.time()
+    rec["cwd"] = os.getcwd()
     with open(state / "calls.jsonl", "a") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
@@ -115,6 +118,10 @@ def main() -> int:
     sleep_all = os.environ.get("MOCK_SLEEP_ALL")
     if sleep_all and os.environ.get("MOCK_NO_SLEEP") != "1":
         time.sleep(float(sleep_all))
+    for wm in re.finditer(r"\[\[WRITE:([^:\]]+):([^\]]*)\]\]", prompt):
+        fp = Path(wm.group(1))
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_text(wm.group(2) + "\n")
     session_id = resume or f"sess-{marker}"
     fail = marker in _env_set("MOCK_WORKER_FAIL")
     _log_call(state, {"role": "worker", "marker": marker,

@@ -55,3 +55,14 @@ class TestConfigValidation:
     def test_missing_file_is_clear_error(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             load_config(tmp_path / "nope.yaml")
+
+    def test_worktree_section_is_known(self, tmp_path, recwarn):
+        data = {**VALID, "worktree": {"enabled": True, "base_ref": "HEAD",
+                                      "root": ".orgh-worktrees"}}
+        load_config(_write(tmp_path, data))
+        assert [w for w in recwarn if isinstance(w.message, ConfigWarning)] == []
+
+    def test_worktree_unknown_key_warns(self, tmp_path):
+        data = {**VALID, "worktree": {"enabled": True, "base_reff": "HEAD"}}
+        with pytest.warns(ConfigWarning, match="base_reff"):
+            load_config(_write(tmp_path, data))

@@ -5,6 +5,7 @@
   orgh run --intent "..."         # ノートなしで直接指示
   orgh resume <mission_id>        # 中断ミッション再開
   orgh status <mission_id>
+  orgh cleanup <mission_id>       # worktree/ブランチの掃除(worktree.enabled時)
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import sys
 from . import ingest, planner, watcher
 from .orchestrator import run_mission
 from .state import RunStore, load_config
+from . import worktree
 
 
 def main() -> None:
@@ -29,7 +31,7 @@ def main() -> None:
     runp.add_argument("--intent")
     runp.add_argument("--no-retro", action="store_true")
 
-    for name in ("resume", "status"):
+    for name in ("resume", "status", "cleanup"):
         sp = sub.add_parser(name)
         sp.add_argument("mission_id")
         if name == "resume":
@@ -85,6 +87,9 @@ def main() -> None:
     mission = store.load()
     if args.cmd == "status":
         _summary(mission)
+    elif args.cmd == "cleanup":
+        for line in worktree.cleanup_mission_worktrees(mission):
+            print(line)
     else:  # resume
         if getattr(args, "retry_failed", False):
             for t in mission.tasks:

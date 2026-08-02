@@ -51,6 +51,13 @@ class WatchCfg:
 
 
 @dataclass
+class WorktreeCfg:
+    enabled: bool = False
+    base_ref: str = "HEAD"
+    root: str = ".orgh-worktrees"
+
+
+@dataclass
 class ConfigSchema:
     """既知のトップレベルキー。workers/rolesは名前が自由なため深掘りしない。"""
     workers: dict | None = None          # 必須
@@ -58,13 +65,15 @@ class ConfigSchema:
     vault: VaultCfg | None = None
     loop: LoopCfg | None = None
     watch: WatchCfg | None = None
+    worktree: WorktreeCfg | None = None
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     playbooks_dir: str = "playbooks"
 
 
 _REQUIRED_KEYS = ("workers",)
-_SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg}
+_SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
+                    "worktree": WorktreeCfg}
 # from __future__ import annotations により field.type は文字列
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,
@@ -133,6 +142,7 @@ class Task:
     session_id: str | None = None        # for claude --resume
     last_output: str = ""
     review_notes: str = ""
+    branch: str | None = None            # worktree分離時のブランチ名
 
 
 @dataclass

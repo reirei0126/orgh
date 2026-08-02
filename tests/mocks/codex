@@ -27,9 +27,14 @@ def main() -> int:
                       os.environ.get("MOCK_WORKER_FAIL", "").split(",") if x.strip()}
     state = Path(os.environ.get("MOCK_STATE_DIR", ".mock_state"))
     state.mkdir(parents=True, exist_ok=True)
+    for wm in re.finditer(r"\[\[WRITE:([^:\]]+):([^\]]*)\]\]", prompt):
+        fp = Path(wm.group(1))
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_text(wm.group(2) + "\n")
     with open(state / "calls.jsonl", "a") as f:
         f.write(json.dumps({"role": "worker", "worker": "codex", "marker": marker,
-                            "ok": not fail, "ts": time.time()},
+                            "ok": not fail, "ts": time.time(),
+                            "cwd": os.getcwd()},
                            ensure_ascii=False) + "\n")
     if fail:
         print(f"codex simulated failure: {marker}", file=sys.stderr)

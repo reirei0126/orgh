@@ -54,6 +54,18 @@ orgh status <mission_id>
 
 実行結果は `runs/<mission_id>/` に永続化(mission.json / ledger.jsonl / artifacts/)。
 
+### git worktree分離
+
+`worktree.enabled: true` にすると、並列タスクがタスクごとの独立worktree
+(`<root>/<mission_id>-<task_id>`)とブランチ(`orgh/<mission_id>/<task_id>`)
+に分かれて実行され、同一リポの同一ファイルを触っても衝突しない。差し戻し
+再実行・resumeは同じworktreeを再利用する。worktreeはミッション終了後も
+残る(人間が差分を見るため)。不要になったら:
+
+```bash
+orgh cleanup <mission_id>   # 該当ミッションのworktreeとブランチを削除
+```
+
 ## 設計判断メモ
 
 - **ObsidianはMCPではなくファイル直読み**。MCPのsandbox問題を回避し、wikilink1ホップまで辿って文脈ダイジェストを構築
@@ -78,6 +90,5 @@ pytest tests/
 
 ## 既知の割り切り / 次の拡張候補
 
-- git worktree分離は未実装(現状は`workdir`指定のみ)。並列タスクが同一リポを触るなら worktree per task を`_run_task`に足す
 - Codexにはresume相当がないため差し戻しはプロンプト再構築で対応
 - 予算ガード: ledgerに`cost_usd`は記録済み。上限超過でmission停止する閾値をloopに足すだけ
