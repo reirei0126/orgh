@@ -87,6 +87,7 @@ class ConfigSchema:
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     playbooks_dir: str = "playbooks"
+    projects_map: str | None = None      # 対象リポの絶対パス⇔説明の対応表(Planner注入)
 
 
 _REQUIRED_KEYS = ("workers",)
@@ -132,7 +133,7 @@ def validate_config(data: Any) -> dict:
     for name in ("workers", "roles"):
         if data.get(name) is not None and not isinstance(data[name], dict):
             raise ConfigError(f"config: {name} はマップで指定すること")
-    for name in ("runs_dir", "prompts_dir", "playbooks_dir"):
+    for name in ("runs_dir", "prompts_dir", "playbooks_dir", "projects_map"):
         if data.get(name) is not None and not isinstance(data[name], str):
             raise ConfigError(f"config: {name} は文字列で指定すること")
     return data

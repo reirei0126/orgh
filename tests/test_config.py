@@ -62,6 +62,16 @@ class TestConfigValidation:
         load_config(_write(tmp_path, data))
         assert [w for w in recwarn if isinstance(w.message, ConfigWarning)] == []
 
+    def test_projects_map_is_known(self, tmp_path, recwarn):
+        data = {**VALID, "projects_map": "/path/to/projects-map.md"}
+        load_config(_write(tmp_path, data))
+        assert [w for w in recwarn if isinstance(w.message, ConfigWarning)] == []
+
+    def test_projects_map_wrong_type_is_error(self, tmp_path):
+        data = {**VALID, "projects_map": ["a", "b"]}
+        with pytest.raises(ConfigError, match="projects_map"):
+            load_config(_write(tmp_path, data))
+
     def test_worktree_unknown_key_warns(self, tmp_path):
         data = {**VALID, "worktree": {"enabled": True, "base_reff": "HEAD"}}
         with pytest.warns(ConfigWarning, match="base_reff"):
