@@ -48,11 +48,12 @@ def wt_cfg(cfg) -> dict:
     return cfg
 
 
-def _task(id: str, workdir: str, worker: str = "claude_code") -> dict:
+def _task(id: str, workdir: str, worker: str = "claude_code",
+          write: str = "shared.txt", deps: list[str] | None = None) -> dict:
     return {
         "id": id, "title": f"task {id}",
-        "prompt": f"共有ファイルを編集 [[MARK:{id}]] [[WRITE:shared.txt:edit-by-{id}]]",
-        "worker": worker, "deps": [],
+        "prompt": f"ファイルを編集 [[MARK:{id}]] [[WRITE:{write}:edit-by-{id}]]",
+        "worker": worker, "deps": deps or [],
         "acceptance": ["mock acceptance"], "workdir": workdir,
     }
 
@@ -146,6 +147,69 @@ class TestWorktreeFallback:
         assert m.tasks[0].workdir == str(plain)
         assert m.tasks[0].branch is None
         assert "git" in capsys.readouterr().out  # 警告ログのみでフォールバック
+
+
+class TestArtifactHandoff:
+    """実運用7307189eで発見: 成果物が各worktreeに未コミットのまま散在し、
+    依存タスクのworktree(HEAD起点)から一切見えない(t2がt1の仕様書を
+    見られず自前specを書いた)。対処: 合格時にタスクブランチへ自動コミット+
+    依存タスクは依存元ブランチをマージした状態で開始する。"""
+
+    def test_done_task_commits_to_branch(self, wt_cfg, repo, mock_state_dir):
+        m = _mission([_task("t1", str(repo), write="out1.txt")])
+        run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
+
+        assert m.tasks[0].status == "done"
+        log = _git(repo, "log", "--oneline", f"orgh/{m.id}/t1")
+        assert f"orgh({m.id}/t1)" in log
+        # worktreeはコミット後クリーン
+        wt = repo / ".orgh-worktrees" / f"{m.id}-t1"
+        assert _git(wt, "status", "--porcelain").strip() == ""
+
+    def test_dependent_task_starts_with_dep_output(self, wt_cfg, repo,
+                                                   mock_state_dir):
+        m = _mission([
+            _task("t1", str(repo), write="out1.txt"),
+            _task("t2", str(repo), write="out2.txt", deps=["t1"]),
+        ])
+        run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
+
+        assert [t.status for t in m.tasks] == ["done", "done"]
+        wt2 = repo / ".orgh-worktrees" / f"{m.id}-t2"
+        # t2のworktreeにt1の成果物が存在する(=workerから見えていた)
+        assert (wt2 / "out1.txt").read_text() == "edit-by-t1\n"
+        assert (wt2 / "out2.txt").read_text() == "edit-by-t2\n"
+        # t2ブランチの履歴にt1のコミットが含まれる
+        log = _git(repo, "log", "--oneline", f"orgh/{m.id}/t2")
+        assert f"orgh({m.id}/t1)" in log
+        assert f"orgh({m.id}/t2)" in log
+
+    def test_failed_task_does_not_commit(self, wt_cfg, repo, mock_state_dir,
+                                         monkeypatch):
+        monkeypatch.setenv("MOCK_REVIEW_ALWAYS_FAIL", "t1")
+        m = _mission([_task("t1", str(repo), write="out1.txt")])
+        run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
+
+        assert m.tasks[0].status == "failed"
+        log = _git(repo, "log", "--oneline", f"orgh/{m.id}/t1")
+        assert f"orgh({m.id}/t1)" not in log  # 不合格の成果はコミットしない
+
+    def test_dep_without_branch_is_skipped(self, wt_cfg, repo, tmp_path,
+                                           mock_state_dir):
+        """worktree無効時代のタスク等、依存元にブランチが無くても落ちない。"""
+        m = _mission([
+            _task("t1", str(repo), write="out1.txt"),
+            _task("t2", str(repo), write="out2.txt", deps=["t1"]),
+        ])
+        # t1を「ブランチなしで完了済み」とみなす
+        m.tasks[0].status = "done"
+        m.tasks[0].branch = None
+        run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
+
+        assert m.tasks[1].status == "done"
+        wt2 = repo / ".orgh-worktrees" / f"{m.id}-t2"
+        assert (wt2 / "out2.txt").exists()
+        assert not (wt2 / "out1.txt").exists()  # 取り込めるものが無いだけ
 
 
 class TestCleanup:

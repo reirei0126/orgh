@@ -20,7 +20,7 @@ from .adapters.base import get_adapter
 from .guard import needs_approval
 from .planner import replan_task, review, worker_prompt
 from .state import Budget, Mission, RunStore, Task
-from .worktree import ensure_task_worktree
+from .worktree import commit_task_result, ensure_task_worktree
 
 # 終端ステータス(これ以外は実行中系としてresume時にpendingへ巻き戻される)
 TERMINAL = ("done", "failed", "cancelled", "skipped")
@@ -209,6 +209,10 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         if passed:
             with store.lock:
                 t.status = "done"
+            # 合格成果をタスクブランチへコミット(依存タスク・検収への受け渡し)
+            commit = commit_task_result(t, store.dir.name)
+            if commit:
+                store.log("task.committed", task=t.id, commit=commit)
             return t
 
         if feedback.startswith("REPLAN:"):

@@ -152,6 +152,8 @@ class ResultsNote(MissionFeedback):
         return lines
 
     def _git_diff_summary(self, workdir: str) -> str:
+        """タスクの変更概要。合格成果はタスクブランチへ自動コミットされるため、
+        未コミット分(status/diff)に加え、直近の自動コミット(orgh(...))のstatも載せる。"""
         try:
             status = subprocess.run(
                 ["git", "-C", workdir, "status", "--short"],
@@ -159,7 +161,19 @@ class ResultsNote(MissionFeedback):
             diffstat = subprocess.run(
                 ["git", "-C", workdir, "diff", "--stat"],
                 capture_output=True, text=True, check=True)
+            committed_stat = ""
+            head_subject = subprocess.run(
+                ["git", "-C", workdir, "log", "-1", "--format=%s"],
+                capture_output=True, text=True)
+            if head_subject.returncode == 0 and \
+                    head_subject.stdout.startswith("orgh("):
+                committed = subprocess.run(
+                    ["git", "-C", workdir, "diff", "--stat", "HEAD~1..HEAD"],
+                    capture_output=True, text=True)
+                if committed.returncode == 0:
+                    committed_stat = committed.stdout.strip()
         except (subprocess.CalledProcessError, OSError):
             return ""  # git失敗時は黙って省略
-        parts = [p for p in (status.stdout.strip(), diffstat.stdout.strip()) if p]
+        parts = [p for p in (status.stdout.strip(), diffstat.stdout.strip(),
+                             committed_stat) if p]
         return "\n".join(parts)

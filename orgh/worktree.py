@@ -60,8 +60,53 @@ def ensure_task_worktree(wt_cfg: dict, mission_id: str, task) -> tuple[Path, str
             print(f"orgh: git worktree add に失敗、フォールバックする "
                  f"({r.stderr.strip()})")
             return None
+        # 依存タスクの成果ブランチを取り込んでから開始する(成果物の受け渡し。
+        # 実運用7307189e: 未コミット散在でt2がt1の仕様書を見られなかった事例への対処)。
+        # 再利用worktree(上のearly return)ではマージしない: 作業途中の状態に
+        # 後からマージを重ねると衝突リスクの方が大きい
+        if not branch_exists:
+            for line in merge_dep_branches(path, mission_id, task.deps):
+                print(f"orgh: {task.id} {line}")
 
     return path, branch
+
+
+def merge_dep_branches(workdir, mission_id: str, deps) -> list[str]:
+    """依存タスクのブランチ(orgh/<mission>/<dep>)をworkdirへマージし実施ログを返す。
+    ブランチが無い依存(worktree無効時代のタスク等)はスキップ。衝突はabortして
+    スキップし、タスク実行自体は止めない(成果は劣化するが検収で気づける)。"""
+    logs: list[str] = []
+    for d in deps:
+        br = f"orgh/{mission_id}/{d}"
+        if _git(workdir, "rev-parse", "--verify", "--quiet",
+                f"refs/heads/{br}").returncode != 0:
+            continue
+        r = _git(workdir, "-c", "user.name=orgh", "-c", "user.email=orgh@local",
+                 "merge", "--no-edit", br)
+        if r.returncode == 0:
+            logs.append(f"dep取り込み: {br}")
+        else:
+            _git(workdir, "merge", "--abort")
+            logs.append(f"dep取り込み衝突(スキップ): {br} ({r.stderr.strip()[:120]})")
+    return logs
+
+
+def commit_task_result(task, mission_id: str) -> str | None:
+    """レビュー合格タスクの成果をタスクブランチへコミットし、短縮ハッシュを返す。
+    変更が無ければNone。identityは環境非依存の明示指定(ホスト名変化で
+    自動検出が壊れた実例があるため)。"""
+    if not task.branch:
+        return None
+    wd = task.workdir
+    _git(wd, "add", "-A")
+    if _git(wd, "diff", "--cached", "--quiet").returncode == 0:
+        return None  # 変更なし
+    r = _git(wd, "-c", "user.name=orgh", "-c", "user.email=orgh@local",
+             "commit", "-q", "-m", f"orgh({mission_id}/{task.id}): {task.title}")
+    if r.returncode != 0:
+        print(f"orgh: {task.id} 成果コミットに失敗 ({r.stderr.strip()[:200]})")
+        return None
+    return _git(wd, "rev-parse", "--short", "HEAD").stdout.strip()
 
 
 def cleanup_mission_worktrees(mission) -> list[str]:
