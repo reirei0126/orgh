@@ -114,6 +114,7 @@ def main() -> None:
             print("== retro ==")
             fp = planner.retro(cfg, mission)
             store.save(mission)
+            (store.dir / "RETRO_DONE").touch()
             print(f"playbook updated: {fp or '(no lessons)'}")
         _summary(mission)
         return
@@ -155,7 +156,23 @@ def main() -> None:
                 if t.status == "failed":
                     t.status, t.attempts = "pending", 0
         mission = run_mission(cfg, mission, store)
+        _maybe_retro(cfg, mission, store)
         _summary(mission)
+
+
+def _maybe_retro(cfg: dict, mission, store: RunStore) -> None:
+    """resume完走時のretro。run/watcher経路と違いresumeは従来retroを呼ばず、
+    resumeで完走したミッションの教訓がplaybookに残らなかった(実運用7307189eで
+    発見)。RETRO_DONEマーカーで再resume時の二重追記を防ぐ。"""
+    marker = store.dir / "RETRO_DONE"
+    if marker.exists() or not mission.tasks or \
+            not all(t.status == "done" for t in mission.tasks):
+        return
+    print("== retro ==")
+    fp = planner.retro(cfg, mission)
+    store.save(mission)
+    marker.touch()
+    print(f"playbook updated: {fp or '(no lessons)'}")
 
 
 def _summary(m) -> None:

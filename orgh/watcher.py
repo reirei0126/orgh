@@ -84,6 +84,7 @@ def watch(cfg: dict) -> None:
                                           poll_cancel=fb.cancel_requested)
                     planner.retro(cfg, mission)
                     store.save(mission)
+                    (store.dir / "RETRO_DONE").touch()
                 except Exception:
                     print(f"mission failed for {note.title}:\n{traceback.format_exc()}")
                 fb.finalize(mission, store)

@@ -203,3 +203,54 @@ class TestResumeRetryFailed:
         assert [t.status for t in reloaded.tasks] == ["done", "done"]
         # attemptsリセット後の再実行が1回で通っている
         assert reloaded.tasks[0].attempts == 1
+
+
+class TestRetroOnResume:
+    """resume経由で完走したミッションもretroを実行する。実運用7307189eで発見:
+    retroはrun/watcher経路でしか呼ばれず、resumeで完走した(=最も学びの多い)
+    ミッションの教訓がplaybookに一切残らなかった。RETRO_DONEマーカーで
+    再resume時の二重追記を防ぐ。"""
+
+    def _resume(self, cfg_path, mid, monkeypatch):
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "resume", mid, "--retry-failed"])
+        cli.main()
+
+    def test_retro_runs_once_when_resume_completes(self, cfg, mock_state_dir,
+                                                   monkeypatch, tmp_path,
+                                                   capsys):
+        monkeypatch.setenv("MOCK_REVIEW_ALWAYS_FAIL", "ta")
+        m = _mission([_task("ta")])
+        store = _store(cfg, m)
+        run_mission(cfg, m, store)
+        assert m.tasks[0].status == "failed"
+        assert not [c for c in read_calls(mock_state_dir)
+                    if c["role"] == "retro"]
+
+        monkeypatch.delenv("MOCK_REVIEW_ALWAYS_FAIL")
+        cfg_path = write_config(tmp_path, cfg)
+        self._resume(cfg_path, m.id, monkeypatch)
+
+        retros = [c for c in read_calls(mock_state_dir) if c["role"] == "retro"]
+        assert len(retros) == 1
+        assert (store.dir / "RETRO_DONE").exists()
+
+        # 完走済みミッションを再度resumeしてもretroは二重実行されない
+        self._resume(cfg_path, m.id, monkeypatch)
+        retros = [c for c in read_calls(mock_state_dir) if c["role"] == "retro"]
+        assert len(retros) == 1
+
+    def test_retro_skipped_while_tasks_remain_failed(self, cfg, mock_state_dir,
+                                                     monkeypatch, tmp_path,
+                                                     capsys):
+        monkeypatch.setenv("MOCK_REVIEW_ALWAYS_FAIL", "ta")
+        m = _mission([_task("ta")])
+        store = _store(cfg, m)
+        run_mission(cfg, m, store)
+
+        cfg_path = write_config(tmp_path, cfg)
+        self._resume(cfg_path, m.id, monkeypatch)  # 再びfailedで終わる
+
+        assert not [c for c in read_calls(mock_state_dir)
+                    if c["role"] == "retro"]
+        assert not (store.dir / "RETRO_DONE").exists()
