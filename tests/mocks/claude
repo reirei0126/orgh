@@ -109,6 +109,19 @@ def main() -> int:
         return 0
 
     if "(Reviewer)" in prompt:
+        # レビュアー呼び出し自体の失敗を模擬(最初のN回はis_errorを返す。
+        # MOCK_REVIEWER_FAIL_TIMES=N。役割リトライの試験用)
+        rv_times = int(os.environ.get("MOCK_REVIEWER_FAIL_TIMES", "0"))
+        if rv_times:
+            cf = state / f"reviewer_fail_count_{marker}"
+            n = int(cf.read_text()) if cf.exists() else 0
+            if n < rv_times:
+                cf.write_text(str(n + 1))
+                _log_call(state, {"role": "reviewer", "marker": marker,
+                                  "resume": resume, "ok": False})
+                print(_envelope("Reached maximum number of turns (15)",
+                                is_error=True))
+                return 0
         reject_once = marker in _env_set("MOCK_REJECT_ONCE")
         always_fail = marker in _env_set("MOCK_REVIEW_ALWAYS_FAIL")
         replan_once = marker in _env_set("MOCK_REVIEW_REPLAN")

@@ -78,6 +78,23 @@ def _run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         return t
 
 
+def _review_with_retry(cfg: dict, store: RunStore, t: Task, budget: Budget,
+                       retries: int = 2, wait: float = 60):
+    """レビュー呼び出しの失敗(max_turns超過・接続断等)はレビューのみリトライする。
+    worker実行はやり直さない(成果とコストを捨てない)。"""
+    last: Exception | None = None
+    for i in range(retries + 1):
+        try:
+            return review(cfg, t, workdir=t.workdir, budget=budget)
+        except Exception as e:  # _ask_jsonのRuntimeError/JSON解釈失敗など
+            last = e
+            if i < retries:
+                store.log("role.retry", role="reviewer", task=t.id,
+                          retry=i + 1, error=repr(e)[:300])
+                time.sleep(wait)
+    raise last  # type: ignore[misc]
+
+
 def _retry_prompt(adapter, cfg: dict, t: Task, followup: str) -> str:
     """再試行プロンプトの構築。セッションresumeできるworkerはフィードバックのみで
     よい(セッションが文脈を保持する)が、できないworker(codex等)は元タスクの
@@ -173,7 +190,19 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
 
         with store.lock:
             t.status = "review"
-        passed, feedback = review(cfg, t, workdir=t.workdir, budget=budget)
+        try:
+            passed, feedback = _review_with_retry(cfg, store, t, budget,
+                                                  wait=infra_wait)
+        except Exception as e:
+            # レビューが繰り返し失敗してもworkerの成果(last_output/worktree)は
+            # 捨てない。原因の分かる形でfailedにし、resumeでの再挑戦に委ねる
+            # (実運用7307189e t6: reviewerのmax_turns死でタスクごとinternal error化した)
+            with store.lock:
+                t.status = "failed"
+                t.review_notes = (f"レビュー呼び出しが失敗(リトライ上限超過)。"
+                                  f"worker成果は保持済み: {e!s:.300}")
+            store.log("task.review_exhausted", task=t.id, error=repr(e)[:500])
+            return t
         with store.lock:
             t.review_notes = feedback
         store.log("task.review", task=t.id, passed=passed)
