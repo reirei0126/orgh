@@ -38,7 +38,7 @@ roles:                         # 経営層・ゲート層のモデル割り当�
     allowed_tools: "Read,Glob,Grep"
   reviewer:
     model: sonnet
-    max_turns: 15
+    max_turns: 30              # ビルド・テスト再実行を伴うレビューがあるため余裕を持たせる(15だと上限死する)
     allowed_tools: "Read,Bash,Glob,Grep"   # 実ファイル・テストを検証させる
   retro:
     model: sonnet
