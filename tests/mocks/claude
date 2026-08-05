@@ -160,6 +160,19 @@ def main() -> int:
 
     # worker
     _log_argv = sys.argv[1:]  # allowed_tools等のフラグ検証用
+    # インフラ障害の模擬: 最初のN回は「ネットワーク断」相当のエラーを返す
+    # (MOCK_INFRA_FAIL_TIMES=N。attempt非消費リトライの試験用)
+    infra_times = int(os.environ.get("MOCK_INFRA_FAIL_TIMES", "0"))
+    if infra_times:
+        cf = state / f"infra_fail_count_{marker}"
+        n = int(cf.read_text()) if cf.exists() else 0
+        if n < infra_times:
+            cf.write_text(str(n + 1))
+            _log_call(state, {"role": "worker", "marker": marker,
+                              "resume": resume, "ok": False, "infra": True})
+            print(_envelope("API Error: Unable to connect to API (ENOTFOUND)",
+                            is_error=True))
+            return 0
     sleep_all = os.environ.get("MOCK_SLEEP_ALL")
     if sleep_all and os.environ.get("MOCK_NO_SLEEP") != "1":
         time.sleep(float(sleep_all))

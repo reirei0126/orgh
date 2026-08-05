@@ -10,6 +10,8 @@ Claude Codeタスクは session_id を保持し --resume でフィードバッ�
 """
 from __future__ import annotations
 
+import re
+import time
 import traceback
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
@@ -25,6 +27,24 @@ TERMINAL = ("done", "failed", "cancelled", "skipped")
 
 # キャンセル検知のポーリング間隔(秒)。タスク完了イベントもこの粒度で拾う
 _POLL_INTERVAL = 0.5
+
+# インフラ(ネットワーク・接続)起因のエラー署名。workerの失敗ではないため
+# attemptを消費せずにリトライする(実運用7307189e t5: ネットワーク断で
+# 3attempt≒6.4USD相当を浪費した事例への対処)。署名は実際に観測されたものを登録する
+_INFRA_ERROR_RE = re.compile(
+    r"Request timed out"               # claude CLI(t5 attempt1/2で実測)
+    r"|Unable to connect to API"       # claude CLI(t5 attempt3で実測)
+    r"|Connection closed mid-response" # claude CLI(7307189e t1初回で実測)
+    r"|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN"
+    r"|fetch failed",
+)
+# 注: BaseAdapter.run の task_timeout マーカー("timeout")は対象外。
+# あれは「詰まったworker」の可能性があり、attempt非消費で粘ると無限に待つため
+# 従来どおりattemptを消費する通常failure扱いにする
+
+
+def _is_infra_error(output: str) -> bool:
+    return bool(_INFRA_ERROR_RE.search(output or ""))
 
 
 def _ready(m: Mission) -> list[Task]:
@@ -79,7 +99,11 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             store.log("task.worktree", task=t.id, path=str(path), branch=branch)
 
     adapter = get_adapter(t.worker, cfg["workers"])
-    max_attempts = cfg.get("loop", {}).get("max_attempts", 3)
+    lcfg = cfg.get("loop", {})
+    max_attempts = lcfg.get("max_attempts", 3)
+    infra_max = lcfg.get("infra_max_retries", 3)
+    infra_wait = lcfg.get("infra_retry_wait", 60)
+    infra_retries = 0
     cancel_flag = _cancel_flag(store)
 
     prompt = worker_prompt(cfg, t)
@@ -122,6 +146,26 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                 with store.lock:
                     t.status = "cancelled"
                 return t
+            if _is_infra_error(res.output):
+                # ネットワーク断等はworkerの失敗ではない: attemptを返却して待機後に再試行。
+                # ただしセッションコストは実際に発生しうるため無限には粘らない(上限つき)
+                if infra_retries >= infra_max:
+                    with store.lock:
+                        t.status = "failed"
+                        t.review_notes = (
+                            f"インフラエラーが継続(リトライ上限{infra_max}回を消化)。"
+                            f"ネットワーク・スリープ状態を確認して resume --retry-failed せよ: "
+                            f"{res.output[:200]}")
+                    store.log("task.infra_exhausted", task=t.id,
+                              detail=res.output[:200])
+                    return t
+                infra_retries += 1
+                store.log("task.infra_retry", task=t.id, retry=infra_retries,
+                          detail=res.output[:200])
+                with store.lock:
+                    t.attempts -= 1  # このattemptは消費しない
+                time.sleep(infra_wait)
+                continue  # プロンプトは変えずそのまま再試行
             prompt = _retry_prompt(
                 adapter, cfg, t,
                 f"前回の実行がエラーで終了した。原因を特定して完了させろ。\n---\n{res.output[:4000]}")

@@ -44,6 +44,8 @@ class LoopCfg:
     task_timeout: int = 3600
     budget_usd: float | None = None       # ルートミッション全体の上限(null=無制限)
     task_budget_usd: float | None = None  # 1タスク上限(null=無制限)
+    infra_max_retries: int = 3            # ネットワーク等インフラエラーのattempt非消費リトライ上限
+    infra_retry_wait: float = 60          # 同リトライ前の待機秒
 
 
 @dataclass
