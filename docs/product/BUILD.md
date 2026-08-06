@@ -197,3 +197,37 @@ docs/product/pitch-engineer.pdf: PDF document, version 1.4, 7 pages
 
 - Google Chrome: `Google Chrome 151.0.7922.75`(既存ビルド時と同一バージョン)
 - 本追記作業で変更したのは `docs/product/pitch-engineer.pdf`(上書き再生成)と本ファイル(追記)のみ。`pitch-engineer.html` を含むその他のファイルは一切変更していない。
+
+## 追記: pitch-friends.pdf の再生成(レイアウト修正反映、2026-08-07)
+
+`docs/product/pitch-friends.html`(P3非エンジニア向けピッチ、16:9スライド形式・7スライド)のレイアウト(整列)修正が直前の作業で完了し、既存PDF(2026-08-07 01:08生成、修正前HTML由来)より新しくなったため、既存資料と同一手順(ヘッドレスChrome、`--headless --no-pdf-header-footer --print-to-pdf`、リポジトリルートを起点とした相対パス指定)で再生成した。
+
+### 生成物一覧
+
+| ファイルパス | バイト数 | ページ数 | 生成日時 |
+|---|---:|---:|---|
+| `docs/product/pitch-friends.pdf` | 3,923,308 バイト | 7ページ | 2026-08-07 07:21:18 JST |
+
+`file` コマンドで `PDF document, version 1.4, 7 pages` と判定され、有効なPDFであることを確認済み。サイズは受け入れ基準の51,200バイトを大きく上回っている。
+
+### 実行コマンド
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --no-pdf-header-footer --print-to-pdf=docs/product/pitch-friends.pdf docs/product/pitch-friends.html
+```
+
+出力: `3923308 bytes written to file docs/product/pitch-friends.pdf`(終了コード0)。標準エラーに `Trying to load the allocator multiple times.` という既知の無害な警告のみ。
+
+### ページ数検証
+
+- スライド数(HTML側の真実源): `grep -c 'class="slide' docs/product/pitch-friends.html` → **7**
+- ページ数を3手法でクロスチェックし、いずれも **7ページ** で一致(HTMLのスライド数と完全一致):
+  - `pdfinfo docs/product/pitch-friends.pdf` → `Pages: 7`(`Page size: 960 x 540 pts`)
+  - `mdls -name kMDItemNumberOfPages docs/product/pitch-friends.pdf` → `kMDItemNumberOfPages = 7`
+  - Python正規表現で `/Count` を直接抽出(`re.findall(rb'/Count\s+(\d+)', data)`)→ `[b'7']`
+- 判定: ページ数(7)とHTMLスライド数(7)が完全一致したため、印刷用CSS(`@page` / `page-break-after` 等)の追加調整は不要だった。`pitch-friends.html` はレイアウト修正(整列)のみで、本作業ではコピー(`ops/demo/p3-copy-final.md` 確定コピー)・スライド構成には一切手を加えていない。
+
+### 実行環境
+
+- Google Chrome: `Google Chrome 151.0.7922.75`(既存ビルド時と同一バージョン)
+- 本追記作業で変更したのは `docs/product/pitch-friends.pdf`(上書き再生成)と本ファイル(追記)のみ。`pitch-friends.html` は直前の作業で完了済みのレイアウト修正のほかは本作業では変更していない。

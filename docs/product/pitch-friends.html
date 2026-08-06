@@ -37,6 +37,44 @@
   追記・削除はしていない。収まらない場合は文字を削らず、フォントサイズ・行間・
   余白・ビジュアル配分などレイアウト側のみで調整した。
 -->
+<!--
+  2026-08-07 整列不良の構造的修正(ops/demo/deck-issues.md Issue #2 対応)
+
+  検出した不良と適用した修正:
+  1) [①グリッド逸脱/④中央揃えと左揃えの混在] スライド2(朝の成果物)のカード3枚だけが
+     「固定幅216pxのカードをflexで中央寄せ」というスライド3(4つの係)・スライド5(上限
+     メーター)とは異なるレイアウト方式になっており、カード列の左端がスライド3/5の
+     grid(edge-to-edge)とズレていた。→ .morning-frame を display:grid
+     grid-template-columns:repeat(3,1fr) に統一し、他の「カード列」スライドと同じ
+     edge-to-edgeの構図に揃えた。
+  2) [②カード群の高さ・余白の不均等] 上記により .morning-frame は align-items:center
+     (flex)のままカード内テキスト長の差で高さが不揃いになり得た。→ grid化に伴い
+     align-items:stretch + .deliver-card{height:100%} とし、.role-card(スライド3)と
+     同じ「grid stretchで高さを揃える」構造に統一。あわせて .deliver-card の
+     border-top幅(6px)を .role-card と同じ5pxに統一(カードの装飾差異を解消)。
+  3) [②gapの不均一] カード列3種(roles-frame:18px / morning-frame:26px /
+     control-frame:22px)がそれぞれ別の値を場当たり的に指定していた。→
+     :root に --card-gap を1つ定義し、この3箇所全てが同じ値を参照するようにした。
+  4) [③共通要素の位置ブレ] 全7スライド共通の外枠(1280x720/パディング/ヘッダー配置)は
+     元々単一の .slide / .bar クラスで描画されており位置ブレは無かったが、
+     パディング値がハードコードされていたため :root に --slide-pad-x /
+     --slide-pad-top / --slide-pad-bottom を定義し、.slide が変数を参照する形に
+     変更した(将来の値変更時にスライド間でズレが生じない構造に強化)。
+  5) [インラインstyleによる位置の手調整] スライド1の星(.star)8個が、要素ごとの
+     インライン属性で座標を個別に手調整されていた。→
+     .star-1〜.star-8 のCSSクラスに置き換えた。位置自体は夜空の星の散らばりを表現する
+     意図的な装飾配置であり、position:absoluteによる配置そのものは維持している
+     (構造上の不揃いではなく意匠上の非等間隔配置のため、値は変更せず記法のみ変更)。
+  6) [⑤上下余白の偏り] 各スライドの .visual は元々 flex:1 1 auto で残り高さ全体を
+     占有し、内部フレーム側で justify-content:center により縦方向中央に配置される
+     構造が既に全7スライド共通で徹底されていたため、上下余白の偏りは検出されなかった
+     (変更なし)。
+  7) [④中央揃えと左揃えの混在・見出し/本文] h2.head・.lede は全スライドで左揃え、
+     単一ビジュアル訴求のスライド6(道具箱)・7(招待状)のみ意図的にビジュアルを
+     フレーム中央に配置しており、これは感情設計上の意図的な差(1枚絵を見せる構図)
+     であるため統一の対象外と判断した(変更なし)。
+-->
+<!-- [検査 t2] 整列: 全7枚の左右/上部パディングは.slideから--slide-pad-x/--slide-pad-topを参照、見出し左端は共通h2.head、ページ番号は共通.bar .pageから導出され差分なし / カード群・帯・列組み: morning/roles/controlのgapは--card-gap、各カードはgridのstretchとheight:100%または共通カード規則で同高を確認、中央揃えは単一訴求ビジュアル内だけの意図的配置につきOK / 720px収まり: 内側有効高658pxに対し固定領域は通常約189〜222px、証拠帯あり約255pxで、残余をmin-height:0の.visualが占有するため全7枚OK / オーファン: 確定本文を分断していたbrを除去し、共通.ledeのtext-wrap:balanceで1〜2文字残りを防止 / コピー照合: p3-copy-final.mdの見出し・本文14件を一字一句照合し、全件一致。確定コピー側は変更なし -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -59,6 +97,13 @@
     --warn: #ffb020;
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
     --sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
+
+    /* 全7スライド共通の外枠レイアウト変数(単一の値を.slideが参照する) */
+    --slide-pad-x: 68px;
+    --slide-pad-top: 36px;
+    --slide-pad-bottom: 26px;
+    /* カード列(roles-frame/morning-frame/control-frame)が共通で参照するgap */
+    --card-gap: 20px;
   }
 
   *{ box-sizing:border-box; }
@@ -89,7 +134,7 @@
     position:relative;
     break-after:page;
     page-break-after:always;
-    padding:36px 68px 26px;
+    padding:var(--slide-pad-top) var(--slide-pad-x) var(--slide-pad-bottom);
     background:var(--paper);
     box-shadow:inset 0 0 0 1px var(--line);
     display:flex;
@@ -131,6 +176,7 @@
     margin:0 0 12px;
     word-break:keep-all;
     line-break:strict;
+    text-wrap:balance;
     flex:none;
   }
 
@@ -167,7 +213,17 @@
       linear-gradient(165deg, #1a2247 0%, #10142c 55%, #0a0d20 100%);
     display:flex; align-items:center; justify-content:center;
   }
+  /* 星の座標は夜空の散らばりを表現する意匠上の絶対配置(意図的な装飾のため維持)。
+     手調整のインラインstyleはやめ、個別クラスに集約した */
   .star{ position:absolute; width:3px; height:3px; border-radius:50%; background:#fff; opacity:.85; }
+  .star-1{ top:38px; left:120px; }
+  .star-2{ top:70px; left:220px; }
+  .star-3{ top:44px; left:360px; }
+  .star-4{ top:96px; left:480px; }
+  .star-5{ top:30px; left:620px; }
+  .star-6{ top:120px; left:760px; }
+  .star-7{ top:56px; left:900px; }
+  .star-8{ top:150px; left:1020px; }
   .moon{
     position:absolute; top:52px; right:96px; width:64px; height:64px; border-radius:50%;
     background:#f4ecd8;
@@ -205,20 +261,23 @@
     flex:1 1 auto; min-height:0; position:relative;
     border-radius:22px; overflow:hidden;
     background: linear-gradient(180deg, #fff6df 0%, #eef3fd 58%, #ffffff 100%);
-    display:flex; align-items:center; justify-content:center; gap:26px;
-    padding:26px 20px;
+    display:grid; grid-template-columns:repeat(3, 1fr); align-items:stretch;
+    gap:var(--card-gap);
+    padding:26px 28px;
   }
+  /* 太陽は意匠上の装飾(絶対配置は演出目的のため維持。位置はgrid化の影響を受けない) */
   .sun{
     position:absolute; top:26px; left:34px; width:46px; height:46px; border-radius:50%;
     background: radial-gradient(circle, #ffd76a 0%, #ffd76a 55%, rgba(255,215,106,0) 75%);
     box-shadow:0 0 26px 10px rgba(255,215,106,.35);
   }
   .deliver-card{
-    background:var(--paper); width:216px; border-radius:16px;
-    border:1px solid var(--line); border-top:6px solid var(--accent);
+    height:100%;
+    background:var(--paper); border-radius:16px;
+    border:1px solid var(--line); border-top:5px solid var(--accent);
     box-shadow:0 14px 30px rgba(47,95,224,.14);
     padding:22px 18px 20px;
-    display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center;
   }
   .deliver-icon{ width:44px; height:44px; color:var(--accent); }
   .deliver-title{ font-size:16px; font-weight:800; color:var(--ink); }
@@ -232,7 +291,7 @@
   /* ================= slide 3: 4つの係(orgh-first-guide.html を流用) ================= */
   .roles-frame{
     flex:1 1 auto; min-height:0;
-    display:grid; grid-template-columns:repeat(4, 1fr); gap:18px;
+    display:grid; grid-template-columns:repeat(4, 1fr); gap:var(--card-gap);
   }
   .role-card{
     display:flex; flex-direction:column; height:100%;
@@ -284,7 +343,7 @@
 
   /* ================= slide 5: 上限メーター ================= */
   .control-frame{
-    flex:1 1 auto; min-height:0; display:grid; grid-template-columns:1.1fr 1fr 1fr; gap:22px; align-items:stretch;
+    flex:1 1 auto; min-height:0; display:grid; grid-template-columns:1.1fr 1fr 1fr; gap:var(--card-gap); align-items:stretch;
   }
   .gauge-card, .assure-card{
     background:var(--paper); border:1px solid var(--line); border-radius:18px;
@@ -430,14 +489,14 @@
     <p class="lede">「こういう資料が欲しい」って、一枚だけ。</p>
     <div class="visual">
       <div class="night-frame">
-        <span class="star" style="top:38px; left:120px;"></span>
-        <span class="star" style="top:70px; left:220px;"></span>
-        <span class="star" style="top:44px; left:360px;"></span>
-        <span class="star" style="top:96px; left:480px;"></span>
-        <span class="star" style="top:30px; left:620px;"></span>
-        <span class="star" style="top:120px; left:760px;"></span>
-        <span class="star" style="top:56px; left:900px;"></span>
-        <span class="star" style="top:150px; left:1020px;"></span>
+        <span class="star star-1"></span>
+        <span class="star star-2"></span>
+        <span class="star star-3"></span>
+        <span class="star star-4"></span>
+        <span class="star star-5"></span>
+        <span class="star star-6"></span>
+        <span class="star star-7"></span>
+        <span class="star star-8"></span>
         <span class="moon"></span>
         <div class="lamp-glow"></div>
         <div class="memo-card">
@@ -458,7 +517,7 @@
       <span class="page">02 / 07</span>
     </div>
     <h2 class="head">朝、できていた。</h2>
-    <p class="lede">資料も、調べ物のレポートも。<br>やり直しの指示すら、AI同士で済ませてあった。</p>
+    <p class="lede">資料も、調べ物のレポートも。やり直しの指示すら、AI同士で済ませてあった。</p>
     <div class="visual">
       <div class="morning-frame">
         <div class="sun"></div>
@@ -495,7 +554,7 @@
       <span class="page">03 / 07</span>
     </div>
     <h2 class="head">中では、小さな会社が働いている。</h2>
-    <p class="lede">計画係が仕事を分けて、作業係が同時に手を動かして、<br>検品係がダメ出しして、振り返り係がコツをメモする。</p>
+    <p class="lede">計画係が仕事を分けて、作業係が同時に手を動かして、検品係がダメ出しして、振り返り係がコツをメモする。</p>
     <div class="visual">
       <div class="roles-frame">
         <article class="role-card">
@@ -533,7 +592,7 @@
       <span class="page">04 / 07</span>
     </div>
     <h2 class="head">あなたの仕事にも、ある。</h2>
-    <p class="lede">調べ物。資料の下書き。まとめ直し。<br>「人がやらなくてもいい部分」から任せられる。</p>
+    <p class="lede">調べ物。資料の下書き。まとめ直し。「人がやらなくてもいい部分」から任せられる。</p>
     <div class="visual">
       <div class="work-frame">
         <div class="work-col">
@@ -562,7 +621,7 @@
       <span class="page">05 / 07</span>
     </div>
     <h2 class="head">お金は、決めた分しか使わない。</h2>
-    <p class="lede">上限を決めれば、そこで必ず止まる。<br>勝手なことを始める前には、必ず聞いてくる。</p>
+    <p class="lede">上限を決めれば、そこで必ず止まる。勝手なことを始める前には、必ず聞いてくる。</p>
     <div class="visual">
       <div class="control-frame">
         <div class="gauge-card">
@@ -601,7 +660,7 @@
       <span class="page">06 / 07</span>
     </div>
     <h2 class="head">ただし、いまはまだ職人の道具。</h2>
-    <p class="lede">正直に言うと、セットアップにはエンジニアの手がいる。<br>だから —</p>
+    <p class="lede">正直に言うと、セットアップにはエンジニアの手がいる。だから —</p>
     <div class="visual">
       <div class="toolbox-frame">
         <svg style="width:120px; height:120px; color:var(--accent);"><use href="#ic-toolbox"></use></svg>
@@ -617,7 +676,7 @@
       <span class="page">07 / 07</span>
     </div>
     <h2 class="head">今度、目の前で見せるよ。</h2>
-    <p class="lede">メモを1枚書くところから。<br>10分で伝わるはず。</p>
+    <p class="lede">メモを1枚書くところから。10分で伝わるはず。</p>
     <div class="visual">
       <div class="invite-frame">
         <div class="invite">
