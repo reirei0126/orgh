@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<!--
+  P3(非エンジニアの友人向け)紙芝居ピッチ — pitch-friends.html
+
+  一次情報源:
+  - ops/demo/p3-copy-final.md(全7スライドの確定コピー。一字一句凍結。許される加工は
+    意味の切れ目への<br>挿入のみで、<br>を除去して連結すれば原文と1文字も違わない)
+  - ops/demo/pitch-persona-design.md 「共通構図規則(全ペルソナ)」節・「P3」節
+    (16:9固定枠/支配的ビジュアル50%以上/ヘッダーはロゴ+ページ番号のみ、等の規律と
+    各スライドの支配的ビジュアル案・感情設計)
+
+  参考にした実装手法(配色は流用しない・指定どおり):
+  - docs/product/orgh-first-guide.html の「4枚カード: 小さな会社の係」節のCSS・
+    マークアップ・青系配色(--accent系トーン)・アイコン表現(計画係=クリップボード/
+    作業係=歯車/検品係=虫眼鏡+チェック/振り返り係=ノート、各SVG path)をスライド3に
+    ほぼそのまま流用した
+  - docs/product/pitch-business.html の16:9固定枠・@page・証拠帯・ヘッダー
+    (ロゴ+ページ番号のみ)の実装手法を参考にした。ただし配色(生成り紙+深緑)は
+    真似せず、本ファイルは明るい青系ポップ(白〜淡青+彩度高めの青)で独自に配色した
+
+  数値の出典(捏造禁止のため、下記を実際に読んで検証した実測値のみを使用):
+  - ops/demo/runs/2bdf2bee/mission.json — budget.spent_usd = 5.8150450
+    (プロダクト説明資料HTML化ミッション、5タスク全件 status:"done")
+  - ops/demo/runs/eec17e52/mission.json — budget.spent_usd = 17.29249315
+    (OSS/商用事例の調査ミッション、3タスク全件 status:"done")
+  - ops/demo/runs/2bdf2bee/ledger.jsonl 11〜18行目 — t4(技術資料HTMLの品質改善)は
+    attempt1で task.review passed:false となり、人間を介さずattempt2で再実行→
+    passed:true。「やり直しの指示すら、AI同士で済ませてあった」の根拠
+  - README.md:125-129 — loop.budget_usd / loop.task_budget_usd 超過で
+    未着手タスクがskippedになりミッションが停止する予算ガードの記述
+  - docs/threat-model.md「自己改変承認ゲート」節、orgh/guard.py 冒頭docstring —
+    workdirがorgh自身を指す場合は自動実行されずawaiting_approvalで停止し、
+    orgh approveだけが続行手段(config での無効化手段なし)という記述
+
+  コピー凍結方針: 7スライドの見出し・ボディは上記p3-copy-final.mdの表の文字列と、
+  句読点・語順・語尾・カギ括弧・ダッシュを含め完全一致させている。要約・言い換え・
+  追記・削除はしていない。収まらない場合は文字を削らず、フォントサイズ・行間・
+  余白・ビジュアル配分などレイアウト側のみで調整した。
+-->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>orgh — メモを書いたら、終わってた。</title>
+<style>
+
+  :root{
+    --accent: #2f5fe0;
+    --accent-2: #5b8dff;
+    --accent-dark: #1c3f9e;
+    --accent-soft: #e9f0ff;
+    --accent-soft2: #dbe7ff;
+    --ink: #1f2430;
+    --ink-soft: #4d566b;
+    --ink-faint: #8791a8;
+    --line: #dde6f7;
+    --paper: #ffffff;
+    --paper-dim: #eef3fd;
+    --warn: #ffb020;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+    --sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html{ background:var(--paper-dim); }
+  body{
+    margin:0;
+    background:var(--paper-dim);
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.6;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+    word-break:keep-all;
+    line-break:strict;
+  }
+  p{ margin:0; }
+  strong{ color:var(--ink); font-weight:700; }
+  svg{ display:block; }
+
+  @page{ size:1280px 720px; margin:0; }
+
+  .slide{
+    width:1280px;
+    height:720px;
+    margin:0 auto;
+    overflow:hidden;
+    box-sizing:border-box;
+    position:relative;
+    break-after:page;
+    page-break-after:always;
+    padding:36px 68px 26px;
+    background:var(--paper);
+    box-shadow:inset 0 0 0 1px var(--line);
+    display:flex;
+    flex-direction:column;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  .slide:last-of-type{ break-after:auto; page-break-after:auto; }
+
+  /* ---------- header: ロゴ+ページ番号のみ ---------- */
+  .bar{
+    display:flex; justify-content:space-between; align-items:baseline;
+    border-bottom:2px solid var(--accent);
+    padding-bottom:8px; margin-bottom:20px;
+    font-family:var(--mono);
+    flex:none;
+  }
+  .bar .logo{ font-weight:800; font-size:14px; letter-spacing:.12em; color:var(--accent-dark); }
+  .bar .page{ font-size:11px; color:var(--ink-faint); letter-spacing:.05em; }
+
+  /* ---------- 見出し・ボディ ---------- */
+  h2.head{
+    font-size:42px;
+    font-weight:800;
+    line-height:1.38;
+    margin:0 0 12px;
+    max-width:34em;
+    color:var(--ink);
+    word-break:keep-all;
+    line-break:strict;
+    overflow-wrap:normal;
+    flex:none;
+  }
+  .lede{
+    font-size:19px;
+    line-height:1.75;
+    color:var(--ink-soft);
+    max-width:44em;
+    margin:0 0 12px;
+    word-break:keep-all;
+    line-break:strict;
+    flex:none;
+  }
+
+  .visual{
+    flex:1 1 auto;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+  }
+
+  /* ---------- evidence band ---------- */
+  .evidence{
+    flex:none;
+    margin-top:10px;
+    background:var(--paper-dim);
+    border-left:3px solid var(--accent);
+    border-radius:0 8px 8px 0;
+    padding:6px 14px;
+    font-family:var(--mono);
+    font-size:10.5px;
+    line-height:1.5;
+    color:var(--ink-soft);
+  }
+  .evidence .lbl{ color:var(--accent-dark); font-weight:700; }
+  .evidence .src{ color:var(--ink-faint); }
+
+  /* ================= slide 1: 夜のメモ ================= */
+  .night-frame{
+    flex:1 1 auto; min-height:0; position:relative;
+    border-radius:22px; overflow:hidden;
+    background:
+      radial-gradient(ellipse 60% 45% at 22% 18%, #2a3868 0%, transparent 60%),
+      linear-gradient(165deg, #1a2247 0%, #10142c 55%, #0a0d20 100%);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .star{ position:absolute; width:3px; height:3px; border-radius:50%; background:#fff; opacity:.85; }
+  .moon{
+    position:absolute; top:52px; right:96px; width:64px; height:64px; border-radius:50%;
+    background:#f4ecd8;
+    box-shadow: -20px 6px 0 -4px #1a2247, 0 0 34px 4px rgba(244,236,216,.35);
+  }
+  .lamp-glow{
+    position:absolute; left:50%; bottom:-40px; transform:translateX(-50%);
+    width:520px; height:340px; border-radius:50%;
+    background: radial-gradient(ellipse at 50% 30%, rgba(255,206,120,.38) 0%, rgba(255,206,120,0) 68%);
+  }
+  .memo-card{
+    position:relative; width:300px; background:#fffaf0;
+    border-radius:6px; padding:26px 24px 22px;
+    box-shadow: 0 22px 46px rgba(0,0,0,.45);
+    transform: rotate(-3deg);
+  }
+  .memo-tape{
+    position:absolute; top:-14px; left:50%; transform:translateX(-50%) rotate(-2deg);
+    width:88px; height:26px; background:rgba(255,255,255,.55);
+    border:1px solid rgba(255,255,255,.75);
+  }
+  .memo-line{ height:2px; background:#c9bfa0; border-radius:2px; margin:14px 0; }
+  .memo-line.w80{ width:80%; }
+  .memo-line.w60{ width:60%; }
+  .memo-line.w45{ width:45%; }
+  .memo-pin{
+    position:absolute; top:-8px; left:50%; transform:translateX(-50%);
+    width:14px; height:14px; border-radius:50%;
+    background: radial-gradient(circle at 35% 30%, #ff8a80, #c62828);
+    box-shadow:0 3px 5px rgba(0,0,0,.4);
+  }
+
+  /* ================= slide 2: 朝の成果物 ================= */
+  .morning-frame{
+    flex:1 1 auto; min-height:0; position:relative;
+    border-radius:22px; overflow:hidden;
+    background: linear-gradient(180deg, #fff6df 0%, #eef3fd 58%, #ffffff 100%);
+    display:flex; align-items:center; justify-content:center; gap:26px;
+    padding:26px 20px;
+  }
+  .sun{
+    position:absolute; top:26px; left:34px; width:46px; height:46px; border-radius:50%;
+    background: radial-gradient(circle, #ffd76a 0%, #ffd76a 55%, rgba(255,215,106,0) 75%);
+    box-shadow:0 0 26px 10px rgba(255,215,106,.35);
+  }
+  .deliver-card{
+    background:var(--paper); width:216px; border-radius:16px;
+    border:1px solid var(--line); border-top:6px solid var(--accent);
+    box-shadow:0 14px 30px rgba(47,95,224,.14);
+    padding:22px 18px 20px;
+    display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center;
+  }
+  .deliver-icon{ width:44px; height:44px; color:var(--accent); }
+  .deliver-title{ font-size:16px; font-weight:800; color:var(--ink); }
+  .deliver-sub{ font-size:12px; color:var(--ink-soft); line-height:1.6; }
+  .deliver-badge{
+    margin-top:2px; font-family:var(--mono); font-size:10.5px; font-weight:700;
+    color:var(--accent-dark); background:var(--accent-soft); border:1px solid var(--accent-2);
+    border-radius:999px; padding:2px 10px;
+  }
+
+  /* ================= slide 3: 4つの係(orgh-first-guide.html を流用) ================= */
+  .roles-frame{
+    flex:1 1 auto; min-height:0;
+    display:grid; grid-template-columns:repeat(4, 1fr); gap:18px;
+  }
+  .role-card{
+    display:flex; flex-direction:column; height:100%;
+    border:1px solid var(--line); border-top:5px solid var(--accent);
+    border-radius:14px; padding:20px 18px 18px;
+    background:var(--paper);
+    box-shadow:0 12px 26px rgba(47,95,224,.10);
+  }
+  .role-icon{ width:44px; height:44px; color:var(--accent); margin-bottom:12px; }
+  .role-icon svg{ width:100%; height:100%; }
+  .role-card h3{ margin:0 0 6px; font-size:19px; color:var(--ink); }
+  .role-card .role-line{ flex:1; color:var(--ink-soft); font-size:14px; line-height:1.65; margin:0 0 12px; }
+  .role-badge{
+    display:inline-block; align-self:flex-start; margin-top:auto;
+    background:var(--accent); color:#fff; font-size:11px; font-weight:700;
+    letter-spacing:.03em; padding:3px 10px; border-radius:999px;
+  }
+
+  /* ================= slide 4: あなたの仕事 ================= */
+  .work-frame{
+    flex:1 1 auto; min-height:0; display:flex; align-items:center; gap:22px;
+  }
+  .work-col{ flex:0 0 250px; display:flex; flex-direction:column; gap:14px; }
+  .work-chip{
+    display:flex; align-items:center; gap:12px;
+    background:var(--paper); border:1px solid var(--line); border-radius:12px;
+    padding:13px 16px; box-shadow:0 8px 18px rgba(47,95,224,.08);
+  }
+  .work-chip .ic{ width:26px; height:26px; color:var(--accent); flex:none; }
+  .work-chip .lb{ font-size:15px; font-weight:700; color:var(--ink); }
+  .work-arrow{
+    flex:0 0 70px; display:flex; align-items:center; justify-content:center;
+    font-size:30px; color:var(--accent-2); font-family:var(--mono);
+  }
+  .work-target{
+    flex:1 1 auto; height:100%; border-radius:18px;
+    background: linear-gradient(160deg, var(--accent-soft) 0%, var(--accent-soft2) 100%);
+    border:1px dashed var(--accent-2);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    padding:20px;
+  }
+  .work-target .cap{ font-size:20px; font-weight:800; color:var(--accent-dark); text-align:center; }
+  .work-mini-row{ display:flex; gap:10px; }
+  .work-mini{
+    width:52px; height:52px; border-radius:12px; background:#fff; border:1px solid var(--accent-2);
+    display:flex; align-items:center; justify-content:center; color:var(--accent);
+  }
+  .work-mini svg{ width:26px; height:26px; }
+
+  /* ================= slide 5: 上限メーター ================= */
+  .control-frame{
+    flex:1 1 auto; min-height:0; display:grid; grid-template-columns:1.1fr 1fr 1fr; gap:22px; align-items:stretch;
+  }
+  .gauge-card, .assure-card{
+    background:var(--paper); border:1px solid var(--line); border-radius:18px;
+    box-shadow:0 12px 26px rgba(47,95,224,.10);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; padding:18px;
+  }
+  .gauge-ring{ position:relative; width:130px; height:130px; }
+  .gauge-ring svg{ width:100%; height:100%; transform:rotate(-90deg); }
+  .gauge-label{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+  }
+  .gauge-label .n{ font-family:var(--mono); font-weight:800; font-size:15px; color:var(--accent-dark); line-height:1.3; text-align:center; }
+  .assure-icon{ width:46px; height:46px; color:var(--accent); }
+  .assure-title{ font-size:18px; font-weight:800; color:var(--ink); }
+  .assure-text{ font-size:13.5px; color:var(--ink-soft); text-align:center; line-height:1.6; max-width:18em; }
+
+  /* ================= slide 6: 職人の道具 ================= */
+  .toolbox-frame{
+    flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:18px;
+  }
+  .toolbox-tag{
+    font-family:var(--mono); font-size:11.5px; letter-spacing:.1em; color:var(--accent-dark);
+    background:var(--accent-soft); border:1px solid var(--accent-2); border-radius:999px;
+    padding:4px 14px;
+  }
+
+  /* ================= slide 7: 招待状 ================= */
+  .invite-frame{ flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; }
+  .invite{
+    width:760px; background:var(--paper); border:1px solid var(--line); border-radius:20px;
+    box-shadow:0 18px 40px rgba(47,95,224,.18);
+    display:flex; align-items:stretch; overflow:hidden;
+  }
+  .invite-main{ flex:1 1 auto; padding:28px 32px; display:flex; flex-direction:column; justify-content:center; gap:14px; }
+  .invite-main .k{ font-family:var(--mono); font-size:11.5px; letter-spacing:.12em; color:var(--accent-dark); font-weight:700; }
+  .invite-field{ display:flex; align-items:baseline; gap:12px; font-size:14.5px; }
+  .invite-field .fk{ width:96px; flex:none; color:var(--ink-faint); font-family:var(--mono); font-size:11.5px; }
+  .invite-field .fv{ flex:1; color:var(--ink); font-weight:700; border-bottom:1px dotted var(--line); padding-bottom:4px; }
+  .invite-stub{
+    flex:0 0 190px; border-left:2px dashed var(--accent-2);
+    background:linear-gradient(160deg, var(--accent-soft) 0%, var(--accent-soft2) 100%);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+  }
+  .invite-stub .big{ font-family:var(--mono); font-size:58px; font-weight:800; color:var(--accent-dark); line-height:1; }
+  .invite-stub .unit{ font-family:var(--mono); font-size:12px; color:var(--ink-soft); letter-spacing:.05em; }
+
+  @media print{
+    html, body{ width:1280px; height:auto; margin:0; background:var(--paper-dim); }
+    .slide{ margin:0; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- SVGアイコンスプライト(外部参照なし、全てインライン定義) -->
+  <svg width="0" height="0" style="position:absolute; overflow:hidden;">
+    <defs>
+      <!-- 計画係: クリップボード(orgh-first-guide.html の role-icon を流用) -->
+      <symbol id="ic-plan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="3.5" width="12" height="17" rx="1.6"></rect>
+        <path d="M9 3.5h6v2.2H9z"></path>
+        <path d="M8.5 11h7M8.5 14h7M8.5 17h4.5"></path>
+      </symbol>
+      <!-- 作業係: 歯車(同上流用) -->
+      <symbol id="ic-work" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3.2"></circle>
+        <path d="M12 3.5v2.4M12 18.1v2.4M4.6 12H2.2M21.8 12h-2.4M6.1 6.1 4.4 4.4M19.6 19.6l-1.7-1.7M17.9 6.1l1.7-1.7M4.4 19.6l1.7-1.7"></path>
+      </symbol>
+      <!-- 検品係: 虫眼鏡+チェック(同上流用) -->
+      <symbol id="ic-review" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10.5" cy="10.5" r="6.5"></circle>
+        <path d="M15.3 15.3 20.5 20.5"></path>
+        <path d="M8 10.5 9.8 12.3 13.3 8.8"></path>
+      </symbol>
+      <!-- 振り返り係: ノート(同上流用) -->
+      <symbol id="ic-retro" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 3.8h9.5A2.5 2.5 0 0 1 18 6.3v13.9H8.5A2.5 2.5 0 0 1 6 17.7z"></path>
+        <path d="M6 17.7A2.5 2.5 0 0 1 8.5 15.2H18"></path>
+        <path d="M9 8h6M9 11h6"></path>
+      </symbol>
+      <!-- 資料アイコン -->
+      <symbol id="ic-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6.5 3.5h8l3 3V20a.7.7 0 0 1-.7.7H6.5a.7.7 0 0 1-.7-.7V4.2a.7.7 0 0 1 .7-.7z"></path>
+        <path d="M14 3.5v3h3"></path>
+        <path d="M8.5 12h7M8.5 15h7M8.5 9h3"></path>
+      </symbol>
+      <!-- 調査(虫眼鏡)アイコン -->
+      <symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10.5" cy="10.5" r="6.5"></circle>
+        <path d="M15.3 15.3 20.5 20.5"></path>
+      </symbol>
+      <!-- やり直し(循環)アイコン -->
+      <symbol id="ic-redo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 12a7.5 7.5 0 0 1 12.6-5.5l1.9 1.8"></path>
+        <path d="M19.5 12a7.5 7.5 0 0 1-12.6 5.5l-1.9-1.8"></path>
+        <path d="M17.6 4.2v4.4H13.2"></path>
+        <path d="M6.4 19.8v-4.4h4.4"></path>
+      </symbol>
+      <!-- 下書き(鉛筆)アイコン -->
+      <symbol id="ic-draft" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14.5 4.5 19 9 8 20H3.5v-4.5z"></path>
+        <path d="M12.5 6.5 17 11"></path>
+      </symbol>
+      <!-- まとめ直し(束ねる矢印)アイコン -->
+      <symbol id="ic-merge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 5v5.5c0 2 1.4 3.5 3.5 3.5H14"></path>
+        <path d="M6 19v-5.5"></path>
+        <path d="M11.5 11 14 13.5 11.5 16"></path>
+      </symbol>
+      <!-- 停止(ハンド)アイコン -->
+      <symbol id="ic-stop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 12.5V6.3a1.3 1.3 0 0 1 2.6 0V11"></path>
+        <path d="M10.6 11V4.8a1.3 1.3 0 0 1 2.6 0V11"></path>
+        <path d="M13.2 11V6.3a1.3 1.3 0 0 1 2.6 0V13"></path>
+        <path d="M15.8 13V9a1.3 1.3 0 0 1 2.6 0v6.5c0 3.6-2.3 6-5.7 6-2.2 0-3.5-.8-4.8-2.4L4.8 15a1.3 1.3 0 0 1 1.9-1.7l1.3 1.2"></path>
+      </symbol>
+      <!-- 確認(吹き出し)アイコン -->
+      <symbol id="ic-ask" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 5.5h16v10.5H10l-4 4v-4H4z"></path>
+        <path d="M9.3 9.6c0-1.2 1-2 2.3-2s2.2.7 2.2 1.8c0 1.6-2.2 1.4-2.2 3.1"></path>
+        <path d="M11.6 14.9h.02"></path>
+      </symbol>
+      <!-- 工具箱アイコン -->
+      <symbol id="ic-toolbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="9.5" width="18" height="10" rx="1.4"></rect>
+        <path d="M8.5 9.5V6.8a1.4 1.4 0 0 1 1.4-1.4h4.2a1.4 1.4 0 0 1 1.4 1.4V9.5"></path>
+        <path d="M3 14h6M15 14h6"></path>
+        <rect x="9" y="12.3" width="6" height="3.4" rx="0.6"></rect>
+      </symbol>
+    </defs>
+  </svg>
+
+  <!-- slide 1: 感情①半信半疑。夜、メモを1枚だけ書いて寝た -->
+  <div class="slide" data-slide="1">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">01 / 07</span>
+    </div>
+    <h2 class="head">メモを書いて、寝た。</h2>
+    <p class="lede">「こういう資料が欲しい」って、一枚だけ。</p>
+    <div class="visual">
+      <div class="night-frame">
+        <span class="star" style="top:38px; left:120px;"></span>
+        <span class="star" style="top:70px; left:220px;"></span>
+        <span class="star" style="top:44px; left:360px;"></span>
+        <span class="star" style="top:96px; left:480px;"></span>
+        <span class="star" style="top:30px; left:620px;"></span>
+        <span class="star" style="top:120px; left:760px;"></span>
+        <span class="star" style="top:56px; left:900px;"></span>
+        <span class="star" style="top:150px; left:1020px;"></span>
+        <span class="moon"></span>
+        <div class="lamp-glow"></div>
+        <div class="memo-card">
+          <div class="memo-tape"></div>
+          <div class="memo-pin"></div>
+          <div class="memo-line w80"></div>
+          <div class="memo-line w60"></div>
+          <div class="memo-line w45"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- slide 2: 感情②へえ、本当だ。朝できていた3点の成果物 -->
+  <div class="slide" data-slide="2">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">02 / 07</span>
+    </div>
+    <h2 class="head">朝、できていた。</h2>
+    <p class="lede">資料も、調べ物のレポートも。<br>やり直しの指示すら、AI同士で済ませてあった。</p>
+    <div class="visual">
+      <div class="morning-frame">
+        <div class="sun"></div>
+        <div class="deliver-card">
+          <svg class="deliver-icon"><use href="#ic-doc"></use></svg>
+          <div class="deliver-title">資料</div>
+          <div class="deliver-sub">説明用HTML資料一式<br>5タスク、全件完了</div>
+          <span class="deliver-badge">$5.82</span>
+        </div>
+        <div class="deliver-card">
+          <svg class="deliver-icon"><use href="#ic-search"></use></svg>
+          <div class="deliver-title">調べ物のレポート</div>
+          <div class="deliver-sub">他社事例の比較調査<br>3タスク、全件完了</div>
+          <span class="deliver-badge">$17.29</span>
+        </div>
+        <div class="deliver-card">
+          <svg class="deliver-icon"><use href="#ic-redo"></use></svg>
+          <div class="deliver-title">やり直しの記録</div>
+          <div class="deliver-sub">検品で一度差し戻し<br>AI同士で再提出→合格</div>
+          <span class="deliver-badge">attempt 1→2</span>
+        </div>
+      </div>
+    </div>
+    <div class="evidence">
+      <span class="lbl">$</span> <span class="src">ops/demo/runs/2bdf2bee/mission.json</span> — spent_usd 5.8150450(資料5タスク全件status:done)<br>
+      <span class="lbl">$</span> <span class="src">ops/demo/runs/eec17e52/mission.json</span> — spent_usd 17.29249315(調査3タスク全件status:done) / <span class="src">2bdf2bee/ledger.jsonl:11-18</span> — t4はtask.review passed:falseの後、人手を介さずattempt2でpassed:true
+    </div>
+  </div>
+
+  <!-- slide 3: 感情③笑いと理解。会社メタファーの核=4つの係(主役ビジュアル) -->
+  <div class="slide" data-slide="3">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">03 / 07</span>
+    </div>
+    <h2 class="head">中では、小さな会社が働いている。</h2>
+    <p class="lede">計画係が仕事を分けて、作業係が同時に手を動かして、<br>検品係がダメ出しして、振り返り係がコツをメモする。</p>
+    <div class="visual">
+      <div class="roles-frame">
+        <article class="role-card">
+          <div class="role-icon"><svg><use href="#ic-plan"></use></svg></div>
+          <h3>計画係</h3>
+          <p class="role-line">仕事を分ける</p>
+          <span class="role-badge">Planner</span>
+        </article>
+        <article class="role-card">
+          <div class="role-icon"><svg><use href="#ic-work"></use></svg></div>
+          <h3>作業係</h3>
+          <p class="role-line">同時に手を動かす</p>
+          <span class="role-badge">Worker</span>
+        </article>
+        <article class="role-card">
+          <div class="role-icon"><svg><use href="#ic-review"></use></svg></div>
+          <h3>検品係</h3>
+          <p class="role-line">ダメ出しする</p>
+          <span class="role-badge">Reviewer</span>
+        </article>
+        <article class="role-card">
+          <div class="role-icon"><svg><use href="#ic-retro"></use></svg></div>
+          <h3>振り返り係</h3>
+          <p class="role-line">コツをメモする</p>
+          <span class="role-badge">Retro</span>
+        </article>
+      </div>
+    </div>
+  </div>
+
+  <!-- slide 4: 感情④自分ごと化。あなたの仕事に置き換える -->
+  <div class="slide" data-slide="4">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">04 / 07</span>
+    </div>
+    <h2 class="head">あなたの仕事にも、ある。</h2>
+    <p class="lede">調べ物。資料の下書き。まとめ直し。<br>「人がやらなくてもいい部分」から任せられる。</p>
+    <div class="visual">
+      <div class="work-frame">
+        <div class="work-col">
+          <div class="work-chip"><svg class="ic"><use href="#ic-search"></use></svg><span class="lb">調べ物</span></div>
+          <div class="work-chip"><svg class="ic"><use href="#ic-draft"></use></svg><span class="lb">資料の下書き</span></div>
+          <div class="work-chip"><svg class="ic"><use href="#ic-merge"></use></svg><span class="lb">まとめ直し</span></div>
+        </div>
+        <div class="work-arrow">→</div>
+        <div class="work-target">
+          <div class="cap">人がやらなくても<br>いい部分</div>
+          <div class="work-mini-row">
+            <div class="work-mini"><svg><use href="#ic-plan"></use></svg></div>
+            <div class="work-mini"><svg><use href="#ic-work"></use></svg></div>
+            <div class="work-mini"><svg><use href="#ic-review"></use></svg></div>
+            <div class="work-mini"><svg><use href="#ic-retro"></use></svg></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- slide 5: 感情⑤安心。上限メーターと「止まる」「聞いてくる」 -->
+  <div class="slide" data-slide="5">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">05 / 07</span>
+    </div>
+    <h2 class="head">お金は、決めた分しか使わない。</h2>
+    <p class="lede">上限を決めれば、そこで必ず止まる。<br>勝手なことを始める前には、必ず聞いてくる。</p>
+    <div class="visual">
+      <div class="control-frame">
+        <div class="gauge-card">
+          <div class="gauge-ring">
+            <svg viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="50" fill="none" stroke="var(--accent-soft2)" stroke-width="14"></circle>
+              <circle cx="60" cy="60" r="50" fill="none" stroke="var(--accent)" stroke-width="14"
+                stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="94"></circle>
+            </svg>
+            <div class="gauge-label"><span class="n">上限<br>まで</span></div>
+          </div>
+          <div class="assure-text">決めた金額に届いたら<br>そこで仕事は止まる</div>
+        </div>
+        <div class="assure-card">
+          <svg class="assure-icon"><use href="#ic-stop"></use></svg>
+          <div class="assure-title">止まる</div>
+          <div class="assure-text">上限を超える前に<br>未着手の仕事は止まる</div>
+        </div>
+        <div class="assure-card">
+          <svg class="assure-icon"><use href="#ic-ask"></use></svg>
+          <div class="assure-title">聞いてくる</div>
+          <div class="assure-text">勝手なことを始める前に<br>必ず人に確認しにくる</div>
+        </div>
+      </div>
+    </div>
+    <div class="evidence">
+      <span class="lbl">$</span> <span class="src">README.md:125-129</span> — loop.budget_usd/loop.task_budget_usd超過で未着手タスクがskippedになりミッション停止<br>
+      <span class="lbl">$</span> <span class="src">docs/threat-model.md「自己改変承認ゲート」節</span> / <span class="src">orgh/guard.py</span> — 自己改変対象workdirはawaiting_approvalで停止、orgh approveのみが続行手段(config無効化手段なし)
+    </div>
+  </div>
+
+  <!-- slide 6: 感情⑥正直さで信頼。誇張しない道具箱 -->
+  <div class="slide" data-slide="6">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">06 / 07</span>
+    </div>
+    <h2 class="head">ただし、いまはまだ職人の道具。</h2>
+    <p class="lede">正直に言うと、セットアップにはエンジニアの手がいる。<br>だから —</p>
+    <div class="visual">
+      <div class="toolbox-frame">
+        <svg style="width:120px; height:120px; color:var(--accent);"><use href="#ic-toolbox"></use></svg>
+        <span class="toolbox-tag">SETUP: エンジニアの手が要る</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- slide 7: 感情⑦見たい。デモ招待 -->
+  <div class="slide" data-slide="7">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">07 / 07</span>
+    </div>
+    <h2 class="head">今度、目の前で見せるよ。</h2>
+    <p class="lede">メモを1枚書くところから。<br>10分で伝わるはず。</p>
+    <div class="visual">
+      <div class="invite-frame">
+        <div class="invite">
+          <div class="invite-main">
+            <span class="k">ご招待 — LIVE DEMO</span>
+            <div class="invite-field"><span class="fk">内容</span><span class="fv">メモを1枚書くところから、実演</span></div>
+            <div class="invite-field"><span class="fk">相手</span><span class="fv">あなた</span></div>
+            <div class="invite-field"><span class="fk">持ち物</span><span class="fv">気になっていること、ひとつ</span></div>
+          </div>
+          <div class="invite-stub">
+            <span class="big">10</span>
+            <span class="unit">MINUTES</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 縦読みテスト(見出しのみを並べて感情の線を確認)
+  1. メモを書いて、寝た。
+  2. 朝、できていた。
+  3. 中では、小さな会社が働いている。
+  4. あなたの仕事にも、ある。
+  5. お金は、決めた分しか使わない。
+  6. ただし、いまはまだ職人の道具。
+  7. 今度、目の前で見せるよ。
+  評価: 1は夜にメモ1枚だけという小さな行動から始まり半信半疑を作る。2は朝には
+  資料・調査・やり直しまで終わっているという意外性で「へえ、本当だ」へ転換する。
+  3で「小さな会社」というメタファーにより、2の仕組みを笑いと理解で受け止めさせる。
+  4は3の係を自分の仕事(調べ物・下書き・まとめ直し)に置き換えて自分ごと化する。
+  5は4で「任せる」ことへの不安(お金・暴走)を上限と確認の仕組みで解消し安心させる。
+  6は誇張せずセットアップの手間を正直に開示し、それが逆に信頼を作る。
+  7は6の「だから —」を受けて、目の前で見せるという具体的な行動へ断絶なく接続する。
+  -->
+
+</body>
+</html>

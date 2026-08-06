@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<!-- pitch-business.html — P1(経営者・ビジネス意思決定者)向けピッチ。 -->
+<!-- 一次情報源: ops/demo/p1-copy-final.md(確定コピー・一字一句凍結)/ ops/demo/pitch-persona-design.md P1節(感情設計)。 -->
+<!-- 実装構造・CSS手法は docs/product/pitch-engineer.html(P2/16:9固定枠・証拠帯)と docs/product/orgh-pitch.html(レシート表現)を参考に、視覚identityのみ明るい帳票系へ独自配色で再構築(P2のダーク基調・orgh-pitch.htmlの朱色スタンプとは異なるアクセント=元帳インクの深緑を採用)。 -->
+<!-- コピー凍結: 見出し・ボディの文字列は句読点・語順・語尾とも p1-copy-final.md の記載どおり。改行は<br>のみで意味の切れ目に挿入。証拠帯の数値は ops/demo/runs/2bdf2bee, eec17e52, 099e281b の mission.json(spent_usd実測)を直接読んで裏取りした。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>orgh — AIの働きに、レシートが付く。</title>
+<style>
+
+  :root{
+    --paper: #FBF9F3;
+    --paper-dim: #EFEAD9;
+    --panel: #FFFFFF;
+    --ink: #21201A;
+    --ink-soft: #58564A;
+    --ink-faint: #8B8873;
+    --line: #D8D2BC;
+    --accent: #146B4B;
+    --accent-dark: #0C4A33;
+    --accent-soft: #E1EFE7;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+    --sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html{ background:var(--paper-dim); }
+  body{
+    margin:0;
+    background:var(--paper-dim);
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.6;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+    text-wrap:pretty;
+    word-break:keep-all;
+    line-break:strict;
+  }
+  p{ margin:0; }
+  strong{ color:var(--ink); font-weight:700; }
+
+  @page{ size:1280px 720px; margin:0; }
+
+  .slide{
+    width:1280px;
+    height:720px;
+    margin:0 auto;
+    overflow:hidden;
+    box-sizing:border-box;
+    position:relative;
+    break-after:page;
+    page-break-after:always;
+    padding:38px 72px 28px;
+    background:var(--paper);
+    box-shadow:inset 0 0 0 1px var(--line);
+    display:flex;
+    flex-direction:column;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  .slide:last-of-type{ break-after:auto; page-break-after:auto; }
+
+  .bar{
+    display:flex; justify-content:space-between; align-items:baseline;
+    border-bottom:2px solid var(--ink);
+    padding-bottom:9px; margin-bottom:22px;
+    font-family:var(--mono);
+    flex:none;
+  }
+  .bar .logo{ font-weight:800; font-size:14px; letter-spacing:.1em; color:var(--ink); }
+  .bar .page{ font-size:11px; color:var(--ink-soft); letter-spacing:.05em; }
+
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:11.5px;
+    letter-spacing:.12em;
+    color:var(--accent-dark);
+    margin:0 0 10px;
+    flex:none;
+  }
+  h2.head{
+    font-size:36px;
+    font-weight:800;
+    line-height:1.36;
+    margin:0 0 14px;
+    max-width:34em;
+    color:var(--ink);
+    text-wrap:balance;
+    word-break:keep-all;
+    overflow-wrap:normal;
+    flex:none;
+  }
+  .lede{
+    font-size:16px;
+    line-height:1.7;
+    color:var(--ink-soft);
+    max-width:46em;
+    margin:0 0 10px;
+    flex:none;
+  }
+
+  .visual{
+    flex:1 1 auto;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+  }
+
+  /* ---------- evidence band ---------- */
+  .evidence{
+    flex:none;
+    margin-top:14px;
+    background:var(--paper-dim);
+    border-left:3px solid var(--accent);
+    padding:10px 16px;
+    font-family:var(--mono);
+    font-size:12px;
+    line-height:1.6;
+    color:var(--ink-soft);
+  }
+  .evidence .lbl{ color:var(--accent-dark); font-weight:700; }
+  .evidence .src{ color:var(--ink-faint); }
+
+  /* ---------- receipt(帳票)共通コンポーネント: slide1 / slide4 で流用 ---------- */
+  .receipt-frame{
+    flex:1 1 auto;
+    min-height:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:var(--accent-soft);
+    border:1px dashed var(--accent);
+  }
+  .receipt{
+    width:560px;
+    background:var(--panel);
+    border:1px solid var(--ink);
+    box-shadow:7px 7px 0 var(--line);
+    padding:22px 28px 20px;
+    font-family:var(--mono);
+    position:relative;
+  }
+  .receipt::before, .receipt::after{
+    content:"";
+    position:absolute; left:0; right:0; height:9px;
+    background:
+      linear-gradient(135deg, var(--paper) 25%, transparent 25%) 0 0,
+      linear-gradient(-135deg, var(--paper) 25%, transparent 25%) 0 0;
+    background-size:12px 12px;
+    background-repeat:repeat-x;
+  }
+  .receipt::before{ top:-1px; }
+  .receipt::after{ bottom:-1px; transform:rotate(180deg); }
+  .receipt .r-title{ text-align:center; font-size:15px; font-weight:800; letter-spacing:.1em; margin:0 0 2px; }
+  .receipt .r-sub{ text-align:center; font-size:10.5px; color:var(--ink-faint); margin-bottom:14px; }
+  .receipt .rule{ border-top:1px dashed var(--ink-faint); margin:11px 0; }
+  .rline{ display:flex; align-items:baseline; gap:8px; font-size:14px; margin:9px 0; }
+  .rline .label{ white-space:nowrap; color:var(--ink); }
+  .rline .leader{ flex:1; border-bottom:1px dotted var(--ink-faint); height:1px; margin-bottom:4px; }
+  .rline .val{ white-space:nowrap; font-weight:700; font-variant-numeric:tabular-nums; }
+  .rline .pass{ font-size:10.5px; color:var(--accent-dark); white-space:nowrap; background:var(--accent-soft); border:1px solid var(--accent); padding:1px 6px; margin-left:6px; }
+  .receipt .total{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:19px; font-weight:800;
+    border-top:3px double var(--ink); padding-top:11px; margin-top:6px;
+    font-variant-numeric:tabular-nums;
+  }
+  .receipt .total .val{ color:var(--accent-dark); }
+  .receipt .r-foot{ margin-top:12px; font-size:10px; color:var(--ink-faint); text-align:center; line-height:1.6; }
+
+  /* ---------- slide 2: 空欄レポート ---------- */
+  .report-frame{
+    flex:1 1 auto; min-height:0;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--panel); border:1px solid var(--line);
+  }
+  .report{ width:620px; }
+  .report .rep-head{
+    display:flex; justify-content:space-between; align-items:baseline;
+    border-bottom:2px solid var(--ink); padding-bottom:8px; margin-bottom:16px;
+  }
+  .report .rep-head .t{ font-size:15px; font-weight:800; letter-spacing:.04em; }
+  .report .rep-head .s{ font-family:var(--mono); font-size:10.5px; color:var(--ink-faint); }
+  .rep-row{ display:flex; align-items:baseline; gap:12px; padding:12px 0; border-bottom:1px dashed var(--line); }
+  .rep-row .k{ width:190px; flex:none; font-size:13.5px; color:var(--ink-soft); }
+  .rep-row .blank{ flex:1; border-bottom:1px dotted var(--ink-faint); height:1px; margin-bottom:6px; }
+  .rep-row .q{ font-family:var(--mono); font-size:20px; font-weight:800; color:var(--ink-faint); }
+
+  /* ---------- slide 3: 小さな会社フロー ---------- */
+  .org-frame{ flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; }
+  .org-row{ display:flex; align-items:center; gap:10px; width:100%; }
+  .org-node{
+    border:1px solid var(--line); background:var(--panel); border-radius:3px;
+    padding:14px 12px; text-align:center; display:flex; flex-direction:column; gap:4px; justify-content:center;
+  }
+  .org-node.person{ border-color:var(--ink); background:var(--paper-dim); flex:0 0 108px; height:104px; }
+  .org-node.person .t{ font-size:22px; }
+  .org-node.person .s{ font-family:var(--mono); font-size:10.5px; color:var(--ink-soft); }
+  .org-node.role{ flex:1 1 0; height:130px; border-color:var(--accent); }
+  .org-node.role .t{ font-size:16px; font-weight:800; color:var(--accent-dark); }
+  .org-node.role .s{ font-size:11.5px; color:var(--ink-soft); line-height:1.5; }
+  .org-parallel{ flex:1.4 1 0; display:grid; grid-template-rows:repeat(3, 1fr); gap:6px; height:130px; }
+  .org-parallel .w{
+    border:1px solid var(--accent); background:var(--accent-soft);
+    display:flex; align-items:center; justify-content:center;
+    font-size:11.5px; color:var(--accent-dark); font-family:var(--mono);
+  }
+  .org-arrow{ flex:none; font-size:16px; color:var(--ink-faint); font-family:var(--mono); }
+
+  /* ---------- slide 5: 統制スタンプ ---------- */
+  .seal-frame{ flex:1 1 auto; min-height:0; display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-items:stretch; }
+  .seal-card{
+    border:1px solid var(--line); background:var(--panel);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    padding:18px 14px;
+  }
+  .seal-ring{
+    width:88px; height:88px; border-radius:50%; border:3px solid var(--accent);
+    display:flex; align-items:center; justify-content:center; position:relative;
+    transform:rotate(-6deg); flex:none;
+  }
+  .seal-ring::before{ content:""; position:absolute; inset:6px; border:1px dashed var(--accent); border-radius:50%; }
+  .seal-ring span{ font-family:var(--mono); font-weight:800; font-size:12px; color:var(--accent-dark); line-height:1.35; text-align:center; }
+  .seal-text{ font-size:12.5px; color:var(--ink-soft); text-align:center; line-height:1.6; max-width:20em; }
+
+  /* ---------- slide 6: パイロット3ステップ ---------- */
+  .steps-frame{ flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; gap:0; }
+  .step{
+    flex:1 1 0; height:200px; border:1px solid var(--line); background:var(--panel);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:14px;
+  }
+  .step .num{
+    width:38px; height:38px; border-radius:50%; background:var(--accent); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-weight:800; font-size:16px;
+  }
+  .step .t{ font-size:14px; font-weight:700; text-align:center; line-height:1.5; }
+  .step-arrow{ flex:none; width:44px; text-align:center; font-size:20px; color:var(--ink-faint); font-family:var(--mono); }
+
+  /* ---------- slide 7: 予約票 ---------- */
+  .ticket-frame{ flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; }
+  .ticket{
+    width:820px; border:1px solid var(--ink); background:var(--panel);
+    box-shadow:8px 8px 0 var(--accent-soft);
+    display:flex; align-items:stretch;
+  }
+  .ticket .t-main{ flex:1 1 0; padding:26px 30px; display:flex; flex-direction:column; justify-content:center; gap:14px; }
+  .ticket .t-main .k{ font-family:var(--mono); font-size:11px; letter-spacing:.12em; color:var(--accent-dark); }
+  .ticket-field{ display:flex; align-items:baseline; gap:10px; font-size:13.5px; }
+  .ticket-field .fk{ width:96px; flex:none; color:var(--ink-faint); font-family:var(--mono); font-size:11px; }
+  .ticket-field .fv{ flex:1; border-bottom:1px dotted var(--ink-faint); height:1px; }
+  .t-stub{
+    flex:0 0 168px; border-left:2px dashed var(--ink);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    background:var(--paper-dim);
+  }
+  .t-stub .big{ font-family:var(--mono); font-size:56px; font-weight:800; color:var(--accent-dark); line-height:1; }
+  .t-stub .unit{ font-family:var(--mono); font-size:12px; color:var(--ink-soft); }
+
+  @media print{
+    html, body{ width:1280px; height:auto; margin:0; background:var(--paper-dim); }
+    .slide{ margin:0; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- slide 1: フック。①具体的な請求額で関心。証拠: ops/demo/p1-copy-final.mdの26USD内訳指示に基づく -->
+  <div class="slide" data-slide="1">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">01 / 07</span>
+    </div>
+    <p class="eyebrow">01 — 請求書</p>
+    <h2 class="head">AIチームに仕事を3件出した。<br>請求は、26ドルだった。</h2>
+    <p class="lede">資料一式、市場調査、システムの自己改修。<br>すべて実行記録つきで納品された。</p>
+    <div class="visual">
+      <div class="receipt-frame">
+        <!-- 証拠: 26USD内訳 = 5.82 + 17.29 + 2.97 -->
+        <div class="receipt">
+          <div class="r-title">ご 請 求 書</div>
+          <div class="r-sub">ORGH AI CHIME — 3 MISSIONS</div>
+          <div class="rline"><span class="label">資料一式(5タスク)</span><span class="leader"></span><span class="val">$5.82</span></div>
+          <div class="rline"><span class="label">市場調査(3タスク)</span><span class="leader"></span><span class="val">$17.29</span></div>
+          <div class="rline"><span class="label">自己改修(2タスク)</span><span class="leader"></span><span class="val">$2.97</span></div>
+          <div class="rule"></div>
+          <div class="total"><span>合計</span><span class="val">$26.08</span></div>
+          <div class="r-foot">実行記録つき・全10タスク納品</div>
+        </div>
+      </div>
+    </div>
+    <div class="evidence">
+      <span class="lbl">$</span> <span class="src">ops/demo/runs/2bdf2bee/mission.json</span> — spent_usd 5.8150450(資料一式、5タスク全件完了)<br>
+      <span class="lbl">$</span> <span class="src">ops/demo/runs/eec17e52/mission.json</span> — spent_usd 17.29249315(市場調査、3タスク全件完了) / <span class="src">099e281b/mission.json</span> — spent_usd 2.9703683(自己改修、2タスク全件完了)
+    </div>
+  </div>
+
+  <!-- slide 2: 痛み。②「うちも数字がない」 -->
+  <div class="slide" data-slide="2">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">02 / 07</span>
+    </div>
+    <p class="eyebrow">02 — よくある盲点</p>
+    <h2 class="head">AI導入の報告書に、数字がなかった。</h2>
+    <p class="lede">ツールは入れた。で、いくら掛かって、<br>何が終わったのか。答えられる会社は少ない。</p>
+    <div class="visual">
+      <div class="report-frame">
+        <div class="report">
+          <div class="rep-head">
+            <span class="t">導入レポート</span>
+            <span class="s">Q3 SUMMARY</span>
+          </div>
+          <div class="rep-row"><span class="k">投じた金額</span><span class="blank"></span><span class="q">?</span></div>
+          <div class="rep-row"><span class="k">終わった仕事</span><span class="blank"></span><span class="q">?</span></div>
+          <div class="rep-row"><span class="k">続けるべきか</span><span class="blank"></span><span class="q">?</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- slide 3: 仕組みは30秒。③小さな会社メタファー -->
+  <div class="slide" data-slide="3">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">03 / 07</span>
+    </div>
+    <p class="eyebrow">03 — しくみ</p>
+    <h2 class="head">メモが仕事になる、小さな会社。</h2>
+    <p class="lede">計画係が仕事を分け、<br>作業係が並列で進め、検品係が合格を判定する。<br>人がするのは、依頼と検収だけ。</p>
+    <div class="visual">
+      <div class="org-frame">
+        <div class="org-row">
+          <div class="org-node person"><div class="t">人</div><div class="s">依頼</div></div>
+          <div class="org-arrow">→</div>
+          <div class="org-node role"><div class="t">計画係</div><div class="s">仕事を分ける</div></div>
+          <div class="org-arrow">→</div>
+          <div class="org-parallel">
+            <div class="w">作業係 A</div>
+            <div class="w">作業係 B</div>
+            <div class="w">作業係 C</div>
+          </div>
+          <div class="org-arrow">→</div>
+          <div class="org-node role"><div class="t">検品係</div><div class="s">合格を判定</div></div>
+          <div class="org-arrow">→</div>
+          <div class="org-node person"><div class="t">人</div><div class="s">検収</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- slide 4: レシートで信頼。④精算書(スライド1のレシート表現を流用) -->
+  <div class="slide" data-slide="4">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">04 / 07</span>
+    </div>
+    <p class="eyebrow">04 — 精算書</p>
+    <h2 class="head">成果には、レシートが付く。</h2>
+    <p class="lede">何にいくら使い、何が合格したか。<br>ミッションごとに実測が残る。</p>
+    <div class="visual">
+      <div class="receipt-frame">
+        <div class="receipt">
+          <div class="r-title">精 算 書</div>
+          <div class="r-sub">MISSION SETTLEMENT — 3 MISSIONS / 10 TASKS</div>
+          <div class="rline"><span class="label">資料一式</span><span class="leader"></span><span class="val">$5.82</span><span class="pass">合格 5/5</span></div>
+          <div class="rline"><span class="label">市場調査</span><span class="leader"></span><span class="val">$17.29</span><span class="pass">合格 3/3</span></div>
+          <div class="rline"><span class="label">自己改修</span><span class="leader"></span><span class="val">$2.97</span><span class="pass">合格 2/2</span></div>
+          <div class="rule"></div>
+          <div class="total"><span>合計</span><span class="val">$26.08</span></div>
+          <div class="r-foot">全10タスク合格・差し戻し履歴つきで保存</div>
+        </div>
+      </div>
+    </div>
+    <div class="evidence">
+      <span class="lbl">$</span> <span class="src">ops/demo/runs/{2bdf2bee,eec17e52,099e281b}/ledger.jsonl</span> — task.review passed:true が全10タスクで記録済み(差し戻し発生分も再審査後に合格)
+    </div>
+  </div>
+
+  <!-- slide 5: 統制で安心。⑤3つの歯止め -->
+  <div class="slide" data-slide="5">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">05 / 07</span>
+    </div>
+    <p class="eyebrow">05 — 統制</p>
+    <h2 class="head">使いすぎない。<br>勝手に変わらない。<br>苦手を隠さない。</h2>
+    <p class="lede">上限を超えたら止まる。<br>自分を書き換える時は人間を待つ。<br>できないことは文書で公開している。</p>
+    <div class="visual">
+      <div class="seal-frame">
+        <div class="seal-card">
+          <div class="seal-ring"><span>予算<br>上限</span></div>
+          <div class="seal-text">上限を超えたら、未着手タスクは止まる</div>
+        </div>
+        <div class="seal-card">
+          <div class="seal-ring"><span>承認<br>待ち</span></div>
+          <div class="seal-text">自分を書き換える依頼は、人間の承認を待つ</div>
+        </div>
+        <div class="seal-card">
+          <div class="seal-ring"><span>非対応<br>公開</span></div>
+          <div class="seal-text">守っていない範囲を、文書で公開している</div>
+        </div>
+      </div>
+    </div>
+    <div class="evidence">
+      <span class="lbl">$</span> <span class="src">README.md:123-129</span> 予算ガード — budget_usd/task_budget_usd超過で未着手タスクがskippedになりミッション停止<br>
+      <span class="lbl">$</span> <span class="src">docs/threat-model.md:11-12</span> / <span class="src">orgh/guard.py:3-5</span> — 自己改変対象workdirはawaiting_approvalで停止、orgh approveのみが続行手段でconfigでの無効化手段なし<br>
+      <span class="lbl">$</span> <span class="src">docs/threat-model.md:31-39</span> — 「守らないもの」節でworktreeは権限隔離でない等の限界を明記
+    </div>
+  </div>
+
+  <!-- slide 6: 小さく試せる道筋。⑥パイロット導線 -->
+  <div class="slide" data-slide="6">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">06 / 07</span>
+    </div>
+    <p class="eyebrow">06 — はじめかた</p>
+    <h2 class="head">パイロットは、1ミッションから。</h2>
+    <p class="lede">予算上限を決めて、1つ任せる。<br>レシートを見て、続けるかを決めればいい。</p>
+    <div class="visual">
+      <div class="steps-frame">
+        <div class="step"><div class="num">1</div><div class="t">予算上限を<br>決める</div></div>
+        <div class="step-arrow">→</div>
+        <div class="step"><div class="num">2</div><div class="t">1ミッションを<br>任せる</div></div>
+        <div class="step-arrow">→</div>
+        <div class="step"><div class="num">3</div><div class="t">レシートを見て<br>続けるか決める</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- slide 7: CTA。⑦行動(30分の実演依頼) -->
+  <div class="slide" data-slide="7">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">07 / 07</span>
+    </div>
+    <p class="eyebrow">07 — お誘い</p>
+    <h2 class="head">30分ください。<br>目の前で1ミッション回します。</h2>
+    <p class="lede">説明資料はもう要らない。<br>動くところを見るのが、いちばん早い。</p>
+    <div class="visual">
+      <div class="ticket-frame">
+        <div class="ticket">
+          <div class="t-main">
+            <span class="k">LIVE DEMO — ご予約票</span>
+            <div class="ticket-field"><span class="fk">内容</span><span class="fv"></span></div>
+            <div class="ticket-field"><span class="fk">対象</span><span class="fv"></span></div>
+            <div class="ticket-field"><span class="fk">持ち物</span><span class="fv"></span></div>
+          </div>
+          <div class="t-stub">
+            <span class="big">30</span>
+            <span class="unit">MINUTES</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 縦読みテスト
+  1. AIチームに仕事を3件出した。請求は、26ドルだった。
+  2. AI導入の報告書に、数字がなかった。
+  3. メモが仕事になる、小さな会社。
+  4. 成果には、レシートが付く。
+  5. 使いすぎない。勝手に変わらない。苦手を隠さない。
+  6. パイロットは、1ミッションから。
+  7. 30分ください。目の前で1ミッション回します。
+  評価: 1で具体的な請求額という意外性から関心を作り、2で自社の報告書にも数字が無いという痛みへ転換する。
+  3で「小さな会社」の比喩により、痛みの解決策(仕組み)を専門用語なしで理解させる。
+  4は3の仕組みが生む成果物(レシート)を提示し、1の請求額と同じ視覚モチーフで信頼を積む。
+  5は4で見せた実測の裏にある歯止め(予算・承認・公開)を示し警戒を解く。
+  6は導入の心理的コストを下げ、7で具体的な行動(30分の実演)へ接続しており断絶はない。
+  -->
+</body>
+</html>
