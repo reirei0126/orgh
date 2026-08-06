@@ -4,6 +4,12 @@ Obsidian/メモ → 意図解釈 → 計画(DAG) → Claude Code / Codex セッ�
 
 > **EN**: An agent-orchestration harness that turns plain notes into executed missions: a Planner (Opus) designs a task DAG, parallel workers (Claude Code / Codex sessions) implement, a Reviewer gates each task against acceptance criteria — failed reviews are sent back into the *same* session via `--resume` so context is preserved, and plan-level defects escalate back to the Planner (`REPLAN:`). After each mission a Retro distills lessons into `playbooks/`, which are auto-injected into every future prompt, so the "organization" gets smarter with each run. Includes budget guards, git-worktree isolation for parallel tasks, a self-modification approval gate, and an ops report that tracks first-attempt pass rate over time.
 
+## デモ(実ミッションの記録)
+
+![orgh demo — real mission](docs/demo.gif)
+
+実LLMによる未編集のミッション記録(待ち時間のみ圧縮)。`orgh run --intent "todo CLIにdoneコマンドとpytestを追加"` → Planner(Opus)がタスクDAGを設計 → Claude Codeセッションが実装 → Reviewerが実テスト実行込みで検収(attempt 1で合格) → コスト $1.34 / 予算$6の22%。後半は成果の検証: エージェントが書いたdiff、テスト6件グリーン、追加された`done`コマンドの実動作。
+
 ## 組織構造
 
 ```
