@@ -20,7 +20,8 @@
 判定ルール(優先順位順):
 
 0. **内部ヘルパー関数の統合評価**: 1つの呼び出し元(親のパイプライン関数、または唯一のCLIサブコマンド)からしか参照されず、**除去すると親の機能自体が成立しない実装本体**は、独立に下記1〜6を適用せず、**親の判定をそのまま継承する**。親を残す判断をした場合、内部ヘルパーだけを個別に削除候補として承認欄に出さない(理由: 親を残す限りヘルパーも実行され続けるため、独立した削除候補として扱うと「親はKEEP、部品はCANDIDATE」という実行不能な組み合わせが生まれる)。対象例: `orgh/gc.py::_backup`/`_archive_old_lessons`/`_consolidate`/`_gc_runs`(親: `run_gc`。この4段が`run_gc`の処理本体そのもの)、`orgh/worktree.py::merge_dep_branches`(親: `ensure_task_worktree`。除去すると依存タスクが依存元の成果物を受け取れず、マルチタスクミッションのワークツリー機構が成立しない)、`orgh/doctor.py::run_doctor`(親: CLIの`orgh/cli.py::doctor`)、`orgh/worktree.py::cleanup_mission_worktrees`(親: CLIの`orgh/cli.py::cleanup`)。
-   **適用除外(2026-08-07 review-audit-r3で限定)**: 呼び出し元が1つでも、**親を残したまま除去できる任意フック・付加挙動**(設定で無効化可能な定期処理など)はこのルールの対象外とし、個別に評価する。該当: `orgh/watcher.py::_maybe_gc`(`watch.gc_interval_days`を空にすれば無効化でき、`watch()`本体の監視・着火機能は成立し続ける)→ 独立WATCHとして承認対象に戻す。
+   **適用除外(2026-08-07 review-audit-r3で限定)**: 呼び出し元が1つでも、**親を残したまま除去できる任意フック・付加挙動**(設定で無効化可能な定期処理など)はこのルールの対象外とし、個別に評価する。該当: `orgh/watcher.py::_maybe_gc`(`watch.gc_interval_days`を空にすれば無効化でき、`watch()`本体の監視・着火機能は成立し続ける)、`orgh/worktree.py::merge_dep_branches`(依存ブランチ不在・マージ競合時はスキップして実行継続する実装のため、除去してもworktree機構の最小動作は成立する)→ いずれも個別評価のうえ、必要なら下記の上書き規則を適用する。
+7. **機械判定の上書き規則(2026-08-07 review-audit-r4で明文化)**: ルール1〜6の機械判定は、次のいずれかを根拠として判定根拠列に明記した場合に限り上書きできる。(a) **実行痕跡**: runs/配下のマーカー・ログ・コンソール出力に当該機能の実行記録が現存する。(b) **文書化された機能価値**: HANDOFF.md・コミット履歴に、実運用の障害・要求から導入された経緯が記録されている。上書きした行は根拠の所在(ファイルパス)を必ず判定根拠列に書く。
 1. **U = 0**(紐づくユースケースが1件も無い)→ 原則 **UNKNOWN**(「本当に不要」なのか「usecase台帳の記載漏れ」なのかを機械ルールだけでは区別できないため、無条件のCANDIDATE化はしない)。ただし以下の3区分でこの原則から外れる(2026-08-07 review-audit-r2反映で3区分を明文化。旧版はT=3〜9の扱いが未定義だった):
    - **T ≥ 10** → 記載漏れの可能性が高いとみなし **KEEP**。運用文書(HANDOFF.md・README.md・git log等)に実運用を裏付ける明示的な記述があれば判定根拠列に併記する。
    - **3 ≤ T ≤ 9** → 運用文書上の明示的な裏付けの有無を問わず **WATCH** とする(無関係語の水増しでは説明できない実質的な参照が一定数ある以上、無条件のUNKNOWNには据え置かない。例: `orgh/cli.py::scan`、T=7、運用文書上の裏付けなし)。
@@ -57,7 +58,7 @@
 | **UNKNOWN** | 1 | **0** | −1 | ユースケースへの一意な帰属を判断する材料が不足。 |
 | **合計** | 89 | 89 | 0 | |
 
-再集計の内訳(review-audit-r1反映で17件がCANDIDATE/UNKNOWNから移動): usecases.json記載漏れが確認できた9機能(`orgh/cli.py::status`・`--config`・`list`、`orgh/listing.py::list_missions`、`orgh/status_json.py::status_payload`、`orgh/orchestrator.py::_is_infra_error`、`orgh/state.py::LoopCfg.infra_max_retries`・`validate_config`、`orgh/worktree.py::merge_dep_branches`)→**KEEP**、CLI/実装本体の統合評価により1機能(`orgh/doctor.py::run_doctor`)→**KEEP**、内部ヘルパー3機能(`orgh/gc.py::_archive_old_lessons`/`_consolidate`/`_gc_runs`)・CLI/実装本体統合1機能(`orgh/worktree.py::cleanup_mission_worktrees`)・休止ユースケース化1機能(`orgh/orchestrator.py::_initiate_budget_stop`)・記載漏れ1機能(`orgh/cli.py::scan`)→**WATCH**、UNKNOWN 1機能(`config.example.yaml::loop.task_timeout`)→複数usecase帰属により**WATCH**(9+1+3+1+1+1+1=17件。詳細はセクション6b)。さらにreview-audit-r2反映で1件(`orgh/watcher.py::_maybe_gc`、ルール0の親子統合評価によりCANDIDATE→**KEEP**。詳細はセクション6c)が追加で移動し、cumulative で計18件がCANDIDATE/UNKNOWNから移動、残るCANDIDATEは2件のみとなった。詳細はセクション3・7を参照。
+再集計の内訳(review-audit-r1反映で17件がCANDIDATE/UNKNOWNから移動): usecases.json記載漏れが確認できた9機能(`orgh/cli.py::status`・`--config`・`list`、`orgh/listing.py::list_missions`、`orgh/status_json.py::status_payload`、`orgh/orchestrator.py::_is_infra_error`、`orgh/state.py::LoopCfg.infra_max_retries`・`validate_config`、`orgh/worktree.py::merge_dep_branches`)→**KEEP**、CLI/実装本体の統合評価により1機能(`orgh/doctor.py::run_doctor`)→**KEEP**、内部ヘルパー3機能(`orgh/gc.py::_archive_old_lessons`/`_consolidate`/`_gc_runs`)・CLI/実装本体統合1機能(`orgh/worktree.py::cleanup_mission_worktrees`)・休止ユースケース化1機能(`orgh/orchestrator.py::_initiate_budget_stop`)・記載漏れ1機能(`orgh/cli.py::scan`)→**WATCH**、UNKNOWN 1機能(`config.example.yaml::loop.task_timeout`)→複数usecase帰属により**WATCH**(9+1+3+1+1+1+1=17件。詳細はセクション6b)。さらに`orgh/watcher.py::_maybe_gc`はr2でKEEPへ移動後、r4の再改訂で最終的に**WATCH**となった(経緯はセクション6c)。cumulative で計18件がCANDIDATE/UNKNOWNから移動し、残るCANDIDATEは2件。詳細はセクション3・7を参照。
 
 ---
 
@@ -142,12 +143,12 @@
 | `orgh/state.py::RunStore` | module | UC-01, UC-02, UC-03 | 95 | **KEEP** | descriptionの「mission.json/ledger.jsonlを永続化」がUC-01/02/03すべての基盤 | 承認/保留/却下: |
 | `orgh/state.py::validate_config` | module | (横断的: 全usecase共通の前提処理) | 1 | **KEEP** | `load_config()`が全CLIコマンドで設定読込直後に無条件で呼ぶ唯一の呼び出し元であり、T=1は「1箇所からしか呼ばれない」構造上の特性であってその1箇所が全実行の入口であることを意味する。特定usecaseに紐づけるのではなく横断的前提機能としてKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
 | `orgh/status_json.py::status_payload` | report | UC-25 | 9 | **KEEP** | UC-25(単一ミッションの状態確認、2026-08-07 review-audit-r2でstatusをactive→assumedへ訂正。usecase-inventory.md参照)を追加。`orgh/cli.py::status --json`の唯一の実処理本体で、tests/test_status_json.py(7件)による専用テストも既存。T=9はWATCH域上限だが親CLI(`orgh/cli.py::status`, KEEP)と同一評価単位として扱いKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
-| `orgh/watcher.py::_maybe_gc` | hook | UC-13 | 2 | **WATCH** | watch()ループ末尾の定期GC実行部だが、`watch.gc_interval_days`を空にすれば無効化でき、除去しても`watch()`本体の監視・着火は成立する「任意フック」。よってルール0(実装本体の親判定継承)の適用対象外とし独立評価: UC-13に紐づきT=2だが手動`orgh gc`(KEEP)の自動化経路として運用価値があるためWATCH(2026-08-07 review-audit-r3で再改訂。r2のKEEP統合はルール0の過剰適用だった) | 承認/保留/却下: |
+| `orgh/watcher.py::_maybe_gc` | hook | UC-13 | 2 | **WATCH** | 任意フックのためルール0適用外の独立評価(1章ルール0の適用除外)。機械判定ではU≥1・T=2でCANDIDATE相当(ルール3)だが、上書き規則(1章ルール7(a))を適用: 実行痕跡=runs/_gc_state.json(自動GCの実行マーカー、最終更新2026-08-02)が現存し、実際に稼働している定期処理のためWATCH。削除判断は設定`config.example.yaml::watch.gc_interval_days`(WATCH)と一体で行うこと(2026-08-07 review-audit-r4で根拠を明文化) | 承認/保留/却下: |
 | `orgh/watcher.py::watch` | module | UC-03 | 54 | **KEEP** | entrypointが`orgh watch`でUC-03のtriggerそのもの | 承認/保留/却下: |
 | `orgh/worktree.py::cleanup_mission_worktrees` | integration | UC-21 | 2 | **WATCH** | `orgh/cli.py::cleanup`の唯一の実処理本体。CLIサブコマンドと実装本体は同一評価単位とするルール(1章ルール0)により親の判定(WATCH, T=4)を継承 | 承認/保留/却下: 承認不要(`orgh/cli.py::cleanup`に統合、独立審査対象外) |
 | `orgh/worktree.py::commit_task_result` | integration | UC-09 | 16 | **KEEP** | descriptionの「合格タスクの成果をタスクブランチへコミット」がUC-09の成果受け渡し経路 | 承認/保留/却下: |
 | `orgh/worktree.py::ensure_task_worktree` | integration | UC-09 | 40 | **KEEP** | descriptionの「タスクをgit worktreeとブランチに分離」がUC-09のtriggerそのもの | 承認/保留/却下: |
-| `orgh/worktree.py::merge_dep_branches` | integration | UC-09 | 1 | **KEEP** | ensure_task_worktree()内部から呼ばれるUC-09パイプラインの一部。内部ヘルパーは親と同一判定とするルール(1章ルール0)により`ensure_task_worktree`(KEEP, T=40)の判定を継承 | 承認/保留/却下: 承認不要(`ensure_task_worktree`に統合、独立審査対象外) |
+| `orgh/worktree.py::merge_dep_branches` | integration | UC-09 | 1 | **KEEP** | 独立評価ではU≥1・T=1でCANDIDATE相当だが、上書き規則(1章ルール7)を適用: (a)実行痕跡=runs/a385f876/resume-console.logに「t4 dep取り込み: orgh/a385f876/t1」等の実実行記録が現存(2026-08-07)、(b)機能価値=HANDOFF.md「②worktree成果物受け渡し」・コミット4aed415(依存タスクへの成果受け渡しは実運用の要求から導入)。除去すると依存タスクが依存元の成果を受け取れなくなるため KEEP | 承認/保留/却下: |
 | `prompts/gc.md::gc.md` | prompt | UC-13 | 4 | **WATCH** | descriptionの「重複教訓の統合」がUC-13のgc._consolidate()専用テンプレート | 承認/保留/却下: |
 | `prompts/planner.md::planner.md` | prompt | UC-01, UC-02 | 12 | **KEEP** | descriptionの「タスクDAG(JSON)を出力させる」がUC-01/UC-02のplan()呼び出しで使われるテンプレート | 承認/保留/却下: |
 | `prompts/replan.md::replan.md` | prompt | UC-07 | 9 | **WATCH** | descriptionの「受け入れ条件を再設計させる」がUC-07のtriggerそのもの | 承認/保留/却下: |
@@ -234,7 +235,7 @@ r1改訂(セクション6b)の後、review-audit-r2で新たに指摘され判�
 
 | feature_id | 旧判定 | 新判定 | 変更理由(要約) |
 |---|---|---|---|
-| `orgh/watcher.py::_maybe_gc` | CANDIDATE | KEEP | `orgh/watcher.py::watch`のループ末尾からのみ呼ばれる内部関数であるにもかかわらず、r1改訂では「前回指摘の対象外」を理由にルール0(内部ヘルパー関数の統合評価)の適用外としていた。この理由づけは1章ルール0の適用条件(呼び出し元が1つの内部関数か否か)と無関係であり誤りだったため、r2で是正して`watch`(KEEP, T=54, UC-03)の判定を継承させた。判定根拠列には「watch()内部の定期GC実行部」と明記(セクション3参照) |
+| `orgh/watcher.py::_maybe_gc` | CANDIDATE | KEEP→WATCH(最終) | r2でルール0を適用しKEEPへ変更したが、r3のレビューで「設定により無効化できる任意フックにルール0(実装本体の親判定継承)を適用するのは過剰」と再指摘され、r4で独立評価+上書き規則(実行痕跡runs/_gc_state.json)による**WATCH**へ再改訂した。経緯: CANDIDATE(初版)→KEEP(r2)→WATCH(r4、最終)。セクション3の現行判定がWATCHであることに注意 |
 
 ---
 
@@ -247,7 +248,7 @@ r1改訂(セクション6b)の後、review-audit-r2で新たに指摘され判�
 3. ~~`_is_infra_error`と`LoopCfg.infra_max_retries`もusecases.jsonへの記載漏れと認めてよいか~~ → **確定: 記載漏れと認め、UC-28を追加してKEEPへ変更した**。
 4. ~~`--config`グローバルフラグと`validate_config`は構造的必須機能として扱ってよいか~~ → **確定: --configはUC-27追加のうえKEEP、validate_configは横断的前提機能として上書きKEEPとした。2026-08-07 review-audit-r2で--configはさらに`ps`による稼働中プロセスの直接確認で裏付けを強化した(usecase-inventory.md参照)**。
 5. ~~`_initiate_budget_stop`(及びUC-11)は凍結保持か即時削除か~~ → **確定: 凍結保持。UC-11のstatusをobsolete→dormant(休止・復活条件あり)に訂正し、実装本体もWATCHへ変更した**。
-6. ~~`orgh/watcher.py::_maybe_gc`は構造的に`orgh/gc.py`の内部ヘルパーと同様のパターン(単一呼び出し元)に見えるが、1章ルール0の適用要否を再検討してよいか~~(2026-08-07 review-audit-r2で指摘) → **確定: 適用する。`orgh/watcher.py::watch`(KEEP)の判定を継承しCANDIDATE→KEEPへ変更した**(セクション6c参照)。
+6. ~~`orgh/watcher.py::_maybe_gc`は構造的に`orgh/gc.py`の内部ヘルパーと同様のパターン(単一呼び出し元)に見えるが、1章ルール0の適用要否を再検討してよいか~~ → **最終確定(r4): ルール0は適用しない(設定で無効化可能な任意フックのため)。独立評価+上書き規則(実行痕跡runs/_gc_state.json)により最終判定はWATCH**(経緯はセクション6c参照)。
 
 以下は本改訂でも未確定(引き続き人間の判断が必要)。
 
