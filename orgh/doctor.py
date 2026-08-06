@@ -45,6 +45,11 @@ def _binaries(cfg: dict) -> dict[str, str]:
     defaults = {"claude_code": "claude", "codex": "codex"}
     for name in workers.get("enabled", []):
         wcfg = workers.get(name, {}) or {}
+        if not isinstance(wcfg, dict):
+            # workers.claude_code: "invalid" のような値でdoctor自体が
+            # AttributeErrorで死なないよう、NGチェック(binが不正)へ流す
+            bins[f"worker:{name}"] = None
+            continue
         if name == "shell":
             argv = wcfg.get("argv") or []
             if argv:

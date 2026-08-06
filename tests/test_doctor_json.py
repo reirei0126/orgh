@@ -91,3 +91,10 @@ class TestDoctorBrokenRoleValues:
         assert payload["ok"] is False
         roles_check = [c for c in payload["checks"] if c["name"] == "roles"]
         assert roles_check and roles_check[0]["ok"] is False
+
+    def test_worker_value_string_reported_not_crash(self, cfg):
+        cfg["workers"]["claude_code"] = "invalid"
+        payload = doctor_payload(cfg)
+        assert payload["ok"] is False
+        bad = [c for c in payload["checks"] if c["name"] == "worker:claude_code"]
+        assert bad and bad[0]["ok"] is False

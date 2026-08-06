@@ -170,3 +170,27 @@ class TestCancelFromVault:
         # 結果ノートに中止が反映されている(finalizeで#cancel追記は上書きされる)
         body = (results_dir / f"{mdir.name}.md").read_text()
         assert "⊘ 中止" in body
+
+
+class TestCancelAwaitingApproval:
+    """承認待ちミッションのキャンセル: 実行プロセスが居ないため、CLI側で
+    awaiting_approvalも確定させないと永遠に承認待ち表示が残る。"""
+
+    def test_cancel_transitions_awaiting_approval_tasks(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch):
+        import sys as _sys
+        from orgh import cli as _cli
+        from orgh.state import Mission, RunStore, Task
+        from .conftest import write_config
+        m = Mission(id="mawait", intent="承認待ちキャンセル", context_digest="(t)",
+                    tasks=[Task(id="t1", title="x", prompt="p",
+                                worker="claude_code", deps=[],
+                                status="awaiting_approval", attempts=0)])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(_sys, "argv", [
+            "orgh", "--config", str(cfg_path), "cancel", m.id])
+        _cli.main()
+        reloaded = store.load(reset_inflight=False)
+        assert reloaded.tasks[0].status == "cancelled"

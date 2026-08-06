@@ -235,7 +235,9 @@ def main() -> None:
         # subprocessをterminateする。ここでは未着手をcancelledに確定するだけ
         (store.dir / "CANCEL").touch()
         for t in mission.tasks:
-            if t.status == "pending":
+            # awaiting_approvalは実行プロセスが既に終了しているため、ここで
+            # 確定させないと永遠に承認待ち表示のまま残る
+            if t.status in ("pending", "awaiting_approval"):
                 t.status = "cancelled"
         store.save(mission)
         print(f"mission {mission.id} にCANCELフラグを置いた。"
