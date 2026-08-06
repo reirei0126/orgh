@@ -6,7 +6,8 @@
 
 - **active**: ドキュメント記載があり、かつ `runs/` `ops/` 配下に実際の実行痕跡(mission.json・ledger.jsonl・フラグファイル等)が確認できるもの。
 - **assumed**: ドキュメントまたはコード上に機能として存在するが、実行痕跡が確認できない、または明確に「未実装/未使用」と自己申告されているもの。
-- **obsolete**: 過去には実際に使われていた(または使われる想定だった)が、現在は運用上意図的に無効化されているもの。
+- **dormant**(2026-08-07 レビュー指摘反映で新設): 過去には実際に使われ、実行痕跡も残っているが、明確な復活条件(ドキュメントに明記)のもとで現在は運用上意図的に無効化されているもの。復活条件が満たされれば即座に再稼働する設計であり、実装本体は削除対象としない。
+- **obsolete**: 恒久的に成立しない、または恒久的に不要になったと判断できるもの(復活条件が無い)。現時点で該当usecaseは無し。
 
 ## 一覧表
 
@@ -22,7 +23,7 @@
 | UC-08 | Retroによる教訓抽出とplaybook蓄積 | planner | active | orgh/planner.py:126, playbooks/coding.md:1-2, playbooks/planning.md:1-4 |
 | UC-09 | worktree分離による並列タスク実行とブランチ成果物受け渡し | worker | active | orgh/worktree.py:32, config.yaml:48-51, .orgh-worktrees(本ミッションの実行環境自体) |
 | UC-10 | タスク/ミッション単位のコスト計測(Budget.charge) | worker | active | orgh/state.py:154, orgh/state.py:172, runs/7307189e/mission.json(spent_usd=28.87) |
-| UC-11 | 予算上限超過による自動停止(現在は無効化) | human | obsolete | config.yaml:45-46, README.md:123-131, HANDOFF.md:74-75 |
+| UC-11 | 予算上限超過による自動停止(現在は休止・復活条件あり) | human | dormant | config.yaml:45-46, README.md:123-131, HANDOFF.md:74-75, runs/0f9d5591・7307189e・b6503b9aのledger.jsonl |
 | UC-12 | orgh reportによる合格率・差し戻し率の計器算出 | human | assumed | README.md:175-182, HANDOFF.md:48 |
 | UC-13 | orgh gcによるplaybook代謝・runsアーカイブ | cron | assumed | orgh/watcher.py:27, orgh/gc.py:115, runs/_gc_state.json |
 | UC-14 | orgh doctorによる事前疎通確認 | human | assumed | orgh/cli.py:66-72, orgh/doctor.py:51, README.md:77-78 |
@@ -36,14 +37,19 @@
 | UC-22 | サブミッション再帰(設計済み・実行層未実装) | planner | assumed | README.md:198, orgh/state.py:190 |
 | UC-23 | ShellAdapter経由の任意CLI LLM利用(gemini等) | worker | assumed | orgh/adapters/base.py:119-121, config.example.yaml:31, config.yaml:16 |
 | UC-24 | Notion等の代替入力ソースアダプタ | human | assumed | orgh/sources/base.py:1-6, docs/deep-dive.md:85 |
+| UC-25 | 単一ミッションの状態確認(orgh status) | human | active | orgh/cli.py:141-143, ops/demo/runs/099e281b/mission.json, README.md:9-18 |
+| UC-26 | 全ミッション一覧確認(orgh list) | human | active | orgh/cli.py:128-135, ops/demo/runs/099e281b/mission.json, README.md:9-18 |
+| UC-27 | 任意の作業ディレクトリから明示configで全コマンドを起動する(--config) | human | active | orgh/cli.py:32, HANDOFF.md:47, tests/test_packaging.py |
+| UC-28 | インフラ障害のattempt非消費リトライ | worker | active | orgh/orchestrator.py:46, orgh/state.py:47, HANDOFF.md:18, runs/09957da4/ledger.jsonl |
 
 ## statusサマリ
 
-- **active**: 16件 — UC-01〜UC-10, UC-15〜UC-20(実運用の `runs/` `ops/` 配下に実行痕跡あり)
+- **active**: 20件 — UC-01〜UC-10, UC-15〜UC-20, UC-25〜UC-28(実運用の `runs/` `ops/` 配下に実行痕跡あり)
 - **assumed**: 7件 — UC-12, UC-13, UC-14, UC-21, UC-22, UC-23, UC-24(ドキュメント/コード上は存在するが実施痕跡が薄い、または明確に未実装)
-- **obsolete**: 1件 — UC-11(過去は実費運用の予算ガードとして機能していたが、サブスク認証移行に伴い意図的にnull設定へ変更済み)
+- **dormant**: 1件 — UC-11(過去は実費運用の予算ガードとして機能し実行痕跡(`task.budget_exceeded`計5件)も残るが、サブスク認証移行に伴い意図的にnull設定へ変更済み。月次クレジット制再開という明確な復活条件がある点で「恒久的に不要」なobsoleteとは区別する)
+- **obsolete**: 0件
 
-合計24件。
+合計28件(2026-08-07 レビュー指摘r1反映により24件から4件追加。UC-25〜UC-28はいずれもHANDOFF.md記載のmission `099e281b`(status --json/orgh list機能追加)・`664f294`(インフラリトライ)・HANDOFF.mdのwatch再起動手順という実運用の裏付けがありながら初版の台帳作成時に記載漏れとなっていたもの。UC-11はstatusをobsolete→dormantに訂正)。
 
 ## ドキュメントには書かれているが実施痕跡が見つからないもの
 
@@ -62,3 +68,4 @@
 - リポジトリ直下に本リポジトリ自身の `CLAUDE.md` は存在しなかった(`find` で確認済み)。ユーザーのグローバル `~/.claude/CLAUDE.md` はorgh固有のSSOT定義を持たないため、本タスクでは README.md を実質的なSSOT、`docs/deep-dive.md` を実装トレース済みの二次情報源として優先的に参照した。
 - `runs/` と `ops/` は `.gitignore` でトラッキング対象外(gitignore:5, gitignore:11)だが、実運用のミッション記録が置かれる実在ディレクトリであるため、リポジトリ本体(`/Users/uesugirei/projects/org-harness`)の絶対パスで根拠として引用した。本タスクの作業worktree(`.orgh-worktrees/a385f876-t1`)にはこれらの未トラッキングディレクトリが存在しないため、相対パスでは実在確認ができない制約による。
 - `runs/8e096d63`(デスクトップGUI試作)や `runs/7307189e`(sikore-slot UI刷新)のように、ミッション自体は完走・承認済みでも成果物がmainへ未マージのケースは、「実施痕跡が確認できる」という基準に基づき`active`に分類した。マージの可否はこのタスクの範囲外である。
+- **2026-08-07 レビュー指摘(review-audit-r1)反映**: `docs/audit/pruning-ledger.md`側で「usecases.json全24件中`orgh status`/`orgh list`/`--config`/インフラリトライに言及するものが無い」ことを根拠に強い稼働証跡(T)を持つ機能が無条件でCANDIDATE(削除候補)化される問題が指摘された。実際にはHANDOFF.md・git log・ledger.jsonlに実運用の裏付けがあり、初版の台帳作成時の記載漏れと判明したため、UC-25〜UC-28を追加した。また UC-11 は実行痕跡があるにもかかわらず`obsolete`(恒久的に不要)に分類されていたが、月次クレジット制再開という明確な復活条件があるため`dormant`(休止・復活条件あり)へ訂正した。

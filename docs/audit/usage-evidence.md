@@ -80,7 +80,7 @@
 | `config.example.yaml::workers.codex` | 9 | 27 | 21 | 2026-08-06 | 2026-08-05 |
 | `orgh/planner.py::review` | 13 | 12 | 40 | 2026-08-06 | 2026-08-03 |
 | `orgh/cli.py::resume` | 25 | 40 | 1 | 2026-08-06 | 2026-08-06 |
-| `orgh/cli.py::list` | 52 | 25 | 0 | null | 2026-08-06 |
+| `orgh/cli.py::list` | 4 | 0 | 0 | null | 2026-08-06 |
 | `orgh/orchestrator.py::_attempt_loop` | 3 | 0 | 74 | 2026-08-06 | 2026-08-05 |
 | `prompts/worker_preamble.md::worker_preamble.md` | 2 | 1 | 74 | 2026-08-06 | 2026-08-02 |
 | `orgh/adapters/base.py::get_adapter` | 4 | 1 | 74 | 2026-08-06 | 2026-08-03 |
@@ -92,7 +92,7 @@
 | `orgh/state.py::RunStore` | 17 | 63 | 15 | 2026-08-06 | 2026-08-05 |
 | `orgh/adapters/base.py::BaseAdapter.run` | 15 | 15 | 72 | 2026-08-06 | 2026-08-03 |
 | `config.example.yaml::vault` | 36 | 76 | 0 | null | 2026-08-05 |
-| `orgh/cli.py::status` | 65 | 80 | 0 | null | 2026-08-06 |
+| `orgh/cli.py::status` | 6 | 3 | 0 | null | 2026-08-06 |
 | `config.example.yaml::runs_dir` | 26 | 131 | 15 | 2026-08-06 | 2026-08-05 |
 
 ## 使用した検索コマンド
@@ -115,3 +115,10 @@ git log --reverse -S'replan_task' --format='%ad %h' --date=short -- orgh/planner
 - `last_runtime_seen` は ledger の `ts` をUTC日付へ変換し、ファイルマーカーはmtimeを用いた。
 - `/Users/uesugirei/projects/org-harness/.orgh-worktrees/` の `HANDOFF.md` も検索したが、監査成果物自身による feature 名列挙は稼働証跡へ算入せず、客観的に機能へ帰属できるマーカーのみ採用した。
 - code_refs / test_refs / git履歴は差し戻し前の実測値を維持し、runtime項目のみ再集計した。
+
+### 2026-08-07 レビュー指摘(review-audit-r1)反映: T値の解釈上の注意
+
+1. **一般語検索によるT値の水増し(是正済み)**: `orgh/cli.py::status`・`orgh/cli.py::list`は、検索語が「status」「list」という一般的な英単語のため、`orgh status`/`orgh list`コマンドと無関係な箇所(`task.status`フィールドアクセス、Python組み込み`list`型の使用等)を大量に拾い、旧値はcode_refs=65/52・test_refs=80/25という実態と乖離した高い値になっていた。本改訂でorgh/cli.py内の当該コマンド固有の行のみに限定し再集計した(status: code_refs=6, test_refs=3。list: code_refs=4, test_refs=0)。他のfeature_idでも検索語が一般語に近いもの(例: `run`, `review`, `list`を含む語)は同様のリスクを内在するため、T値を「利用頻度の絶対指標」として読むのではなく、`sources`列が当該機能に直接関係する呼び出し元かどうかを個別に確認すべきである。
+2. **異種証跡の単純加算**: `code_refs`(静的参照)・`test_refs`(テスト被覆)・`runtime_hits`(実行時マーカー)は単位も性質も異なる。同一のタスク実行が`_attempt_loop`・`worker_prompt`・`get_adapter`等の複数featureへそれぞれ独立にruntime_hitsとして重複計上されるため、T値が高い機能同士を「厚みの比較」として単純に序列化すべきではない。
+3. **ログを残さない機能の過小評価**: `orgh/doctor.py::run_doctor`のように永続的な出力を残さない設計の機能は、実際に頻繁に実行されていてもruntime_hits=0になる。T値の低さを「使われていない」の根拠に使う場合は、機能の設計上ログが残り得るかどうかを必ず確認すること(詳細はdocs/audit/pruning-ledger.md 1章「既知の限界」を参照)。
+4. **内部ヘルパー関数の低T値**: 単一の呼び出し元からしか参照されない内部関数(例: `orgh/gc.py::_archive_old_lessons`等)はcode_refsが構造的に1件に張り付き、実際には親のパイプラインが実行されるたびに毎回実行されているにもかかわらずT値だけを見ると「ほぼ未使用」に見える。このような機能は親のfeature_id(`run_gc`等)と合わせて評価すべきであり、単独のT値は参考にとどめる。

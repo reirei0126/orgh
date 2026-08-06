@@ -137,16 +137,19 @@
     },
     {
       "usecase_id": "UC-11",
-      "title": "予算上限超過による自動停止(現在は無効化・過去に実費運用で使用)",
+      "title": "予算上限超過による自動停止(現在は休止・復活条件あり)",
       "actor": "human",
       "trigger": "config.loop.budget_usd/task_budget_usdに数値を設定すると、超過時に実行中タスクの完了は待ちつつ未着手タスクをskippedにしてミッションを停止する",
-      "status": "obsolete",
+      "status": "dormant",
       "evidence": [
         "/Users/uesugirei/projects/org-harness/config.yaml:45-46",
         "README.md:123-131",
-        "HANDOFF.md:74-75"
+        "HANDOFF.md:74-75",
+        "/Users/uesugirei/projects/org-harness/runs/0f9d5591/ledger.jsonl",
+        "/Users/uesugirei/projects/org-harness/runs/7307189e/ledger.jsonl",
+        "/Users/uesugirei/projects/org-harness/runs/b6503b9a/ledger.jsonl"
       ],
-      "description": "API従量課金だった時期には実費上限としてbudget_usdが機能していたが、2026-08-03のユーザー裁定により「claude -pはサブスク認証で実費なし」としてconfig.yamlのbudget_usd/task_budget_usdは共にnull(無制限)に設定変更済み(config.yaml:45のコメントに明記)。HANDOFF.mdは「月次クレジット制が再開されたらbudget_usdを実費上限として復活させること」と明記しており、機構自体はコード上健在だが現在の運用では意図的に停止させている過去の使い方である。"
+      "description": "レビュー指摘(review-audit-r1)によりstatusを`obsolete`(恒久的に成立しない)から`dormant`(意図的な休止・復活条件あり)へ訂正。API従量課金だった時期には実費上限としてbudget_usdが機能し、`task.budget_exceeded`イベントがruns/0f9d5591・7307189e・b6503b9aのledger.jsonlに計5件記録されている。2026-08-03のユーザー裁定により「claude -pはサブスク認証で実費なし」としてconfig.yamlのbudget_usd/task_budget_usdは共にnull(無制限)に設定変更済み(config.yaml:45のコメントに明記)。HANDOFF.mdは「月次クレジット制が再開されたらbudget_usdを実費上限として復活させること」と明記の上で復活条件が明確であり、`obsolete`(現行運用ではもう成立しない/恒久的に不要)とは区別すべき状態である。コード自体は健在で、復活条件が満たされ次第即座に有効化される設計のため、実装本体は削除対象ではなく凍結保持とする。"
     },
     {
       "usecase_id": "UC-12",
@@ -311,6 +314,61 @@
         "docs/deep-dive.md:85"
       ],
       "description": "orgh/sources/base.pyの冒頭コメントは「将来の入力ソース(Notion等)はREGISTRYにアダプタを足すだけで差し替えられる(Notionアダプタ自体はここでは実装しない—拡張点の確保のみ)」と明言しており、docs/deep-dive.mdも「現時点で実装済みなのはObsidianAdapterのみ」と確認している。設計上の拡張点にとどまり、実装コードも利用実績もない。"
+    },
+    {
+      "usecase_id": "UC-25",
+      "title": "単一ミッションの状態確認(orgh status)",
+      "actor": "human",
+      "trigger": "CLI: orgh status <mission_id> [--json] — 指定ミッションの現在状態(タスク進捗・コスト・budget)をテキストまたは機械可読JSONで表示する",
+      "status": "active",
+      "evidence": [
+        "orgh/cli.py:141-143",
+        "orgh/status_json.py:7",
+        "/Users/uesugirei/projects/org-harness/ops/demo/runs/099e281b/mission.json",
+        "README.md:9-18"
+      ],
+      "description": "レビュー指摘(review-audit-r1)により追加。人間または他ツールがミッションの進行状況を随時確認するための閲覧コマンド。ops/demo/runs/099e281bはこの機能自体を追加したミッション(intent「orgh status に --json フラグを追加し...」、コミット01b9f04「orgh status --json 実装」)であり、README.mdのデモ節が実演記録として明記する。usecase台帳作成時の記載漏れであったため、当初は該当機能(orgh/cli.py::status、orgh/status_json.py::status_payload)がU=0でCANDIDATE誤判定されていた。"
+    },
+    {
+      "usecase_id": "UC-26",
+      "title": "全ミッション一覧確認(orgh list)",
+      "actor": "human",
+      "trigger": "CLI: orgh list — runs_dir配下の全ミッションをid/intent要約/状態/コスト/タスク進捗の一覧で表示する",
+      "status": "active",
+      "evidence": [
+        "orgh/cli.py:128-135",
+        "orgh/listing.py:32",
+        "/Users/uesugirei/projects/org-harness/ops/demo/runs/099e281b/mission.json",
+        "README.md:9-18"
+      ],
+      "description": "レビュー指摘(review-audit-r1)により追加。稼働中・完了済みミッションを横断的に一覧するための日常運用コマンド。ops/demo/runs/099e281bはこの機能自体を追加したミッション(intent「新コマンド orgh list を追加し...」、コミット60b63ef「orgh list コマンド実装」)であり、README.mdは「新コマンドorgh listの1行目には、それを作ったミッション自身が表示される」と明記する。usecase台帳作成時の記載漏れであったため、当初は該当機能(orgh/cli.py::list、orgh/listing.py::list_missions)がU=0でCANDIDATE誤判定されていた。"
+    },
+    {
+      "usecase_id": "UC-27",
+      "title": "任意の作業ディレクトリから明示configで全コマンドを起動する(--config)",
+      "actor": "human",
+      "trigger": "CLI: orgh --config <path> <サブコマンド>(既定 ./config.yaml)— 既定位置と異なる場所のconfig.yamlを明示指定して任意のサブコマンドを起動する",
+      "status": "active",
+      "evidence": [
+        "orgh/cli.py:32",
+        "HANDOFF.md:47",
+        "tests/test_packaging.py"
+      ],
+      "description": "レビュー指摘(review-audit-r1)により追加。opsディレクトリなど既定と異なる作業ディレクトリからwatchデーモン等を再起動する際に使う運用手順。HANDOFF.mdの「後続TODO」1番目(watchデーモン再起動確認)は手順として`cd ops && ../.venv/bin/orgh --config ../config.yaml watch`を明記しており、非既定位置のconfig.yamlを読ませる実運用に必須である。usecase台帳作成時の記載漏れであったため、当初はorgh/cli.py::--configがU=0でCANDIDATE誤判定されていた。"
+    },
+    {
+      "usecase_id": "UC-28",
+      "title": "インフラ障害のattempt非消費リトライ",
+      "actor": "worker",
+      "trigger": "worker呼び出しがネットワーク断等インフラ起因の既知署名エラー(_is_infra_error)で失敗すると、attemptを消費せずinfra_max_retries(既定3回・待機60秒)まで待機後リトライする",
+      "status": "active",
+      "evidence": [
+        "orgh/orchestrator.py:46",
+        "orgh/state.py:47",
+        "HANDOFF.md:18",
+        "/Users/uesugirei/projects/org-harness/runs/09957da4/ledger.jsonl"
+      ],
+      "description": "レビュー指摘(review-audit-r1)により追加。実運用でネットワーク断により3attempt(約6.4USD)を浪費した事例(HANDOFF.md:18「①インフラエラーのattempt非消費リトライ(664f294): ネットワーク断で3attempt≒6.4USD浪費した事例」)を受けて追加された耐障害機構。runs/09957da4/ledger.jsonlには実際に`task.infra_retry`イベントが2件(t4・t2)記録されており、実障害からの対処実績がある。usecase台帳作成時の記載漏れであったため、当初はorgh/orchestrator.py::_is_infra_error、orgh/state.py::LoopCfg.infra_max_retriesがU=0でCANDIDATE誤判定されていた。"
     }
   ]
 }
