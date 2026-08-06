@@ -8,6 +8,7 @@ use crate::settings::Settings;
 use serde::de::DeserializeOwned;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -91,8 +92,10 @@ pub fn run_sync(settings: &Settings, args: &[&str]) -> Result<(), String> {
 /// `known_mission_id` が `None` (start_mission) の場合: stdoutを1行ずつ読み、
 /// `ORGH_MISSION_ID=<id>` 行を検出するまでは `mission-log { missionId: null }` を
 /// emitし続け、検出した時点で `mission-updated` を1回emitして戻り値を確定させる。
-/// `Some(id)` (approve_mission) の場合: mission_idは既知なので、子プロセスを
-/// spawnした直後に即座に確定値を返す。
+/// `Some(id)` (approve_mission) の場合: CLIが承認受理の確認行
+/// `ORGH_APPROVED=<id>` を出すまで成功を返さない。承認待ちなし・二重実行
+/// (flock競合)等でCLIが確認行より前に非0終了した場合はstderr込みのErrになる
+/// (即Okを返すと承認失敗が成功として画面に見える)。
 ///
 /// 戻り値確定後も子プロセスはバックグラウンドで動き続け、stdout/stderrの残りを
 /// `mission-log` として流し続け、プロセス終了時に `mission-updated` を最低1回
@@ -126,16 +129,13 @@ pub fn spawn_and_bridge(
     // ID検出前に子プロセスが死んだとき、原因(config不正・note不在等)は
     // stderrにしか出ない。イベントとして流すだけだと失われるため末尾を保持する
     let stderr_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    // 成否確定(ORGH_MISSION_ID / ORGH_APPROVED 検出)済みかどうか。
+    // 未確定のままプロセスが終了したら失敗としてErrを返すための共有フラグ
+    let confirmed = Arc::new(AtomicBool::new(false));
     let (id_tx, id_rx) = mpsc::channel::<Result<String, String>>();
 
-    // mission_idが既知(approve_mission)なら、待受(id_rx.recv)がすぐ解決するよう
-    // ここで確定させておく。
-    if let Some(id) = &known_mission_id {
-        let _ = id_tx.send(Ok(id.clone()));
-    }
-
     // stderr: mission_idの検出はstdout側の役割。現在判明している値でそのままemit。
-    {
+    let stderr_handle = {
         let app = app.clone();
         let mission_id = Arc::clone(&mission_id);
         let stderr_tail = Arc::clone(&stderr_tail);
@@ -159,21 +159,27 @@ pub fn spawn_and_bridge(
                     },
                 );
             }
-        });
-    }
+        })
+    };
 
-    // stdout: ORGH_MISSION_ID=<id> 行を検出し、確定・mission-updated発火・id_tx通知を行う。
-    {
+    // stdout: 確定行(start: ORGH_MISSION_ID= / approve: ORGH_APPROVED=)を検出し、
+    // 確定・mission-updated発火・id_tx通知を行う。
+    let stdout_handle = {
         let app = app.clone();
         let mission_id = Arc::clone(&mission_id);
         let id_tx = id_tx.clone();
+        let confirmed = Arc::clone(&confirmed);
         let already_known = known_mission_id.is_some();
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            let mut detected_now = false;
             for line in reader.lines().map_while(Result::ok) {
-                if !already_known && !detected_now {
-                    if let Some(id) = line.strip_prefix("ORGH_MISSION_ID=") {
+                if !confirmed.load(Ordering::SeqCst) {
+                    let prefix = if already_known {
+                        "ORGH_APPROVED="
+                    } else {
+                        "ORGH_MISSION_ID="
+                    };
+                    if let Some(id) = line.strip_prefix(prefix) {
                         let id = id.trim().to_string();
                         *mission_id.lock().expect("mission_id mutex poisoned") = Some(id.clone());
                         let _ = app.emit(
@@ -183,10 +189,10 @@ pub fn spawn_and_bridge(
                             },
                         );
                         let _ = id_tx.send(Ok(id));
-                        detected_now = true;
+                        confirmed.store(true, Ordering::SeqCst);
                     }
                 }
-                // このORGH_MISSION_ID行自体もconfirmation行として確定id付きで流す
+                // このconfirmation行自体も確定id付きで流す
                 // (desktop/API.md 3.1: 「confirmationの行を含め、以降すべて確定したidを使う」)。
                 let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
                 let _ = app.emit(
@@ -197,45 +203,49 @@ pub fn spawn_and_bridge(
                     },
                 );
             }
-        });
-    }
+        })
+    };
 
     // プロセス終了待ち。簡易実装: mission.jsonのポーリングではなく、
     // 子プロセスの終了(child.wait())をそのままmission-updatedの発火契機にする
     // (desktop/API.md 3.2が明示的に許容する最小保証のみを満たす実装)。
-    // よりリアルタイムな進捗反映が要る場合は、ここをN秒おきの
-    // `runs/<id>/mission.json` ポーリングに差し替える余地がある。
+    // 実行途中の進捗はフロント側のstatus/eventsポーリングが補完する。
     {
         let app = app.clone();
         let mission_id = Arc::clone(&mission_id);
+        let confirmed = Arc::clone(&confirmed);
+        let already_known = known_mission_id.is_some();
         thread::spawn(move || {
             let status = child.wait();
-            let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
-            match mid {
-                Some(mid) => {
+            // reader2本の読み切りを待ってからstderr_tailを参照する
+            // (waitとreaderは同期しないため、joinしないと原因行を取り逃がすレースがある)
+            let _ = stdout_handle.join();
+            let _ = stderr_handle.join();
+            if confirmed.load(Ordering::SeqCst) {
+                let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
+                if let Some(mid) = mid {
                     let _ = app.emit("mission-updated", MissionUpdatedEvent { mission_id: mid });
                 }
-                None => {
-                    // ORGH_MISSION_ID行を一度も出さずに終了した(start_mission異常系)。
-                    // stderr末尾を含めて本来の失敗理由(config不正・note不在等)を返す
-                    let mut msg = match status {
-                        Ok(s) if !s.success() => {
-                            format!("orgh runがORGH_MISSION_IDを出力せずに終了した (status={s})")
-                        }
-                        Ok(_) => {
-                            "orgh runがORGH_MISSION_IDを出力せずに正常終了した".to_string()
-                        }
-                        Err(e) => format!("子プロセスの終了待ちに失敗: {e}"),
-                    };
-                    let tail = stderr_tail
-                        .lock()
-                        .expect("stderr_tail mutex poisoned")
-                        .join("\n");
-                    if !tail.trim().is_empty() {
-                        msg.push_str(&format!("\n--- stderr ---\n{tail}"));
-                    }
-                    let _ = id_tx.send(Err(msg));
+            } else {
+                // 確定行(ORGH_MISSION_ID / ORGH_APPROVED)を一度も出さずに終了した異常系。
+                // stderr末尾を含めて本来の失敗理由(config不正・承認対象なし等)を返す
+                let what = if already_known {
+                    "orgh approveが承認を確認できずに終了した"
+                } else {
+                    "orgh runがORGH_MISSION_IDを出力せずに終了した"
+                };
+                let mut msg = match status {
+                    Ok(s) => format!("{what} (status={s})"),
+                    Err(e) => format!("子プロセスの終了待ちに失敗: {e}"),
+                };
+                let tail = stderr_tail
+                    .lock()
+                    .expect("stderr_tail mutex poisoned")
+                    .join("\n");
+                if !tail.trim().is_empty() {
+                    msg.push_str(&format!("\n--- stderr ---\n{tail}"));
                 }
+                let _ = id_tx.send(Err(msg));
             }
         });
     }

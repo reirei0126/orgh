@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ErrorBanner } from "./components/ErrorBanner";
+import { startLogStore } from "./logStore";
 import { MissionDetailPage } from "./pages/MissionDetailPage";
 import { MissionListPage } from "./pages/MissionListPage";
 import { NewMissionPage } from "./pages/NewMissionPage";
@@ -9,6 +10,11 @@ import { useRoute } from "./router";
 
 function App() {
   const [route, navigate] = useRoute();
+  // ライブログはアプリ全体で1回だけ購読を開始する。画面遷移前に流れた
+  // planning出力を詳細画面が後から読めるようにするため(logStore.ts)
+  useEffect(() => {
+    startLogStore();
+  }, []);
   const [errors, setErrors] = useState<{ id: number; message: string }[]>([]);
   const onError = (message: string) => {
     setErrors((prev) => [...prev, { id: Date.now() + Math.random(), message }]);

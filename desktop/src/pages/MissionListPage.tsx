@@ -18,16 +18,19 @@ export function MissionListPage({ navigate, onError }: { navigate: (route: Route
   useEffect(() => {
     let cancelled = false;
     let reported = false;
+    // ポーリング応答の逆転対策: 古い世代の応答でstateを上書きしない
+    let generation = 0;
     const fetchList = () => {
+      const gen = ++generation;
       listMissions()
         .then((result) => {
-          if (cancelled) return;
+          if (cancelled || gen !== generation) return;
           setPayload(result);
           setLoadError(null);
           reported = false;
         })
         .catch((e) => {
-          if (cancelled) return;
+          if (cancelled || gen !== generation) return;
           // 失敗状態を保持してスピナーを止める(初回未設定時に永久読み込みに
           // なるのを防ぐ)。バナーの多重表示は避けて失敗継続中は1回だけ通知
           setLoadError(String(e));

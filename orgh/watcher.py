@@ -82,9 +82,9 @@ def watch(cfg: dict) -> None:
                     mission = run_mission(cfg, mission, store,
                                           on_update=fb.update,
                                           poll_cancel=fb.cancel_requested)
-                    planner.retro(cfg, mission)
-                    store.save(mission)
-                    (store.dir / "RETRO_DONE").touch()
+                    # 承認待ちで停止したミッションを未完了のままretroしない
+                    # (決着時のみ・RETRO_DONEで二重防止。cliと共通ゲート)
+                    planner.retro_if_finished(cfg, mission, store)
                 except Exception:
                     print(f"mission failed for {note.title}:\n{traceback.format_exc()}")
                 fb.finalize(mission, store)

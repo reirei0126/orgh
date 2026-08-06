@@ -191,8 +191,11 @@ Tauriの既定動作でJS側の `invoke()` 引数名は自動的にcamelCaseへ�
    - `mission_id` を確定させる。
    - `mission-updated { missionId: <id> }` を1回emitする。
    - `start_mission` コマンド自体はこの時点で `Ok(<id>)` を**返して完了する**
-     (呼び出し元をブロックし続けない)。`approve_mission` は元々mission_idが
-     既知なので、このステップ2〜3は不要 — 子プロセスspawn後すぐ `Ok(())` を返してよい。
+     (呼び出し元をブロックし続けない)。`approve_mission` はmission_idが既知だが、
+     承認が受理されたかは自明でない(承認待ちなし・二重実行のflock競合等でCLIが
+     拒否しうる)ため、CLIが出す確認行 **`ORGH_APPROVED=<id>`** を検出するまで
+     `Ok` を返さない。確認行より前に子プロセスが終了したら、stderr末尾を含む
+     `Err` を返す(承認失敗を成功として画面に見せないため)。
    - `mission-log` のペイロードの `missionId` はconfirmationの行を含め、以降すべて
      確定した `<id>` を使う。
 4. コマンド自体が返った後も、子プロセスは背後で動き続ける。バックグラウンドタスクが

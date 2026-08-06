@@ -7,6 +7,9 @@ export function SettingsPage({ onError }: { onError: (message: string) => void }
   const [form, setForm] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // フォーム編集後・保存前の状態。doctorは永続化済み設定でしか診断できないため、
+  // dirtyのまま診断すると編集前の設定を検証してしまう(「保存して診断」に切替)
+  const [dirty, setDirty] = useState(false);
   const [report, setReport] = useState<DoctorReport | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -20,16 +23,26 @@ export function SettingsPage({ onError }: { onError: (message: string) => void }
   const update = (patch: Partial<Settings>) => {
     setForm((prev) => (prev ? { ...prev, ...patch } : prev));
     setSaved(false);
+    setDirty(true);
   };
 
-  const handleSave = async () => {
-    if (!form) return;
-    setSaving(true);
+  const save = async (): Promise<boolean> => {
+    if (!form) return false;
     try {
       await setSettings(form);
       setSaved(true);
+      setDirty(false);
+      return true;
     } catch (e) {
       onError(`設定の保存に失敗しました: ${String(e)}`);
+      return false;
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await save();
     } finally {
       setSaving(false);
     }
@@ -39,6 +52,9 @@ export function SettingsPage({ onError }: { onError: (message: string) => void }
     setChecking(true);
     setReport(null);
     try {
+      // 未保存の編集があるときは先に保存する(旧設定を診断して誤ったOK/NGを
+      // 表示しないため)。保存が弾かれたら診断しない
+      if (dirty && !(await save())) return;
       setReport(await doctor());
     } catch (e) {
       onError(`診断の実行に失敗しました: ${String(e)}`);
@@ -103,7 +119,7 @@ export function SettingsPage({ onError }: { onError: (message: string) => void }
           <div className="panel">
             <div className="panel-title">診断</div>
             <button className="btn" onClick={handleDoctor} disabled={checking}>
-              {checking ? <span className="spinner" /> : "⟳"} orgh doctor を実行
+              {checking ? <span className="spinner" /> : "⟳"} {dirty ? "保存して診断" : "orgh doctor を実行"}
             </button>
 
             {report !== null && (

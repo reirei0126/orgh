@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
-import { approveMission, cancelMission, missionEvents, missionStatus, onMissionLog, onMissionUpdated } from "../api";
+import { approveMission, cancelMission, missionEvents, missionStatus, onMissionUpdated } from "../api";
 import { DependencyGraph } from "../components/DependencyGraph";
 import { LiveLog, type LogLine } from "../components/LiveLog";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatClock, formatCost } from "../format";
+import { getLiveLines, subscribeLiveLog } from "../logStore";
 import type { Route } from "../router";
 import type { LedgerEvent, MissionStatus } from "../types";
 
@@ -20,8 +21,6 @@ function ledgerToLine(e: LedgerEvent, index: number): LogLine {
     text: `[${formatClock(ts)}] ${event}${fields ? "  " + fields : ""}`,
   };
 }
-
-let lineSeq = 0;
 
 /** 実行中ミッションの進捗・ledgerを追う再取得間隔(ms)。
  * mission-updatedイベントは自プロセスが起動した子プロセスの節目でしか
@@ -40,40 +39,48 @@ export function MissionDetailPage({
 }) {
   const [status, setStatus] = useState<MissionStatus | null>(null);
   // ledger由来の行(ポーリングで全置換)と、実行中プロセスのstdout/stderr由来の
-  // ライブ行(追記のみ)を分けて持つ。混ぜると再取得のたびに重複する
+  // ライブ行(logStoreが一元管理・上限つき)を分けて持つ。混ぜると重複する
   const [ledgerLines, setLedgerLines] = useState<LogLine[]>([]);
-  const [liveLines, setLiveLines] = useState<LogLine[]>([]);
+  const [liveLines, setLiveLines] = useState<string[]>([]);
   const [busy, setBusy] = useState<"approve" | "cancel" | null>(null);
   const missionIdRef = useRef(missionId);
   missionIdRef.current = missionId;
+  // ポーリング応答の逆転対策: 古い世代の応答でstateを上書きしない
+  const statusGenRef = useRef(0);
+  const eventsGenRef = useRef(0);
 
   const refetchStatus = () => {
+    const gen = ++statusGenRef.current;
     missionStatus(missionId).catch((e) => {
       onError(`ミッション状態の取得に失敗しました: ${String(e)}`);
       return null;
     }).then((s) => {
-      if (s) setStatus(s);
+      if (s && gen === statusGenRef.current) setStatus(s);
     });
   };
 
   useEffect(() => {
     setStatus(null);
     setLedgerLines([]);
-    setLiveLines([]);
+    setLiveLines(getLiveLines(missionId));
 
     let cancelled = false;
 
     const fetchAll = (reportError: boolean) => {
+      const statusGen = ++statusGenRef.current;
       missionStatus(missionId)
         .then((s) => {
-          if (!cancelled) setStatus(s);
+          if (!cancelled && statusGen === statusGenRef.current) setStatus(s);
         })
         .catch((e) => {
           if (reportError) onError(`ミッション状態の取得に失敗しました: ${String(e)}`);
         });
+      const eventsGen = ++eventsGenRef.current;
       missionEvents(missionId, 100)
         .then((events) => {
-          if (!cancelled) setLedgerLines(events.map(ledgerToLine));
+          if (!cancelled && eventsGen === eventsGenRef.current) {
+            setLedgerLines(events.map(ledgerToLine));
+          }
         })
         .catch((e) => {
           if (reportError) onError(`実行ログの取得に失敗しました: ${String(e)}`);
@@ -84,10 +91,8 @@ export function MissionDetailPage({
     // ポーリング中の一時的な失敗はバナーを連発させない(次回成功で回復する)
     const timer = setInterval(() => fetchAll(false), DETAIL_POLL_MS);
 
-    const unlistenLog = onMissionLog((payload) => {
-      if (payload.missionId !== missionIdRef.current) return;
-      lineSeq += 1;
-      setLiveLines((prev) => [...prev, { key: `live-${lineSeq}`, text: payload.line }]);
+    const unsubscribeLog = subscribeLiveLog(missionId, () => {
+      setLiveLines([...getLiveLines(missionId)]);
     });
     const unlistenUpdated = onMissionUpdated((payload) => {
       if (payload.missionId !== missionIdRef.current) return;
@@ -97,13 +102,16 @@ export function MissionDetailPage({
     return () => {
       cancelled = true;
       clearInterval(timer);
-      unlistenLog.then((fn) => fn());
+      unsubscribeLog();
       unlistenUpdated.then((fn) => fn());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missionId]);
 
-  const logLines = [...ledgerLines, ...liveLines];
+  const logLines = [
+    ...ledgerLines,
+    ...liveLines.map((text, i) => ({ key: `live-${i}`, text })),
+  ];
 
   const hasAwaitingApproval = status?.tasks.some((t) => t.status === "awaiting_approval") ?? false;
 

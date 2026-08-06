@@ -67,7 +67,21 @@ def main() -> None:
             sp.add_argument("--json", action="store_true")
 
     args = ap.parse_args()
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except Exception as e:
+        if args.cmd == "doctor":
+            # 設定が壊れているときこそdoctorが原因を報告できないと意味がない。
+            # configチェックNGのDoctorReportとして返す(GUIのSettings画面もこれに依存)
+            payload = {"ok": False, "checks": [{
+                "name": "config", "ok": False,
+                "detail": f"{type(e).__name__}: {e}"}]}
+            if getattr(args, "json", False):
+                print(json.dumps(payload, ensure_ascii=False))
+            else:
+                print(f"NG config — {type(e).__name__}: {e}")
+            sys.exit(1)
+        raise
 
     if args.cmd == "watch":
         watcher.watch(cfg)
@@ -135,11 +149,8 @@ def main() -> None:
         mission = run_mission(cfg, mission, store)
 
         if not args.no_retro:
-            print("== retro ==")
-            fp = planner.retro(cfg, mission)
-            store.save(mission)
-            (store.dir / "RETRO_DONE").touch()
-            print(f"playbook updated: {fp or '(no lessons)'}")
+            # 承認待ちで停止したミッションを未完了のままretroしない(決着時のみ)
+            planner.retro_if_finished(cfg, mission, store)
         _summary(mission)
         return
 
@@ -202,8 +213,14 @@ def main() -> None:
         (store.dir / "APPROVED").touch()
         for t in waiting:
             t.status = "pending"
+        # GUI(spawn_and_bridge)が承認受理を機械的に検知するための確認行。
+        # これより前にsys.exitする失敗は「承認されなかった」として扱われる
+        print(f"ORGH_APPROVED={mission.id}", flush=True)
         print(f"mission {mission.id} を承認した。実行を続行する", flush=True)
         mission = run_mission(cfg, mission, store)
+        # run/watch経路と違いapprove完走時にretroが走らないギャップの解消
+        # (決着時のみ・RETRO_DONEで二重防止)
+        planner.retro_if_finished(cfg, mission, store)
         _summary(mission)
     elif args.cmd == "cancel":
         # フラグが唯一の停止信号: 実行中プロセス側がループごとに検知して
@@ -226,23 +243,11 @@ def main() -> None:
                 if t.status == "failed":
                     t.status, t.attempts = "pending", 0
         mission = run_mission(cfg, mission, store)
-        _maybe_retro(cfg, mission, store)
+        # resume完走時のretro(実運用7307189eで発見したギャップ)。resumeは
+        # 再試行経路なので全doneのときだけretroする(失敗時にRETRO_DONEを
+        # 置くと、後の再resume完走時の真の教訓が阻まれる)
+        planner.retro_if_finished(cfg, mission, store, only_if_all_done=True)
         _summary(mission)
-
-
-def _maybe_retro(cfg: dict, mission, store: RunStore) -> None:
-    """resume完走時のretro。run/watcher経路と違いresumeは従来retroを呼ばず、
-    resumeで完走したミッションの教訓がplaybookに残らなかった(実運用7307189eで
-    発見)。RETRO_DONEマーカーで再resume時の二重追記を防ぐ。"""
-    marker = store.dir / "RETRO_DONE"
-    if marker.exists() or not mission.tasks or \
-            not all(t.status == "done" for t in mission.tasks):
-        return
-    print("== retro ==")
-    fp = planner.retro(cfg, mission)
-    store.save(mission)
-    marker.touch()
-    print(f"playbook updated: {fp or '(no lessons)'}")
 
 
 def _summary(m) -> None:

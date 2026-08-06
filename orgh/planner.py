@@ -150,6 +150,32 @@ def retro(cfg: dict, mission: Mission) -> str:
     return ""
 
 
+def retro_if_finished(cfg: dict, mission: Mission, store,
+                      only_if_all_done: bool = False) -> str | None:
+    """ミッションが決着した場合のみretroを実行する共通ゲート(run/approve/resume/watch)。
+
+    awaiting_approvalを残したままretroすると、未完了内容から教訓が保存され
+    RETRO_DONEマーカーで承認後の真の結果が反映されなくなる(Codexレビューr2指摘)。
+    失敗・キャンセルで決着したミッションは従来どおり教訓化の対象(失敗の資産化)。
+
+    only_if_all_done=True は resume 経路用: resumeは失敗タスクの再試行経路なので、
+    失敗のまま終わった時点でretroしてしまうと、後に再resumeで完走したときの
+    真の教訓がRETRO_DONEに阻まれる(test_st_scenariosで固定済みの仕様)。
+    """
+    terminal = ("done",) if only_if_all_done else (
+        "done", "failed", "cancelled", "skipped")
+    marker = store.dir / "RETRO_DONE"
+    if marker.exists() or not mission.tasks or \
+            not all(t.status in terminal for t in mission.tasks):
+        return None
+    print("== retro ==")
+    fp = retro(cfg, mission)
+    store.save(mission)
+    marker.touch()
+    print(f"playbook updated: {fp or '(no lessons)'}")
+    return fp
+
+
 def replan_task(cfg: dict, task: Task, reason: str,
                 budget: Budget | None = None) -> dict:
     """REPLANエスカレーション: 計画の欠陥が指摘されたタスクの指示と受け入れ条件を

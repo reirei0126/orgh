@@ -193,3 +193,17 @@ class TestApproveGuardrails:
                 _rm(cfg, m, store)
         finally:
             holder.close()
+
+    def test_retro_not_run_while_awaiting_approval(
+            self, cfg, mock_state_dir, tmp_path):
+        # 承認待ちで停止したミッションを未完了のままretroするとRETRO_DONEが
+        # 置かれ、承認後の真の結果が教訓に反映されなくなる欠陥の回帰テスト
+        from orgh import planner
+        m = _mission([_task("t1", workdir=str(REPO))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+        assert m.tasks[0].status == "awaiting_approval"
+
+        result = planner.retro_if_finished(cfg, m, store)
+        assert result is None
+        assert not (store.dir / "RETRO_DONE").exists()
