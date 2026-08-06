@@ -19,7 +19,8 @@
 
 判定ルール(優先順位順):
 
-0. **内部ヘルパー関数の統合評価**: 1つの呼び出し元(親のパイプライン関数、または唯一のCLIサブコマンド)からしか参照されない内部関数・実装本体は、独立に下記1〜6を適用せず、**親の判定をそのまま継承する**。親を残す判断をした場合、内部ヘルパーだけを個別に削除候補として承認欄に出さない(理由: 親を残す限りヘルパーも実行され続けるため、独立した削除候補として扱うと「親はKEEP、部品はCANDIDATE」という実行不能な組み合わせが生まれる)。対象例: `orgh/gc.py::_backup`/`_archive_old_lessons`/`_consolidate`/`_gc_runs`(親: `run_gc`)、`orgh/worktree.py::merge_dep_branches`(親: `ensure_task_worktree`)、`orgh/doctor.py::run_doctor`(親: CLIの`orgh/cli.py::doctor`)、`orgh/worktree.py::cleanup_mission_worktrees`(親: CLIの`orgh/cli.py::cleanup`)。
+0. **内部ヘルパー関数の統合評価**: 1つの呼び出し元(親のパイプライン関数、または唯一のCLIサブコマンド)からしか参照されず、**除去すると親の機能自体が成立しない実装本体**は、独立に下記1〜6を適用せず、**親の判定をそのまま継承する**。親を残す判断をした場合、内部ヘルパーだけを個別に削除候補として承認欄に出さない(理由: 親を残す限りヘルパーも実行され続けるため、独立した削除候補として扱うと「親はKEEP、部品はCANDIDATE」という実行不能な組み合わせが生まれる)。対象例: `orgh/gc.py::_backup`/`_archive_old_lessons`/`_consolidate`/`_gc_runs`(親: `run_gc`。この4段が`run_gc`の処理本体そのもの)、`orgh/worktree.py::merge_dep_branches`(親: `ensure_task_worktree`。除去すると依存タスクが依存元の成果物を受け取れず、マルチタスクミッションのワークツリー機構が成立しない)、`orgh/doctor.py::run_doctor`(親: CLIの`orgh/cli.py::doctor`)、`orgh/worktree.py::cleanup_mission_worktrees`(親: CLIの`orgh/cli.py::cleanup`)。
+   **適用除外(2026-08-07 review-audit-r3で限定)**: 呼び出し元が1つでも、**親を残したまま除去できる任意フック・付加挙動**(設定で無効化可能な定期処理など)はこのルールの対象外とし、個別に評価する。該当: `orgh/watcher.py::_maybe_gc`(`watch.gc_interval_days`を空にすれば無効化でき、`watch()`本体の監視・着火機能は成立し続ける)→ 独立WATCHとして承認対象に戻す。
 1. **U = 0**(紐づくユースケースが1件も無い)→ 原則 **UNKNOWN**(「本当に不要」なのか「usecase台帳の記載漏れ」なのかを機械ルールだけでは区別できないため、無条件のCANDIDATE化はしない)。ただし以下の3区分でこの原則から外れる(2026-08-07 review-audit-r2反映で3区分を明文化。旧版はT=3〜9の扱いが未定義だった):
    - **T ≥ 10** → 記載漏れの可能性が高いとみなし **KEEP**。運用文書(HANDOFF.md・README.md・git log等)に実運用を裏付ける明示的な記述があれば判定根拠列に併記する。
    - **3 ≤ T ≤ 9** → 運用文書上の明示的な裏付けの有無を問わず **WATCH** とする(無関係語の水増しでは説明できない実質的な参照が一定数ある以上、無条件のUNKNOWNには据え置かない。例: `orgh/cli.py::scan`、T=7、運用文書上の裏付けなし)。
@@ -50,8 +51,8 @@
 
 | 判定 | 件数(初版2026-08-06) | 件数(本改訂) | 増減 | 意味 |
 |---|---|---|---|---|
-| **KEEP** | 49 | **59** | +10 | 現行ユースケースに必須。証跡も十分(T≥10)、機械しきい値を上書きするだけの強い運用証跡がある、または内部ヘルパー統合評価によりKEEPの親機能の判定を継承している。 |
-| **WATCH** | 20 | **28** | +8 | 現行ユースケースに紐づくが証跡が薄い(3≤T≤9)、休止(dormant)ユースケース専属の実装、またはユースケース帰属が無くとも(U=0)T=3〜9の実質的な参照がある実装(1章ルール1)。定期的な再確認を推奨。 |
+| **KEEP** | 49 | **58** | +9 | 現行ユースケースに必須。証跡も十分(T≥10)、機械しきい値を上書きするだけの強い運用証跡がある、または内部ヘルパー統合評価によりKEEPの親機能の判定を継承している。 |
+| **WATCH** | 20 | **29** | +9 | 現行ユースケースに紐づくが証跡が薄い(3≤T≤9)、休止(dormant)ユースケース専属の実装、またはユースケース帰属が無くとも(U=0)T=3〜9の実質的な参照がある実装(1章ルール1)。定期的な再確認を推奨。 |
 | **CANDIDATE** | 19 | **2** | −17 | 削除候補。ユースケースは紐づくが実装が使われた形跡がほぼ皆無(U≥1かつT≤2、1章ルール3)。 |
 | **UNKNOWN** | 1 | **0** | −1 | ユースケースへの一意な帰属を判断する材料が不足。 |
 | **合計** | 89 | 89 | 0 | |
@@ -141,7 +142,7 @@
 | `orgh/state.py::RunStore` | module | UC-01, UC-02, UC-03 | 95 | **KEEP** | descriptionの「mission.json/ledger.jsonlを永続化」がUC-01/02/03すべての基盤 | 承認/保留/却下: |
 | `orgh/state.py::validate_config` | module | (横断的: 全usecase共通の前提処理) | 1 | **KEEP** | `load_config()`が全CLIコマンドで設定読込直後に無条件で呼ぶ唯一の呼び出し元であり、T=1は「1箇所からしか呼ばれない」構造上の特性であってその1箇所が全実行の入口であることを意味する。特定usecaseに紐づけるのではなく横断的前提機能としてKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
 | `orgh/status_json.py::status_payload` | report | UC-25 | 9 | **KEEP** | UC-25(単一ミッションの状態確認、2026-08-07 review-audit-r2でstatusをactive→assumedへ訂正。usecase-inventory.md参照)を追加。`orgh/cli.py::status --json`の唯一の実処理本体で、tests/test_status_json.py(7件)による専用テストも既存。T=9はWATCH域上限だが親CLI(`orgh/cli.py::status`, KEEP)と同一評価単位として扱いKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
-| `orgh/watcher.py::_maybe_gc` | hook | UC-13 | 2 | **KEEP** | `orgh/watcher.py::watch`のループ末尾からのみ呼ばれる内部関数であり、呼び出し元は`watch()`の1つに限られる。1章ルール0(内部ヘルパー関数の統合評価)を適用し`orgh/watcher.py::watch`(KEEP, T=54, UC-03)の判定を継承する(2026-08-07 review-audit-r2で是正。旧版は「前回指摘の対象外」を理由にルール0適用を見送っていたが、これは根拠にならないため統合評価に改めた)。watch()内部の定期GC実行部 | 承認/保留/却下: 承認不要(`orgh/watcher.py::watch`に統合、独立審査対象外) |
+| `orgh/watcher.py::_maybe_gc` | hook | UC-13 | 2 | **WATCH** | watch()ループ末尾の定期GC実行部だが、`watch.gc_interval_days`を空にすれば無効化でき、除去しても`watch()`本体の監視・着火は成立する「任意フック」。よってルール0(実装本体の親判定継承)の適用対象外とし独立評価: UC-13に紐づきT=2だが手動`orgh gc`(KEEP)の自動化経路として運用価値があるためWATCH(2026-08-07 review-audit-r3で再改訂。r2のKEEP統合はルール0の過剰適用だった) | 承認/保留/却下: |
 | `orgh/watcher.py::watch` | module | UC-03 | 54 | **KEEP** | entrypointが`orgh watch`でUC-03のtriggerそのもの | 承認/保留/却下: |
 | `orgh/worktree.py::cleanup_mission_worktrees` | integration | UC-21 | 2 | **WATCH** | `orgh/cli.py::cleanup`の唯一の実処理本体。CLIサブコマンドと実装本体は同一評価単位とするルール(1章ルール0)により親の判定(WATCH, T=4)を継承 | 承認/保留/却下: 承認不要(`orgh/cli.py::cleanup`に統合、独立審査対象外) |
 | `orgh/worktree.py::commit_task_result` | integration | UC-09 | 16 | **KEEP** | descriptionの「合格タスクの成果をタスクブランチへコミット」がUC-09の成果受け渡し経路 | 承認/保留/却下: |
@@ -250,5 +251,5 @@ r1改訂(セクション6b)の後、review-audit-r2で新たに指摘され判�
 
 以下は本改訂でも未確定(引き続き人間の判断が必要)。
 
-7. `orgh/worktree.py::cleanup_mission_worktrees`(`orgh cleanup`)について、放置されている`.orgh-worktrees`配下の掃除を今後は`orgh cleanup`コマンドを使う運用に切り替えるか。(Yes: 運用に組み込む / No: コマンドごと削除し手動`git worktree remove`に戻す)
+7. `orgh/worktree.py::cleanup_mission_worktrees`(`orgh cleanup`)について、放置されている`.orgh-worktrees`配下の掃除を今後は`orgh cleanup`コマンドを使う運用に切り替えるか。**破壊性の注意(2026-08-07 review-audit-r3で追記)**: 実装は各worktreeを`git worktree remove --force`で除去し、対応するタスクブランチも`git branch -D`で**マージ済みか否かを確認せず無条件削除**する(orgh/worktree.py:129,135)。未マージ・未退避の成果があるミッションに実行すると回復困難な消失を起こし得るため、採用する場合も「成果のmainマージまたは退避を確認してから実行する」を運用条件とすること。マージ確認の安全ガードを実装するまでは、検収済みミッション以外への実行は保留を推奨。(Yes: 運用に組み込む(上記条件つき) / No: コマンドごと削除し手動`git worktree remove`に戻す)
 8. `config.example.yaml::workers.shell`と`orgh/adapters/base.py::ShellAdapter`(gemini等の任意CLI LLM拡張枠)は、実運用実績が0件のまま今後も設計上の拡張点として維持するか、それとも実際に使う計画が無いなら削除してよいか。維持しないと決めた場合、セクション6の後方互換性の注意・削除時に整理すべき文書一覧(2026-08-07 review-audit-r2で追記)に従って進めること。(Yes: 維持する / No: 削除する)
