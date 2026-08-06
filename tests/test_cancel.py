@@ -224,3 +224,40 @@ class TestCancelDoesNotForgeRunning:
         by_id = {t.id: t.status for t in reloaded.tasks}
         assert by_id["t1"] == "running"    # 実行側の遷移に委ねる
         assert by_id["t2"] == "cancelled"  # 未着手のみCLIが確定
+
+
+class TestCancelRoleInteractions:
+    """キャンセルとreviewer/replanの相互作用(Codexレビューr8)。"""
+
+    def test_review_retry_aborts_when_cancelled(self, cfg, mock_state_dir):
+        # CANCELフラグが立っていたら新しいreviewerを起動しない
+        import pytest as _pytest
+        from orgh.orchestrator import (_CancelledDuringRole, _review_with_retry)
+        from orgh.state import Budget, Mission, RunStore, Task
+        m = Mission(id="mrc", intent="c", context_digest="(t)",
+                    tasks=[Task(id="t1", title="x", prompt="p",
+                                worker="claude_code", deps=[])])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+        (store.dir / "CANCEL").touch()
+        with _pytest.raises(_CancelledDuringRole):
+            _review_with_retry(cfg, store, m.tasks[0],
+                               Budget(limit_usd=None, spent_usd=0.0))
+
+    def test_run_task_marks_cancelled_not_failed_when_flag_set(
+            self, cfg, mock_state_dir, monkeypatch):
+        # terminate起因の例外がfailedに化けると通常resumeで復元されない
+        from orgh import orchestrator as orch
+        from orgh.state import Budget, Mission, RunStore, Task
+        m = Mission(id="mrf", intent="c", context_digest="(t)",
+                    tasks=[Task(id="t1", title="x", prompt="p",
+                                worker="claude_code", deps=[])])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+        (store.dir / "CANCEL").touch()
+        def boom(*a, **k):
+            raise RuntimeError("terminated")
+        monkeypatch.setattr(orch, "_attempt_loop", boom)
+        t = orch._run_task(cfg, store, m.tasks[0],
+                           Budget(limit_usd=None, spent_usd=0.0))
+        assert t.status == "cancelled"

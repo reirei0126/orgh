@@ -248,6 +248,15 @@ def main() -> None:
         _sync_results_note(cfg, mission, store)
         _summary(mission)
     else:  # resume
+        # 実行ロックを先に取得する。CANCEL削除をロック外で行うと、まだ動いている
+        # 実行プロセスへのキャンセル信号をresumeが握り潰してしまう
+        # (キャンセル直後・停止完了前のresumeで実測しうる競合)
+        from .orchestrator import acquire_mission_lock
+        lock_fp = acquire_mission_lock(store)
+        if lock_fp is None:
+            sys.exit(f"mission {mission.id} は別プロセスが実行中"
+                     f"(停止待ちの可能性)。停止を確認してから再実行すること")
+        mission = store.load()  # ロック取得後に再読込(実行側の最終保存を見る)
         (store.dir / "CANCEL").unlink(missing_ok=True)  # cancel後の再開
         for t in mission.tasks:
             if t.status in ("cancelled", "skipped"):
@@ -256,7 +265,7 @@ def main() -> None:
             for t in mission.tasks:
                 if t.status == "failed":
                     t.status, t.attempts = "pending", 0
-        mission = run_mission(cfg, mission, store)
+        mission = run_mission(cfg, mission, store, lock_fp=lock_fp)
         # resume完走時のretro(実運用7307189eで発見したギャップ)。resumeは
         # 再試行経路なので全doneのときだけretroする(失敗時にRETRO_DONEを
         # 置くと、後の再resume完走時の真の教訓が阻まれる)

@@ -65,12 +65,24 @@ def _cancel_flag(store: RunStore):
     return store.dir / "CANCEL"
 
 
+class _CancelledDuringRole(Exception):
+    """キャンセルのterminateがreviewer/planner subprocessを落とした際の内部信号。
+    包括エラーハンドラでfailedに化けさせず、cancelledとして確定させる。"""
+
+
 def _run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     """最外周の薄いラッパ: 実処理(_attempt_loop)の全例外を1タスクのfailedに閉じ込め、
     ミッション全体を道連れにしない。"""
     try:
         return _attempt_loop(cfg, store, t, budget)
     except Exception as e:
+        # キャンセルのterminateが引き起こした例外(replan中のplanner死など)は
+        # failedではなくcancelled: failedにすると通常resumeで復元されない
+        if _cancel_flag(store).exists() or isinstance(e, _CancelledDuringRole):
+            with store.lock:
+                t.status = "cancelled"
+            store.log("task.cancelled_during_role", task=t.id, error=repr(e)[:300])
+            return t
         with store.lock:
             t.status = "failed"
             t.review_notes = f"internal error: {e!r}"
@@ -85,12 +97,18 @@ def _review_with_retry(cfg: dict, store: RunStore, t: Task, budget: Budget,
     worker実行はやり直さない(成果とコストを捨てない)。"""
     last: Exception | None = None
     for i in range(retries + 1):
+        if _cancel_flag(store).exists():
+            # terminateされたreviewerの例外を「失敗」と誤認して新しいreviewerを
+            # 起動しない(キャンセル後の再起動はコストと成果確定の両方で有害)
+            raise _CancelledDuringRole("cancelled before/during review")
         try:
             # registry_key登録によりcancelのterminate対象にする(未登録だと
             # レビュー中のキャンセルが効かず、キャンセル後に成果が確定する)
             return review(cfg, t, workdir=t.workdir, budget=budget,
                           registry_key=store.dir.name)
         except Exception as e:  # _ask_jsonのRuntimeError/JSON解釈失敗など
+            if _cancel_flag(store).exists():
+                raise _CancelledDuringRole("review terminated by cancel") from e
             last = e
             if i < retries:
                 store.log("role.retry", role="reviewer", task=t.id,
@@ -218,12 +236,21 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                     t.status = "cancelled"
                 store.log("task.cancelled_after_review", task=t.id)
                 return t
-            with store.lock:
-                t.status = "done"
-            # 合格成果をタスクブランチへコミット(依存タスク・検収への受け渡し)
+            # 合格成果をタスクブランチへコミット(依存タスク・検収への受け渡し)。
+            # done確定はコミット後の最終CANCEL確認を通ってから行う: 確認→done→
+            # コミットの順だと、その隙間のキャンセルが成果確定に化ける
             commit = commit_task_result(t, store.dir.name)
             if commit:
                 store.log("task.committed", task=t.id, commit=commit)
+            if cancel_flag.exists():
+                # コミット自体はブランチに残るが、タスクはキャンセル扱いにする
+                # (resumeで再実行され、ブランチは次の合格コミットで進む)
+                with store.lock:
+                    t.status = "cancelled"
+                store.log("task.cancelled_after_review", task=t.id)
+                return t
+            with store.lock:
+                t.status = "done"
             return t
 
         if feedback.startswith("REPLAN:"):
