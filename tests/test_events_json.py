@@ -135,3 +135,35 @@ class TestEventsJsonCli:
         assert "task.start" in out
         with pytest.raises(json.JSONDecodeError):
             json.loads(out)
+
+
+class TestEventShapeValidation:
+    """JSONとして妥当でもイベント形でない行(null/[]/{}等)を通さない。
+    1行混じるだけでGUI側のLedgerEventデシリアライズが全件失敗するため。"""
+
+    def test_non_event_json_lines_are_skipped(self, tmp_path):
+        d = tmp_path / "m1"
+        d.mkdir()
+        (d / "ledger.jsonl").write_text("\n".join([
+            '{"ts": 1.0, "event": "task.start", "task": "t1"}',
+            "null",
+            "[]",
+            "{}",
+            '{"ts": "not-a-number", "event": "x"}',
+            '{"ts": 2.0, "event": 123}',
+            '{"ts": 3.0, "event": "task.output", "ok": true}',
+        ]))
+        payload = events_payload(tmp_path, "m1")
+        assert [e["event"] for e in payload["events"]] == \
+            ["task.start", "task.output"]
+
+    def test_tail_on_large_ledger_returns_last_events(self, tmp_path):
+        d = tmp_path / "m1"
+        d.mkdir()
+        lines = [json.dumps({"ts": float(i), "event": f"e{i}", "pad": "x" * 500})
+                 for i in range(3000)]
+        (d / "ledger.jsonl").write_text("\n".join(lines))
+        payload = events_payload(tmp_path, "m1", tail=100)
+        assert len(payload["events"]) == 100
+        assert payload["events"][-1]["event"] == "e2999"
+        assert payload["events"][0]["event"] == "e2900"

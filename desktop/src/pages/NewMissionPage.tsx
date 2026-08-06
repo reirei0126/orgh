@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { startMission } from "../api";
+import { getPendingLines, subscribePendingLog } from "../logStore";
 import type { Route } from "../router";
 
 type Mode = "intent" | "note";
@@ -10,12 +11,29 @@ export function NewMissionPage({ navigate, onError }: { navigate: (route: Route)
   const [intent, setIntent] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [planningLines, setPlanningLines] = useState<string[]>([]);
+  // setStateは同一レンダー内の連続クリックに間に合わない(旧レンダーの
+  // canSubmitを参照して二重起動できてしまう)ため、同期ロックはrefで持つ
+  const submittingRef = useRef(false);
+
+  // planning中(ORGH_MISSION_ID確定前)の出力を起動画面にも表示する。
+  // 遷移までスピナーしか出ないと、plannerが数分かかるとき進行が見えない
+  useEffect(() => {
+    if (!submitting) return;
+    setPlanningLines([...getPendingLines()]);
+    const unsub = subscribePendingLog(() => {
+      setPlanningLines([...getPendingLines()]);
+    });
+    return unsub;
+  }, [submitting]);
 
   const value = mode === "intent" ? intent : note;
   const canSubmit = value.trim().length > 0 && !submitting;
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (submittingRef.current) return;
+    if (value.trim().length === 0) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const missionId = await startMission(
@@ -25,6 +43,7 @@ export function NewMissionPage({ navigate, onError }: { navigate: (route: Route)
       navigate({ name: "mission", missionId });
     } catch (e) {
       onError(`ミッションの開始に失敗しました: ${String(e)}`);
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -86,6 +105,19 @@ export function NewMissionPage({ navigate, onError }: { navigate: (route: Route)
             {submitting ? <span className="spinner" /> : "▶"} ミッションを開始
           </button>
         </div>
+
+        {submitting && (
+          <div className="field" style={{ marginTop: 12 }}>
+            <span className="field-hint">
+              planning中… ミッションIDが確定すると詳細画面へ移動します。
+            </span>
+            {planningLines.length > 0 && (
+              <pre className="mono" style={{ fontSize: 12, maxHeight: 200, overflowY: "auto", marginTop: 6 }}>
+                {planningLines.slice(-50).join("\n")}
+              </pre>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

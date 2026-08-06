@@ -71,14 +71,26 @@ fn validate_settings(settings: &Settings) -> Result<(), String> {
     Ok(())
 }
 
+/// 前後空白を除去した正規形。検証と保存は必ずこの正規形に対して行う
+/// (trim後の値で検証して未加工値を保存すると、空白付きパスが永続化されて
+/// 以後の全CLI起動が失敗する)。
+fn normalized(settings: &Settings) -> Settings {
+    Settings {
+        orgh_bin: settings.orgh_bin.trim().to_string(),
+        config_path: settings.config_path.trim().to_string(),
+        runs_dir: settings.runs_dir.trim().to_string(),
+    }
+}
+
 pub fn save_settings(app: &tauri::AppHandle, settings: &Settings) -> Result<(), String> {
-    validate_settings(settings)?;
+    let settings = normalized(settings);
+    validate_settings(&settings)?;
     let path = settings_file_path(app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("設定ディレクトリの作成に失敗: {e}"))?;
     }
-    let data =
-        serde_json::to_string_pretty(settings).map_err(|e| format!("設定のシリアライズに失敗: {e}"))?;
+    let data = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("設定のシリアライズに失敗: {e}"))?;
     std::fs::write(&path, data).map_err(|e| format!("設定の書き込みに失敗: {e}"))
 }
 
@@ -129,6 +141,16 @@ mod tests {
     #[test]
     fn validate_accepts_relative_command_names() {
         assert!(validate_settings(&Settings::default()).is_ok());
+    }
+
+    #[test]
+    fn normalized_strips_surrounding_whitespace() {
+        let s = Settings {
+            orgh_bin: "  orgh ".to_string(),
+            config_path: "\tconfig.yaml\n".to_string(),
+            runs_dir: " runs ".to_string(),
+        };
+        assert_eq!(normalized(&s), Settings::default());
     }
 
     #[test]

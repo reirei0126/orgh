@@ -79,6 +79,19 @@ def _run_checks(cfg: dict) -> list[dict]:
     # ここに到達した時点でスキーマ検証は通過
     checks.append({"name": "config", "ok": True, "detail": "検証済み"})
 
+    # rolesはスキーマ上は任意だが、planning/review/retroの実行時に必須
+    # (欠けているとdoctor全OKでも初回planでKeyErrorになる)
+    roles = cfg.get("roles") or {}
+    missing_roles = [r for r in ("planner", "reviewer", "retro")
+                     if r not in roles]
+    if missing_roles:
+        checks.append({"name": "roles", "ok": False,
+                       "detail": f"必須role未定義 {missing_roles}"
+                                 "(plan/review/retroの実行時に失敗する)"})
+    else:
+        checks.append({"name": "roles", "ok": True,
+                       "detail": "planner/reviewer/retro 定義あり"})
+
     prompts = Path(cfg.get("prompts_dir", "prompts")).expanduser()
     missing = [n for n in _REQUIRED_PROMPTS if not (prompts / n).exists()]
     if missing:
