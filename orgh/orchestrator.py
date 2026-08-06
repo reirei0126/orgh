@@ -86,7 +86,10 @@ def _review_with_retry(cfg: dict, store: RunStore, t: Task, budget: Budget,
     last: Exception | None = None
     for i in range(retries + 1):
         try:
-            return review(cfg, t, workdir=t.workdir, budget=budget)
+            # registry_key登録によりcancelのterminate対象にする(未登録だと
+            # レビュー中のキャンセルが効かず、キャンセル後に成果が確定する)
+            return review(cfg, t, workdir=t.workdir, budget=budget,
+                          registry_key=store.dir.name)
         except Exception as e:  # _ask_jsonのRuntimeError/JSON解釈失敗など
             last = e
             if i < retries:
@@ -208,6 +211,13 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             t.review_notes = feedback
         store.log("task.review", task=t.id, passed=passed)
         if passed:
+            # レビュー中にキャンセルされていたら成果を確定させない
+            # (terminateを逃れて完走したレビューがここへ到達しうる)
+            if cancel_flag.exists():
+                with store.lock:
+                    t.status = "cancelled"
+                store.log("task.cancelled_after_review", task=t.id)
+                return t
             with store.lock:
                 t.status = "done"
             # 合格成果をタスクブランチへコミット(依存タスク・検収への受け渡し)
@@ -224,7 +234,8 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                     t.review_notes = f"REPLAN上限超過(再設計は1回まで): {feedback[:500]}"
                 store.log("task.replan_exceeded", task=t.id)
                 return t
-            redesigned = replan_task(cfg, t, feedback, budget)
+            redesigned = replan_task(cfg, t, feedback, budget,
+                                     registry_key=store.dir.name)
             with store.lock:
                 t.prompt = redesigned.get("prompt", t.prompt)
                 t.acceptance = redesigned.get("acceptance", t.acceptance)

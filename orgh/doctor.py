@@ -51,9 +51,14 @@ def _binaries(cfg: dict) -> dict[str, str]:
             bins[f"worker:{name}"] = None
             continue
         if name == "shell":
-            argv = wcfg.get("argv") or []
-            if argv:
+            # argvが欠落・空・非文字列要素なら黙って検査対象から外すのではなく
+            # NGにする(enabledなのに実行時TypeErrorになる構成をdoctorが見逃す)
+            argv = wcfg.get("argv")
+            if (isinstance(argv, list) and argv
+                    and all(isinstance(a, str) for a in argv)):
                 bins[f"worker:{name}"] = argv[0]
+            else:
+                bins[f"worker:{name}"] = None
             continue
         bins[f"worker:{name}"] = wcfg.get("bin", defaults.get(name, name))
     for role, rcfg in (cfg.get("roles") or {}).items():

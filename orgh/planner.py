@@ -79,10 +79,14 @@ def _projects_context(cfg: dict) -> str:
 
 
 def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
-              budget: Budget | None = None) -> dict:
+              budget: Budget | None = None,
+              registry_key: str | None = None) -> dict:
     adapter = get_adapter("claude_code", {**cfg["workers"],
                           "claude_code": cfg["roles"][role]})
-    res = adapter.run(prompt, workdir=workdir)
+    # registry_key(mission_id)を渡すとprocregへ登録され、orgh cancelの
+    # terminate対象になる。ミッション実行中に走るrole(reviewer/replan)は
+    # 登録しないとキャンセルが効かず、キャンセル後に成果が確定してしまう
+    res = adapter.run(prompt, workdir=workdir, registry_key=registry_key)
     if not res.ok:
         # resultが空のことがある(max_turns超過等)。rawのsubtypeに理由が残る
         detail = res.output[:500] or res.raw[-500:]
@@ -114,12 +118,14 @@ def plan(cfg: dict, intent: str, context_digest: str,
 
 
 def review(cfg: dict, task: Task, workdir: str,
-          budget: Budget | None = None) -> tuple[bool, str]:
+          budget: Budget | None = None,
+          registry_key: str | None = None) -> tuple[bool, str]:
     tmpl = _read_prompt(cfg, "reviewer.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
                          acceptance="\n".join(f"- {a}" for a in task.acceptance),
                          output=task.last_output[:12000])
-    data = _ask_json(cfg, "reviewer", prompt, workdir=workdir, budget=budget)
+    data = _ask_json(cfg, "reviewer", prompt, workdir=workdir, budget=budget,
+                     registry_key=registry_key)
     return bool(data.get("pass")), data.get("feedback", "")
 
 
@@ -177,14 +183,16 @@ def retro_if_finished(cfg: dict, mission: Mission, store,
 
 
 def replan_task(cfg: dict, task: Task, reason: str,
-                budget: Budget | None = None) -> dict:
+                budget: Budget | None = None,
+                registry_key: str | None = None) -> dict:
     """REPLANエスカレーション: 計画の欠陥が指摘されたタスクの指示と受け入れ条件を
     Plannerに再設計させる(HANDOFF タスク5)。"""
     tmpl = _read_prompt(cfg, "replan.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
                          acceptance="\n".join(f"- {a}" for a in task.acceptance),
                          reason=reason)
-    return _ask_json(cfg, "planner", prompt, budget=budget)
+    return _ask_json(cfg, "planner", prompt, budget=budget,
+                     registry_key=registry_key)
 
 
 def worker_prompt(cfg: dict, task: Task) -> str:

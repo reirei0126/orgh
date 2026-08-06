@@ -192,8 +192,10 @@ def main() -> None:
 
     store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)
     # status/cleanupは読み取り専用: 実行中ステータスの巻き戻し(クラッシュ復旧用)を
-    # 適用すると、動いているタスクをpendingと偽って表示してしまう
-    mission = store.load(reset_inflight=args.cmd not in ("status", "cleanup"))
+    # 適用すると、動いているタスクをpendingと偽って表示してしまう。
+    # cancelも巻き戻さない: running→pending→cancelledと保存すると、まだ動いている
+    # タスクを終端表示に偽装し、直後に実行側の保存でdone/failedへ再変化する
+    mission = store.load(reset_inflight=args.cmd not in ("status", "cleanup", "cancel"))
     if args.cmd == "status":
         if args.json:
             print(json.dumps(status_payload(mission), ensure_ascii=False, indent=2))
@@ -229,6 +231,7 @@ def main() -> None:
         # run/watch経路と違いapprove完走時にretroが走らないギャップの解消
         # (決着時のみ・RETRO_DONEで二重防止)
         planner.retro_if_finished(cfg, mission, store)
+        _sync_results_note(cfg, mission, store)
         _summary(mission)
     elif args.cmd == "cancel":
         # フラグが唯一の停止信号: 実行中プロセス側がループごとに検知して
@@ -242,6 +245,7 @@ def main() -> None:
         store.save(mission)
         print(f"mission {mission.id} にCANCELフラグを置いた。"
               f"実行中のプロセスがあればまもなく停止する")
+        _sync_results_note(cfg, mission, store)
         _summary(mission)
     else:  # resume
         (store.dir / "CANCEL").unlink(missing_ok=True)  # cancel後の再開
@@ -257,7 +261,30 @@ def main() -> None:
         # 再試行経路なので全doneのときだけretroする(失敗時にRETRO_DONEを
         # 置くと、後の再resume完走時の真の教訓が阻まれる)
         planner.retro_if_finished(cfg, mission, store, only_if_all_done=True)
+        _sync_results_note(cfg, mission, store)
         _summary(mission)
+
+
+def _sync_results_note(cfg: dict, mission, store: RunStore) -> None:
+    """CLI操作(cancel/approve/resume)後にvaultの結果ノートを追従させる。
+
+    watcherは承認待ちや完走の時点でノートをfinalizeして終了するため、その後の
+    CLI操作による状態変化はここで反映しないとObsidian側が古い状態のまま残る。
+    ノートはvault経由ミッションにしか存在しないので、既存の場合だけ更新する。"""
+    try:
+        if not (cfg.get("vault") or {}).get("path"):
+            return
+        from .results import ResultsNote
+        note = ResultsNote(cfg, mission.id)
+        if not note.path.exists():
+            return
+        terminal = ("done", "failed", "cancelled", "skipped")
+        if mission.tasks and all(t.status in terminal for t in mission.tasks):
+            note.finalize(mission, store)
+        else:
+            note.update(mission)
+    except Exception as e:
+        print(f"結果ノートの更新に失敗(処理は続行): {e!r}", file=sys.stderr)
 
 
 def _summary(m) -> None:

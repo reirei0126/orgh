@@ -194,3 +194,33 @@ class TestCancelAwaitingApproval:
         _cli.main()
         reloaded = store.load(reset_inflight=False)
         assert reloaded.tasks[0].status == "cancelled"
+
+
+class TestCancelDoesNotForgeRunning:
+    """cancelは実行中(running/review)タスクをその場でcancelledに偽装しない。
+    巻き戻しロードで実行中→pending→cancelledと保存すると、動いているタスクが
+    終端表示になった直後に実行側の保存でdone/failedへ再変化する。"""
+
+    def test_cancel_leaves_running_task_untouched(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch):
+        import sys as _sys
+        from orgh import cli as _cli
+        from orgh.state import Mission, RunStore, Task
+        from .conftest import write_config
+        m = Mission(id="mrun", intent="実行中キャンセル", context_digest="(t)",
+                    tasks=[Task(id="t1", title="x", prompt="p",
+                                worker="claude_code", deps=[],
+                                status="running", attempts=1),
+                           Task(id="t2", title="y", prompt="p",
+                                worker="claude_code", deps=["t1"],
+                                status="pending", attempts=0)])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(_sys, "argv", [
+            "orgh", "--config", str(cfg_path), "cancel", m.id])
+        _cli.main()
+        reloaded = store.load(reset_inflight=False)
+        by_id = {t.id: t.status for t in reloaded.tasks}
+        assert by_id["t1"] == "running"    # 実行側の遷移に委ねる
+        assert by_id["t2"] == "cancelled"  # 未着手のみCLIが確定

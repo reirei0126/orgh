@@ -98,3 +98,11 @@ class TestDoctorBrokenRoleValues:
         assert payload["ok"] is False
         bad = [c for c in payload["checks"] if c["name"] == "worker:claude_code"]
         assert bad and bad[0]["ok"] is False
+
+    def test_shell_worker_broken_argv_reported_not_silent(self, cfg):
+        cfg["workers"]["enabled"] = list(cfg["workers"]["enabled"]) + ["shell"]
+        cfg["workers"]["shell"] = {"argv": None}
+        payload = doctor_payload(cfg)
+        assert payload["ok"] is False
+        bad = [c for c in payload["checks"] if c["name"] == "worker:shell"]
+        assert bad and bad[0]["ok"] is False
