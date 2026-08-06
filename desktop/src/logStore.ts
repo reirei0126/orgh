@@ -67,6 +67,13 @@ export function getPendingLines(): string[] {
   return pendingNullLines;
 }
 
+/** 新規起動の直前に呼ぶ。前回の起動失敗時に残ったplanning出力を持ち越すと、
+ * 次の正常起動の確定行が旧失敗ログごと新ミッションへ誤帰属するため。 */
+export function clearPendingLines(): void {
+  pendingNullLines = [];
+  pendingListeners.forEach((l) => l());
+}
+
 export function subscribeLiveLog(missionId: string, listener: Listener): () => void {
   let set = listeners.get(missionId);
   if (!set) {

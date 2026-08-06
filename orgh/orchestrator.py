@@ -288,20 +288,35 @@ def _initiate_budget_stop(mission: Mission, store: RunStore,
           f"({budget.spent_usd:.4f}/{budget.limit_usd} USD) — 未着手をskip")
 
 
-def run_mission(cfg: dict, mission: Mission, store: RunStore,
-                on_update=None, poll_cancel=None) -> Mission:
-    """同一ミッションの二重実行防止(GUI/CLI/watchの経路をまたぐプロセス間ロック)
-    を掛けてから実行本体へ。flockはプロセス終了(クラッシュ含む)で自動解放される
-    ため、staleロックは残らない。"""
-    lock_fp = open(store.dir / ".run.lock", "w")
+def acquire_mission_lock(store: RunStore):
+    """ミッション実行のプロセス間ロック(flock)を非ブロッキングで取得する。
+
+    取得できなければNone。返したファイルオブジェクトを保持している間ロックが
+    生き、close(またはプロセス終了・クラッシュ)で自動解放される。
+    approveのように「承認の受理宣言と実行開始を同一ロック内で行う」必要がある
+    呼び出し元は、先にこれを取得してから run_mission に渡す。
+    """
+    fp = open(store.dir / ".run.lock", "w")
     try:
-        fcntl.flock(lock_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fp
     except OSError:
-        lock_fp.close()
-        store.log("mission.lock_conflict")
-        raise SystemExit(
-            f"mission {mission.id} は別プロセスが実行中(approve/resume/watchの"
-            f"二重発行の可能性)。二重実行を中止する")
+        fp.close()
+        return None
+
+
+def run_mission(cfg: dict, mission: Mission, store: RunStore,
+                on_update=None, poll_cancel=None, lock_fp=None) -> Mission:
+    """同一ミッションの二重実行防止(GUI/CLI/watchの経路をまたぐプロセス間ロック)
+    を掛けてから実行本体へ。lock_fpに取得済みロックを渡された場合はそれを引き継ぐ
+    (いずれの場合も終了時にcloseして解放する)。"""
+    if lock_fp is None:
+        lock_fp = acquire_mission_lock(store)
+        if lock_fp is None:
+            store.log("mission.lock_conflict")
+            raise SystemExit(
+                f"mission {mission.id} は別プロセスが実行中(approve/resume/watchの"
+                f"二重発行の可能性)。二重実行を中止する")
     try:
         return _run_mission_locked(cfg, mission, store, on_update, poll_cancel)
     finally:

@@ -33,7 +33,7 @@
     {
       "mission_id": "a1b2c3d4",
       "intent": "要約済みintent(60文字超は…で切り詰め、改行はスペースに置換)",
-      "status": "empty" | "running" | "done" | "failed",
+      "status": "empty" | "running" | "done" | "failed" | "awaiting_approval" | "cancelled",
       "cost_usd": 0.1234,
       "tasks_done": 2,
       "tasks_total": 5
@@ -89,13 +89,13 @@
   の4つは常に1件ずつ出る。
 - `ok`(トップレベル)が`false`のとき、CLIの終了コードは非0。
 
-### 1.4 `orgh status <mission_id> --json`(既存・変更なし)
+### 1.4 `orgh status <mission_id> --json`
 
 ```json
 {
   "mission_id": "a1b2c3d4",
   "intent": "...",
-  "status": "running" | "done" | "failed",
+  "status": "empty" | "running" | "done" | "failed" | "awaiting_approval" | "cancelled",
   "tasks": [
     {"id": "t1", "title": "...", "status": "done", "attempts": 1, "worker": "claude_code", "deps": []}
   ],
@@ -103,7 +103,7 @@
   "budget_usd": 2.0
 }
 ```
-実装: `orgh/status_json.py` `status_payload()`(このタスクでは変更していない)。
+実装: `orgh/status_json.py` `status_payload()`。`status` の派生規則は §1.1 の list と完全に同一(`orgh/listing.py` `_derive_status()` と相互参照コメントで固定)。
 
 ### 1.5 `orgh run` 標準出力への `ORGH_MISSION_ID` 行
 

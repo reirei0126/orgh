@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { startMission } from "../api";
-import { getPendingLines, subscribePendingLog } from "../logStore";
+import { clearPendingLines, getPendingLines, subscribePendingLog } from "../logStore";
 import type { Route } from "../router";
 
 type Mode = "intent" | "note";
@@ -35,6 +35,7 @@ export function NewMissionPage({ navigate, onError }: { navigate: (route: Route)
     if (value.trim().length === 0) return;
     submittingRef.current = true;
     setSubmitting(true);
+    clearPendingLines(); // 前回失敗時の残骸ログの誤帰属防止
     try {
       const missionId = await startMission(
         mode === "intent" ? intent.trim() : null,

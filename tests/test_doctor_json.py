@@ -73,3 +73,21 @@ class TestDoctorJsonCli:
         assert "OK" in out
         with pytest.raises(json.JSONDecodeError):
             json.loads(out)
+
+
+class TestDoctorBrokenRoleValues:
+    """壊れたrole設定値でdoctor自体が死なずNGチェックとして報告する。"""
+
+    def test_role_bin_null_reported_not_crash(self, cfg):
+        cfg["roles"]["planner"] = {"bin": None}
+        payload = doctor_payload(cfg)
+        assert payload["ok"] is False
+        bad = [c for c in payload["checks"] if c["name"] == "role:planner"]
+        assert bad and bad[0]["ok"] is False
+
+    def test_role_value_null_reported_not_crash(self, cfg):
+        cfg["roles"]["planner"] = None
+        payload = doctor_payload(cfg)
+        assert payload["ok"] is False
+        roles_check = [c for c in payload["checks"] if c["name"] == "roles"]
+        assert roles_check and roles_check[0]["ok"] is False

@@ -205,7 +205,14 @@ def main() -> None:
     elif args.cmd == "approve":
         # 自己改変ガードの解除はこのコマンドのみ(watcher/configからは不可)。
         # 承認待ちタスクが無いのにAPPROVEDを先置きするとガード発火前のミッションを
-        # 素通しできてしまうため、対象がある場合しか承認させない(二重承認もここで弾く)
+        # 素通しできてしまうため、対象がある場合しか承認させない(二重承認もここで弾く)。
+        # 判定〜APPROVED作成〜確認行出力は実行ロック内で行う: ロック外だと同時承認の
+        # 双方が確認行を出してGUIに二重成功が見え、片方だけ実行時に競合死する
+        from .orchestrator import acquire_mission_lock
+        lock_fp = acquire_mission_lock(store)
+        if lock_fp is None:
+            sys.exit(f"mission {mission.id} は別プロセスが実行中。承認を中止する")
+        mission = store.load()  # ロック取得後に再読込(先行プロセスの結果を見る)
         waiting = [t for t in mission.tasks if t.status == "awaiting_approval"]
         if not waiting:
             sys.exit(f"mission {mission.id} に承認待ちタスクが無い"
@@ -213,11 +220,12 @@ def main() -> None:
         (store.dir / "APPROVED").touch()
         for t in waiting:
             t.status = "pending"
+        store.save(mission)
         # GUI(spawn_and_bridge)が承認受理を機械的に検知するための確認行。
         # これより前にsys.exitする失敗は「承認されなかった」として扱われる
         print(f"ORGH_APPROVED={mission.id}", flush=True)
         print(f"mission {mission.id} を承認した。実行を続行する", flush=True)
-        mission = run_mission(cfg, mission, store)
+        mission = run_mission(cfg, mission, store, lock_fp=lock_fp)
         # run/watch経路と違いapprove完走時にretroが走らないギャップの解消
         # (決着時のみ・RETRO_DONEで二重防止)
         planner.retro_if_finished(cfg, mission, store)

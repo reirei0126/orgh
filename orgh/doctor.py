@@ -52,7 +52,8 @@ def _binaries(cfg: dict) -> dict[str, str]:
             continue
         bins[f"worker:{name}"] = wcfg.get("bin", defaults.get(name, name))
     for role, rcfg in (cfg.get("roles") or {}).items():
-        bins[f"role:{role}"] = (rcfg or {}).get("bin", "claude")
+        rcfg = rcfg if isinstance(rcfg, dict) else {}
+        bins[f"role:{role}"] = rcfg.get("bin", "claude")
     return bins
 
 
@@ -67,6 +68,12 @@ def _run_checks(cfg: dict) -> list[dict]:
 
     seen: dict[str, dict] = {}
     for name, bin_path in _binaries(cfg).items():
+        # bin: null や数値のような壊れた値をsubprocessへ渡すと、doctor自体が
+        # 未捕捉TypeErrorで死んで診断表を返せなくなる。NGチェックに変換する
+        if not isinstance(bin_path, str) or not bin_path.strip():
+            checks.append({"name": name, "ok": False,
+                           "detail": f"binが不正な値 ({bin_path!r})"})
+            continue
         if bin_path in seen:
             prev = seen[bin_path]
             checks.append({"name": name, "ok": prev["ok"],
