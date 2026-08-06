@@ -12,14 +12,14 @@
 
 ## 1. 判定基準(全機能に適用)
 
-各機能について以下の2つの値を算出し、下記ルールを**上から順に**適用して1つの判定を確定する。ただし本節末尾の「機械ルールの上書き」に該当する行は、根拠を明記したうえで機械判定を人間が上書きする。
+各機能について以下の2つの値を算出し、下記ルールを**上から順に**適用して1つの判定を確定する。ただしルール7(上書き規則)の条件を満たす行は、根拠を明記したうえで機械判定を人間が上書きする。
 
 - **U(紐づくユースケース数)**: usecases.json の `trigger`/`description` と features.json の `entrypoint`/`description` の文言対応で判断した、紐づく usecase_id の数(0件も許容)。判断根拠は台帳表の「判定根拠」列に1文で記載。
 - **T(証跡合計)**: usage-evidence.json の `code_refs + test_refs + runtime_hits` の単純合算(該当featureの定義元自身への参照は集計対象外という同ファイルの前提をそのまま踏襲)。**T列は異種証跡(静的参照・テスト被覆・実行時マーカー)の単純加算であり、単位も性質も異なる値を足し合わせているに過ぎない。厚みの絶対比較には使わず、あくまで「0に近いか・そうでないか」の粗いシグナルとして読むこと**(詳細は下記「既知の限界」参照)。
 
 判定ルール(優先順位順):
 
-0. **内部ヘルパー関数の統合評価**: 1つの呼び出し元(親のパイプライン関数、または唯一のCLIサブコマンド)からしか参照されず、**除去すると親の機能自体が成立しない実装本体**は、独立に下記1〜6を適用せず、**親の判定をそのまま継承する**。親を残す判断をした場合、内部ヘルパーだけを個別に削除候補として承認欄に出さない(理由: 親を残す限りヘルパーも実行され続けるため、独立した削除候補として扱うと「親はKEEP、部品はCANDIDATE」という実行不能な組み合わせが生まれる)。対象例: `orgh/gc.py::_backup`/`_archive_old_lessons`/`_consolidate`/`_gc_runs`(親: `run_gc`。この4段が`run_gc`の処理本体そのもの)、`orgh/worktree.py::merge_dep_branches`(親: `ensure_task_worktree`。除去すると依存タスクが依存元の成果物を受け取れず、マルチタスクミッションのワークツリー機構が成立しない)、`orgh/doctor.py::run_doctor`(親: CLIの`orgh/cli.py::doctor`)、`orgh/worktree.py::cleanup_mission_worktrees`(親: CLIの`orgh/cli.py::cleanup`)。
+0. **内部ヘルパー関数の統合評価**: 1つの呼び出し元(親のパイプライン関数、または唯一のCLIサブコマンド)からしか参照されず、**除去すると親の機能自体が成立しない実装本体**は、独立に下記1〜6を適用せず、**親の判定をそのまま継承する**。親を残す判断をした場合、内部ヘルパーだけを個別に削除候補として承認欄に出さない(理由: 親を残す限りヘルパーも実行され続けるため、独立した削除候補として扱うと「親はKEEP、部品はCANDIDATE」という実行不能な組み合わせが生まれる)。対象例: `orgh/gc.py::_backup`/`_archive_old_lessons`/`_consolidate`/`_gc_runs`(親: `run_gc`。この4段が`run_gc`の処理本体そのもの)、`orgh/doctor.py::run_doctor`(親: CLIの`orgh/cli.py::doctor`)、`orgh/worktree.py::cleanup_mission_worktrees`(親: CLIの`orgh/cli.py::cleanup`)。
    **適用除外(2026-08-07 review-audit-r3で限定)**: 呼び出し元が1つでも、**親を残したまま除去できる任意フック・付加挙動**(設定で無効化可能な定期処理など)はこのルールの対象外とし、個別に評価する。該当: `orgh/watcher.py::_maybe_gc`(`watch.gc_interval_days`を空にすれば無効化でき、`watch()`本体の監視・着火機能は成立し続ける)、`orgh/worktree.py::merge_dep_branches`(依存ブランチ不在・マージ競合時はスキップして実行継続する実装のため、除去してもworktree機構の最小動作は成立する)→ いずれも個別評価のうえ、必要なら下記の上書き規則を適用する。
 7. **機械判定の上書き規則(2026-08-07 review-audit-r4で明文化)**: ルール1〜6の機械判定は、次のいずれかを根拠として判定根拠列に明記した場合に限り上書きできる。(a) **実行痕跡**: runs/配下のマーカー・ログ・コンソール出力に当該機能の実行記録が現存する。(b) **文書化された機能価値**: HANDOFF.md・コミット履歴に、実運用の障害・要求から導入された経緯が記録されている。上書きした行は根拠の所在(ファイルパス)を必ず判定根拠列に書く。
 1. **U = 0**(紐づくユースケースが1件も無い)→ 原則 **UNKNOWN**(「本当に不要」なのか「usecase台帳の記載漏れ」なのかを機械ルールだけでは区別できないため、無条件のCANDIDATE化はしない)。ただし以下の3区分でこの原則から外れる(2026-08-07 review-audit-r2反映で3区分を明文化。旧版はT=3〜9の扱いが未定義だった):
@@ -32,9 +32,9 @@
 5. **U ≥ 1 かつ T ≥ 10** → **KEEP**(現行ユースケースに紐づき、継続使用の証跡も十分)
 6. 上記1〜5のいずれについても、「そもそもどのusecase_idに帰属させるべきか、trigger/description上の手掛かりが不十分で一意に判断できない」場合は例外的に **UNKNOWN** とする。
 
-### 機械ルールの上書き(2026-08-07 追加)
+### 機械ルールの上書き(2026-08-07 追加、review-audit-r5でルール7へ統合)
 
-機械しきい値(特にT≥10のKEEP基準)は出発点にすぎない。個別に強い運用証跡(HANDOFF.md記載の実装確認、全コマンド共通の前提処理であることが実装から明らかである等)があり、かつT値がusecases.json記載漏れ由来の過小評価だとレビューで具体的に指摘された機能については、人間監査者が判定根拠列に上書き理由を明記したうえで機械判定を上書きする。本改訂でこの上書きを適用した行はセクション3の判定根拠列に「(機械しきい値を上書き)」と明記した。
+上書きの必要十分条件は**ルール7が唯一の規定**である(実行痕跡(a)または文書化された機能価値(b)のいずれか1つを判定根拠列に所在つきで明記すること)。本節の旧規定(強い運用証跡+記載漏れ指摘の同時要求)はルール7に置き換えられた — 旧規定下で上書きされた行(判定根拠列の「(機械しきい値を上書き)」表記)もすべてルール7の(a)または(b)を満たすことを確認済み。
 
 ### 既知の限界(人間の判断で補正すべき点)
 
@@ -143,7 +143,7 @@
 | `orgh/state.py::RunStore` | module | UC-01, UC-02, UC-03 | 95 | **KEEP** | descriptionの「mission.json/ledger.jsonlを永続化」がUC-01/02/03すべての基盤 | 承認/保留/却下: |
 | `orgh/state.py::validate_config` | module | (横断的: 全usecase共通の前提処理) | 1 | **KEEP** | `load_config()`が全CLIコマンドで設定読込直後に無条件で呼ぶ唯一の呼び出し元であり、T=1は「1箇所からしか呼ばれない」構造上の特性であってその1箇所が全実行の入口であることを意味する。特定usecaseに紐づけるのではなく横断的前提機能としてKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
 | `orgh/status_json.py::status_payload` | report | UC-25 | 9 | **KEEP** | UC-25(単一ミッションの状態確認、2026-08-07 review-audit-r2でstatusをactive→assumedへ訂正。usecase-inventory.md参照)を追加。`orgh/cli.py::status --json`の唯一の実処理本体で、tests/test_status_json.py(7件)による専用テストも既存。T=9はWATCH域上限だが親CLI(`orgh/cli.py::status`, KEEP)と同一評価単位として扱いKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
-| `orgh/watcher.py::_maybe_gc` | hook | UC-13 | 2 | **WATCH** | 任意フックのためルール0適用外の独立評価(1章ルール0の適用除外)。機械判定ではU≥1・T=2でCANDIDATE相当(ルール3)だが、上書き規則(1章ルール7(a))を適用: 実行痕跡=runs/_gc_state.json(自動GCの実行マーカー、最終更新2026-08-02)が現存し、実際に稼働している定期処理のためWATCH。削除判断は設定`config.example.yaml::watch.gc_interval_days`(WATCH)と一体で行うこと(2026-08-07 review-audit-r4で根拠を明文化) | 承認/保留/却下: |
+| `orgh/watcher.py::_maybe_gc` | hook | UC-13 | 2 | **WATCH** | 任意フックのためルール0適用外の独立評価(1章ルール0の適用除外)。機械判定ではU≥1・T=2でCANDIDATE相当(ルール3)だが、上書き規則(1章ルール7(a))を適用: 実行痕跡=runs/_gc_state.json。**ただしこのファイルは初回呼び出し時のベースライン書き込みでも作成されるため、証明できるのは「watchループからフックが実際に呼ばれている」ことまでで、run_gc()本体の自動実行までは証明しない**(orgh/watcher.py:37-40)。フック呼び出し実績+手動`orgh gc`(KEEP)の自動化経路という位置づけを根拠にWATCH。削除判断は設定`config.example.yaml::watch.gc_interval_days`(WATCH)と一体で行うこと(2026-08-07 review-audit-r5で証跡の射程を訂正) | 承認/保留/却下: |
 | `orgh/watcher.py::watch` | module | UC-03 | 54 | **KEEP** | entrypointが`orgh watch`でUC-03のtriggerそのもの | 承認/保留/却下: |
 | `orgh/worktree.py::cleanup_mission_worktrees` | integration | UC-21 | 2 | **WATCH** | `orgh/cli.py::cleanup`の唯一の実処理本体。CLIサブコマンドと実装本体は同一評価単位とするルール(1章ルール0)により親の判定(WATCH, T=4)を継承 | 承認/保留/却下: 承認不要(`orgh/cli.py::cleanup`に統合、独立審査対象外) |
 | `orgh/worktree.py::commit_task_result` | integration | UC-09 | 16 | **KEEP** | descriptionの「合格タスクの成果をタスクブランチへコミット」がUC-09の成果受け渡し経路 | 承認/保留/却下: |
@@ -225,7 +225,7 @@ feature_id 89件のうち、U=0と判定されたもの(2026-08-07改訂版)。
 | `orgh/state.py::validate_config` | CANDIDATE | KEEP | 全コマンド共通の前提処理(load_config()から無条件呼び出し)であることを理由に上書きKEEP |
 | `orgh/status_json.py::status_payload` | CANDIDATE | KEEP | UC-25追加。`orgh/cli.py::status`と同一評価単位として上書きKEEP |
 | `orgh/worktree.py::cleanup_mission_worktrees` | CANDIDATE | WATCH | CLIと実装本体の統合評価ルールにより`orgh/cli.py::cleanup`(WATCH)の判定を継承 |
-| `orgh/worktree.py::merge_dep_branches` | CANDIDATE | KEEP | 内部ヘルパー統合評価ルールにより`ensure_task_worktree`(KEEP)の判定を継承 |
+| `orgh/worktree.py::merge_dep_branches` | CANDIDATE | KEEP | r1時点ではルール0(統合評価)による継承としたが、r5で「スキップして実行継続する実装のため親を残したまま除去可能」と再評価し、**独立評価+ルール7上書き(実行痕跡・機能価値)によるKEEP**へ根拠を差し替えた(セクション3の現行行を参照) |
 
 ---
 
@@ -243,7 +243,7 @@ r1改訂(セクション6b)の後、review-audit-r2で新たに指摘され判�
 
 以下1〜6はレビュー指摘(review-audit-r1・r2)を反映し、本改訂で解釈・判定を確定済み。人間に残る作業は各行の「承認/保留/却下」欄への実際のチェックのみである。
 
-1. ~~`orgh/gc.py`の内部ヘルパー3件と`orgh/worktree.py::merge_dep_branches`を親機能とまとめて1単位として扱うか~~ → **確定: まとめて1単位として扱う**(1章ルール0として明文化し、セクション3の該当行に反映済み)。
+1. ~~`orgh/gc.py`の内部ヘルパー3件と`orgh/worktree.py::merge_dep_branches`を親機能とまとめて1単位として扱うか~~ → **最終確定(r5): gc内部ヘルパーはルール0で親と1単位。merge_dep_branchesはスキップ耐性のある実装のためルール0適用外の独立評価とし、ルール7上書きでKEEP**(セクション3参照)。
 2. ~~`orgh/cli.py::scan`/`list`/`status`(及び`listing.py::list_missions`/`status_json.py::status_payload`)がusecases.jsonの記載漏れか~~ → **確定: list/status/list_missions/status_payloadは記載漏れと認め、UC-25・UC-26を追加してKEEPへ変更した。scanのみ運用文書上の裏付けが確認できず、追加は見送りWATCHに留めた**(1章ルール1の明文化区分「U=0かつ3≤T≤9→WATCH」に基づく。セクション6b参照)。
 3. ~~`_is_infra_error`と`LoopCfg.infra_max_retries`もusecases.jsonへの記載漏れと認めてよいか~~ → **確定: 記載漏れと認め、UC-28を追加してKEEPへ変更した**。
 4. ~~`--config`グローバルフラグと`validate_config`は構造的必須機能として扱ってよいか~~ → **確定: --configはUC-27追加のうえKEEP、validate_configは横断的前提機能として上書きKEEPとした。2026-08-07 review-audit-r2で--configはさらに`ps`による稼働中プロセスの直接確認で裏付けを強化した(usecase-inventory.md参照)**。
