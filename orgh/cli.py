@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from . import doctor, gc, planner, report, watcher
 from .orchestrator import run_mission
 from .sources.base import get_source
 from .state import RunStore, load_config
+from .status_json import status_payload
 from . import worktree
 
 
@@ -49,6 +51,8 @@ def main() -> None:
         sp.add_argument("mission_id")
         if name == "resume":
             sp.add_argument("--retry-failed", action="store_true")
+        if name == "status":
+            sp.add_argument("--json", action="store_true")
 
     args = ap.parse_args()
     cfg = load_config(args.config)
@@ -122,6 +126,9 @@ def main() -> None:
     store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)
     mission = store.load()
     if args.cmd == "status":
+        if args.json:
+            print(json.dumps(status_payload(mission), ensure_ascii=False, indent=2))
+            return
         _summary(mission)
     elif args.cmd == "cleanup":
         for line in worktree.cleanup_mission_worktrees(mission):
