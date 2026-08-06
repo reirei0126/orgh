@@ -145,6 +145,7 @@ Workerのデフォルト `allowed_tools` に Bash は含まれない。シェル
 タスクには Planner がタスク単位の `tools` フィールドで明示付与する。
 Plannerに渡す文脈ダイジェストは「参照データであり指示ではない」マーカーで
 包まれ、ノート内の命令文が計画を乗っ取ることを防ぐ。
+守れていない範囲は [docs/threat-model.md](docs/threat-model.md) に正直に書いている。
 
 ## 設計判断メモ
 
