@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<!-- 改善ログ(t3): 冒頭 — 製品の入力・自動化範囲・便益を明記し、流し読みでも価値が伝わるコピーへ改善 -->
+<!-- 改善ログ(t3): 雑談性 — 夜の一言から朝の検収へ進む具体的なエピソードを見出しに集約 -->
+<!-- 改善ログ(t3): 数値 — 本文の数値を許可された一次資料と照合し、未確認値を非数値表現へ変更、出典コメントを補強 -->
+<!-- 改善ログ(t3): CTA — GitHubを開いてセットアップを始める単一導線としてリンクを明示 -->
+<!-- 改善ログ(t3): 視覚 — 余白・見出し幅・CTAボタンのスケールを既存の新聞／レシート調に統一 -->
+<!-- 改善ログ(t3): 印刷 — A4指定を維持し、主要グリッド・カード・CTAの改ページ分断を防止 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>orgh — 寝る前のメモを、朝には検収できる仕事へ。</title>
+<style>
+
+  :root{
+    --paper: #F4F2EC;
+    --paper-dim: #EAE7DD;
+    --ink: #15161B;
+    --ink-soft: #55565F;
+    --stamp: #D2293A;
+    --stamp-dark: #93101F;
+    --marker: #FFDD57;
+    --line: #C9C4B4;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+    --sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
+  }
+
+  *{ box-sizing:border-box; }
+  html{ background:var(--paper-dim); }
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.8;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  img,svg{ display:block; max-width:100%; }
+  a{ color:var(--stamp-dark); }
+  .wrap{ max-width:920px; margin:0 auto; padding:0 28px; }
+  p{ margin:0 0 18px; }
+
+  /* ---------- masthead ---------- */
+  .masthead{
+    border-bottom:3px solid var(--ink);
+    padding:18px 0 14px;
+  }
+  .masthead .wrap{
+    display:flex; justify-content:space-between; align-items:baseline; gap:16px; flex-wrap:wrap;
+  }
+  .masthead .logo{
+    font-family:var(--mono);
+    font-weight:700;
+    font-size:15px;
+    letter-spacing:.06em;
+  }
+  .masthead .issue{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--ink-soft);
+    letter-spacing:.04em;
+  }
+
+  /* ---------- hero ---------- */
+  .hero{ padding:56px 0 40px; position:relative; overflow:hidden; }
+  .hero .kicker{
+    display:inline-block;
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.12em;
+    background:var(--ink);
+    color:var(--paper);
+    padding:4px 10px;
+    margin-bottom:26px;
+  }
+  .hero h1{
+    margin:0 0 26px;
+    font-size:clamp(34px, 7.4vw, 74px);
+    line-height:1.14;
+    font-weight:900;
+    letter-spacing:-.01em;
+  }
+  .hero h1 .mark{
+    background:linear-gradient(transparent 62%, var(--marker) 62%);
+    padding:0 2px;
+  }
+  .hero .lede{
+    max-width:44em;
+    font-size:19px;
+    color:var(--ink-soft);
+    margin-bottom:0;
+  }
+  .hero .lede strong{ color:var(--ink); }
+
+  .timestrip{
+    margin-top:40px;
+    display:grid;
+    grid-template-columns:1fr auto 1fr;
+    align-items:center;
+    gap:14px;
+    font-family:var(--mono);
+    font-size:13px;
+    border-top:1px dashed var(--line);
+    border-bottom:1px dashed var(--line);
+    padding:14px 0;
+  }
+  .timestrip .node{ }
+  .timestrip .node .t{ font-size:11px; color:var(--ink-soft); }
+  .timestrip .node .v{ font-size:16px; font-weight:700; }
+  .timestrip .arrow{ font-size:20px; color:var(--stamp); text-align:center; }
+  .timestrip .node.end{ text-align:right; }
+
+  /* ---------- generic section shell ---------- */
+  section{ padding:52px 0; }
+  section + section{ border-top:1px solid var(--line); }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.12em;
+    color:var(--stamp-dark);
+    margin:0 0 10px;
+  }
+  h2.head{
+    font-size:clamp(24px, 4vw, 36px);
+    font-weight:900;
+    line-height:1.3;
+    margin:0 0 22px;
+    max-width:22em;
+  }
+
+  /* ---------- pain ---------- */
+  .pain-body{ font-size:17px; color:var(--ink-soft); max-width:46em; }
+  .pain-body strong{ color:var(--ink); }
+  .stickies{
+    margin-top:34px;
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+    gap:16px;
+  }
+  .sticky{
+    background:var(--marker);
+    padding:18px 16px 20px;
+    font-size:14.5px;
+    font-weight:700;
+    line-height:1.5;
+    transform:rotate(var(--r, -1.4deg));
+    box-shadow:2px 3px 0 rgba(0,0,0,.14);
+    break-inside:avoid;
+  }
+  .sticky:nth-child(2){ --r:1deg; }
+  .sticky:nth-child(3){ --r:-.6deg; }
+  .sticky:nth-child(4){ --r:1.6deg; }
+
+  /* ---------- daily ---------- */
+  .daily-grid{ display:grid; grid-template-columns:1fr 1fr; gap:36px; align-items:center; }
+  .daily-scene{
+    border:1px solid var(--ink);
+    padding:22px;
+    position:relative;
+    background:var(--paper);
+  }
+  .daily-scene .frame-label{
+    position:absolute; top:-11px; left:16px;
+    background:var(--paper); padding:0 8px;
+    font-family:var(--mono); font-size:11px; color:var(--ink-soft);
+  }
+  .phone{
+    width:130px; height:230px; margin:6px auto 0;
+    border:3px solid var(--ink); border-radius:16px;
+    padding:10px 8px;
+    background:#fff;
+  }
+  .phone .bar{ height:6px; background:var(--paper-dim); border-radius:3px; margin-bottom:8px; }
+  .phone .card{
+    border:1px solid var(--line); border-radius:6px; padding:8px; margin-bottom:8px;
+    font-size:9px; line-height:1.5; color:var(--ink-soft);
+  }
+  .phone .card b{ display:block; color:var(--ink); font-size:9.5px; margin-bottom:2px; }
+  .phone .check{ color:var(--stamp-dark); font-weight:700; }
+  .daily-copy p{ font-size:16.5px; color:var(--ink-soft); }
+  .daily-copy p strong{ color:var(--ink); }
+  .daily-copy .cite{
+    margin-top:14px; font-family:var(--mono); font-size:11.5px; color:var(--ink-soft);
+  }
+
+  /* ---------- evidence / receipt ---------- */
+  .evidence-intro{ max-width:46em; font-size:16.5px; color:var(--ink-soft); margin-bottom:34px; }
+  .receipt{
+    max-width:460px;
+    margin:0 auto;
+    background:#fff;
+    border:1px solid var(--ink);
+    padding:26px 22px 30px;
+    font-family:var(--mono);
+    box-shadow:6px 6px 0 var(--ink);
+    break-inside:avoid;
+    position:relative;
+  }
+  .receipt::before, .receipt::after{
+    content:"";
+    position:absolute; left:0; right:0; height:10px;
+    background:
+      linear-gradient(135deg, var(--paper) 25%, transparent 25%) 0 0,
+      linear-gradient(-135deg, var(--paper) 25%, transparent 25%) 0 0;
+    background-size:14px 14px;
+    background-repeat:repeat-x;
+  }
+  .receipt::before{ top:-1px; }
+  .receipt::after{ bottom:-1px; transform:rotate(180deg); }
+  .receipt h3{
+    text-align:center; font-size:15px; letter-spacing:.08em; margin:0 0 4px;
+  }
+  .receipt .sub{ text-align:center; font-size:10.5px; color:var(--ink-soft); margin-bottom:18px; }
+  .receipt .rule{ border-top:1px dashed var(--ink); margin:14px 0; }
+  .rline{
+    display:flex; align-items:baseline; gap:6px;
+    font-size:13px; margin:9px 0;
+  }
+  .rline .label{ white-space:nowrap; }
+  .rline .leader{
+    flex:1; border-bottom:1px dotted var(--ink-soft); height:1px; margin-bottom:4px;
+  }
+  .rline .val{ white-space:nowrap; font-weight:700; }
+  .rline.sub-item{ padding-left:16px; font-size:12px; color:var(--ink-soft); }
+  .rline.sub-item .val{ font-weight:400; }
+  .receipt .total{
+    display:flex; justify-content:space-between; font-size:14px; font-weight:700;
+    border-top:2px solid var(--ink); padding-top:12px; margin-top:16px;
+  }
+  .receipt .foot-note{
+    margin-top:20px; font-size:10.5px; color:var(--ink-soft); text-align:center; line-height:1.6;
+  }
+
+  /* ---------- reassurance / stamps ---------- */
+  .stamps{
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:26px; margin-top:8px;
+  }
+  .stampcard{
+    text-align:center; padding:20px 14px 24px; border:1px solid var(--line);
+    break-inside:avoid;
+  }
+  .stampcard .ring{
+    width:104px; height:104px; margin:0 auto 16px;
+    border-radius:50%;
+    border:3px solid var(--stamp);
+    display:flex; align-items:center; justify-content:center;
+    position:relative;
+    transform:rotate(-8deg);
+  }
+  .stampcard .ring::before{
+    content:""; position:absolute; inset:6px; border:1px dashed var(--stamp);
+    border-radius:50%;
+  }
+  .stampcard .ring span{
+    font-family:var(--mono); font-weight:700; font-size:12px; color:var(--stamp);
+    letter-spacing:.03em; line-height:1.3;
+  }
+  .stampcard h4{ font-size:15px; margin:0 0 8px; }
+  .stampcard p{ font-size:13px; color:var(--ink-soft); margin:0; }
+  .stampcard .cite{ margin-top:10px; font-family:var(--mono); font-size:10.5px; color:var(--ink-soft); }
+
+  /* ---------- CTA / ticket ---------- */
+  .cta{ padding-bottom:70px; }
+  .ticket{
+    display:grid;
+    grid-template-columns:110px 1fr;
+    border:2px solid var(--ink);
+    background:#fff;
+    max-width:640px;
+    break-inside:avoid;
+  }
+  .ticket .stub{
+    background:var(--ink); color:var(--paper);
+    display:flex; align-items:center; justify-content:center;
+    writing-mode:vertical-rl; text-orientation:mixed;
+    font-weight:900; font-size:20px; letter-spacing:.14em;
+    padding:20px 0;
+    position:relative;
+  }
+  .ticket .stub::after{
+    content:"";
+    position:absolute; right:-1px; top:0; bottom:0; width:0;
+    border-right:2px dashed var(--paper);
+    background-image:radial-gradient(circle 5px, var(--paper) 5px, transparent 5.5px);
+    background-size:100% 20px;
+    background-position:right;
+  }
+  .ticket .main{ padding:26px 28px; }
+  .ticket .row{ display:flex; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .ticket .field .k{ font-family:var(--mono); font-size:10.5px; color:var(--ink-soft); letter-spacing:.08em; }
+  .ticket .field .v{ font-size:16px; font-weight:700; }
+  .ticket .repo{ font-family:var(--mono); font-size:19px; font-weight:700; margin:6px 0 16px; word-break:break-all; }
+  .ticket .cmdblock{
+    background:var(--paper-dim); border:1px solid var(--line); padding:12px 14px;
+    font-family:var(--mono); font-size:12.5px; line-height:1.9; overflow-x:auto;
+    white-space:pre-wrap; word-break:break-word;
+  }
+  .ticket .action{
+    display:inline-block;
+    margin-top:18px;
+    padding:11px 16px;
+    background:var(--stamp);
+    color:#fff;
+    border:2px solid var(--stamp-dark);
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:700;
+    text-decoration:none;
+    box-shadow:3px 3px 0 var(--ink);
+  }
+  .ticket .action:hover,
+  .ticket .action:focus-visible{
+    background:var(--stamp-dark);
+    transform:translate(1px, 1px);
+    box-shadow:2px 2px 0 var(--ink);
+  }
+  .cta .cite{ margin-top:14px; font-family:var(--mono); font-size:11px; color:var(--ink-soft); }
+
+  footer{
+    border-top:3px solid var(--ink);
+    padding:22px 0 40px;
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--ink-soft);
+    display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
+  }
+
+  @media (max-width:720px){
+    .daily-grid{ grid-template-columns:1fr; }
+    .stamps{ grid-template-columns:1fr; }
+    .ticket{ grid-template-columns:1fr; }
+    .ticket .stub{ writing-mode:horizontal-tb; padding:10px 0; }
+    .ticket .stub::after{ display:none; }
+  }
+
+  /* ---------- print ---------- */
+  @page{ size:A4; margin:16mm 14mm; }
+  @media print{
+    html, body{ background:#fff; }
+    .wrap{ max-width:none; }
+    section{ padding:26px 0; break-inside:avoid; }
+    section + section{ break-before:page; }
+    .hero{ break-before:auto; }
+    .hero h1{ font-size:40px; }
+    .receipt{ box-shadow:none; }
+    .daily-grid, .stickies, .stamps, .receipt, .ticket{ break-inside:avoid; page-break-inside:avoid; }
+    .sticky, .stampcard{ break-inside:avoid; page-break-inside:avoid; }
+    .ticket .action{ box-shadow:none; }
+  }
+</style>
+</head>
+<body>
+
+  <header class="masthead">
+    <div class="wrap">
+      <span class="logo">ORGH</span>
+      <span class="issue">メモから計画・実行・レビューまで回す — エージェント組織の実測レポート</span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="wrap">
+      <span class="kicker">AI AGENT ORCHESTRATION / 実話ベース</span>
+      <h1>寝る前にメモを書いた。<br><span class="mark">朝、チームの仕事が終わっていた。</span></h1>
+      <p class="lede">
+        orghは、ふつうのメモを仕事のミッションへ変えるエージェント・オーケストレーションハーネス。
+        AIが計画し、並列で手を動かし、別のAIが検品して差し戻す。
+        <strong>人間の仕事は、意図を書くことと、できあがった結果を検収することになる。</strong>
+      </p>
+      <div class="timestrip">
+        <div class="node">
+          <div class="t">やったこと</div>
+          <div class="v">「これ、お願い」とメモを書く</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="node end">
+          <div class="t">次にやったこと</div>
+          <div class="v">レビュー済みの結果を読む</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="pain">
+    <div class="wrap">
+      <p class="eyebrow">読者の痛み</p>
+      <h2 class="head">AIを雇ったのに、毎晩「次はこれ」と呼び戻している。</h2>
+      <div class="pain-body">
+        <p>
+          Claude CodeもCodexも、個々の実力はもう十分すぎるほど強い。<strong>それでも結局、指示を書き、待ち、差分を読み、「ここ直して」と呼び戻す</strong>
+          ——エージェント同士のバトンを手渡しているのは人間自身だ。賢い道具が増えるほど、自分の「監督業」まで増えていた。
+        </p>
+        <p>
+          会議の合間に指示を書き、深夜にもう一度差分を見にいく。ツールは並列に動けるのに、レビューして・差し戻して・もう一度、を回しているのは
+          結局いつも自分ひとり。<strong>ボトルネックは、いつのまにか自分だった。</strong>
+        </p>
+      </div>
+      <div class="stickies">
+        <div class="sticky">また差分を読まなきゃ</div>
+        <div class="sticky">「ここ直して」をもう一回言う</div>
+        <div class="sticky">待ってる間、他の作業が止まる</div>
+        <div class="sticky">結局、自分がボトルネック</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="daily">
+    <div class="wrap">
+      <p class="eyebrow">orghのある日常</p>
+      <h2 class="head">翌朝、スマホのObsidianに「レビュー済み」が届く。</h2>
+      <div class="daily-grid">
+        <div class="daily-scene">
+          <span class="frame-label">翌朝 / RESULTS NOTE</span>
+          <div class="phone">
+            <div class="bar"></div>
+            <div class="bar" style="width:60%"></div>
+            <div class="card">
+              <b>ミッション結果ノート</b>
+              status: done<br>
+              task A <span class="check">✓</span> pass<br>
+              task B <span class="check">✓</span> pass
+            </div>
+            <div class="card">
+              <b>次のメモ</b>
+              「このまま公開準備を進めて」
+            </div>
+          </div>
+        </div>
+        <div class="daily-copy">
+          <p>
+            夜投げたミッションの結果ノートが届いている。<strong>タップして開き、レビュー済みの差分を読み、問題なければそれで検収は終わり。</strong>
+            気になる点があれば、そのノートに一言書き足すだけで、次の指示になる。
+          </p>
+          <p>
+            結果ノートは進行のたびに全文が更新され、成果物もそこにリンクされる。<strong>ターミナルを開く必要すらない。</strong>
+            スマホでノートを開いた時間が、そのまま検収の時間になる。
+          </p>
+          <p class="cite">根拠: README.md「vault完結のフィードバック(orgh watch)」— 結果ノートはミッション進行のたびに全文更新される仕組みが実装済み</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="evidence">
+    <div class="wrap">
+      <p class="eyebrow">実測の証拠</p>
+      <h2 class="head">数字は全部、このリポジトリの中から拾ってきた。捏造はゼロ。</h2>
+      <p class="evidence-intro">
+        「すごい」と言うのは簡単だ。だからここでは言い切らず、レシートを置く。全部 <code>ops/demo/runs/</code> の実行記録と、
+        リポジトリ内の実ファイルから拾った数字で、直後に出典を添えている。
+      </p>
+
+      <div class="receipt">
+        <h3>証拠レシート</h3>
+        <div class="sub">org-harness / ops/demo/runs/ 実測記録より</div>
+        <div class="rule"></div>
+
+        <div class="rline">
+          <span class="label">自己改修ミッション(2タスク並列)</span>
+          <span class="leader"></span>
+          <span class="val">$2.97</span>
+        </div>
+        <!-- 出典: ops/demo/runs/099e281b/mission.json | budget.spent_usdの実測値 -->
+        <div class="rline sub-item">
+          <span class="label">└ 予算$10.00に対する消化率</span>
+          <span class="leader"></span>
+          <span class="val">約30%</span>
+        </div>
+        <!-- 出典: ops/demo/runs/099e281b/mission.json | budget.limit_usd(10.0)とbudget.spent_usd(2.9703683)の比 -->
+        <div class="rline sub-item">
+          <span class="label">└ 初回attemptでの合格</span>
+          <span class="leader"></span>
+          <span class="val">2/2タスク</span>
+        </div>
+        <!-- 出典: ops/demo/runs/099e281b/mission.json | tasks[0].attempts=1とtasks[1].attempts=1(いずれもstatus=done) -->
+
+        <div class="rline">
+          <span class="label">資料一式ミッション(5タスクDAG)</span>
+          <span class="leader"></span>
+          <span class="val">$5.82</span>
+        </div>
+        <!-- 出典: ops/demo/runs/2bdf2bee/mission.json | tasks配列の要素数5とbudget.spent_usd -->
+
+        <div class="rline">
+          <span class="label">予算ガード発動(タスク単位$2.50上限)</span>
+          <span class="leader"></span>
+          <span class="val">超過検知</span>
+        </div>
+        <!-- 出典: ops/demo/runs/eec17e52/ledger.jsonl | task.budget_exceededイベント t1のcost5.57とt2のcost7.98がlimit2.50を超過 -->
+        <div class="rline sub-item">
+          <span class="label">└ resume後、両タスクとも完走</span>
+          <span class="leader"></span>
+          <span class="val">done / done</span>
+        </div>
+        <!-- 出典: ops/demo/runs/eec17e52/mission.json | tasks[0].status=doneかつtasks[1].status=done、最終cost_usdはt1が6.04でt2が8.38 -->
+
+        <div class="rline">
+          <span class="label">自己改変タスクの承認ゲート通過実績</span>
+          <span class="leader"></span>
+          <span class="val">6/7ミッション</span>
+        </div>
+        <!-- 出典: ops/demo/runs | 配下7ミッションディレクトリ中APPROVEDファイルが存在するのは6件(自己改変を伴わない4479ddffのみ非該当) -->
+
+        <div class="rule"></div>
+        <div class="total">
+          <span>テストスイート</span>
+          <span>148件</span>
+        </div>
+        <!-- 出典: README.md「デモ: orghがorgh自身を改修する」| 両ブランチのマージ後に148テスト全緑と記録 -->
+
+        <p class="foot-note">この明細は生成日時点のスナップショット。<br>最新の数字は同じコマンドで誰でも再現できる。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="assurance">
+    <div class="wrap">
+      <p class="eyebrow">安心</p>
+      <h2 class="head">暴走しない設計になっている。念のため、じゃなくて最初から。</h2>
+      <div class="stamps">
+        <div class="stampcard">
+          <div class="ring"><span>BUDGET<br>GUARD</span></div>
+          <h4>予算ガード</h4>
+          <p>ミッション/タスクごとにUSD上限を設定でき、超過すると未着手タスクは止まる。上げて再開すれば続きから走る。</p>
+          <p class="cite">根拠: README.md「予算ガード」、上の証拠レシートの超過→resume実測</p>
+        </div>
+        <div class="stampcard">
+          <div class="ring"><span>APPROVED<br>ONLY</span></div>
+          <h4>自己改変は人間承認が必須</h4>
+          <p>orgh自身を書き換えるタスクは自動実行されず停止する。続行できるのは人間の承認コマンドのみで、設定でも無効化できない。</p>
+          <p class="cite">根拠: README.md「統治線」、証拠レシートの承認ファイル実測</p>
+        </div>
+        <div class="stampcard">
+          <div class="ring"><span>THREAT<br>MODEL</span></div>
+          <h4>脅威モデルを公開している</h4>
+          <p>「守るもの」だけでなく「守らないもの」も正直に書いて公開している。誇張も、隠蔽もしない。</p>
+          <p class="cite">根拠: docs/threat-model.md(リポジトリ内に実在・公開)</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap">
+      <p class="eyebrow">CTA</p>
+      <h2 class="head">次にすることは、GitHubを開く。それだけ。</h2>
+      <p class="evidence-intro">READMEのセットアップを、そのまま試せる。まずリポジトリを開き、手元の小さなミッションを任せてみてほしい。</p>
+      <div class="ticket">
+        <div class="stub">BOARDING</div>
+        <div class="main">
+          <div class="row">
+            <div class="field">
+              <div class="k">REPOSITORY</div>
+              <div class="v">orgh</div>
+            </div>
+            <div class="field">
+              <div class="k">STATUS</div>
+              <div class="v">OSS / MIT</div>
+            </div>
+          </div>
+          <div class="repo">github.com/reirei0126/orgh</div>
+          <div class="cmdblock">pip install -e .
+cp config.example.yaml config.yaml
+# vaultパスとworker設定を編集して orgh run</div>
+          <!-- 出典: README.md「セットアップ」| インストール、設定ファイル複製、vaultパスとworker設定の編集手順 -->
+          <a class="action" href="https://github.com/reirei0126/orgh">GitHubを開いてセットアップする →</a>
+        </div>
+      </div>
+      <p class="cite">セットアップ手順は README.md「セットアップ」に準拠</p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;width:100%;max-width:920px;margin:0 auto;">
+      <span>orgh — github.com/reirei0126/orgh</span>
+      <span>MIT License</span>
+    </div>
+  </footer>
+
+</body>
+</html>
