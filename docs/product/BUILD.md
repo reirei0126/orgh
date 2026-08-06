@@ -85,3 +85,37 @@
   - 補足: `strings docs/product/orgh-pitch.pdf | grep -c '/Type */Page[^s]'` は0を返すが、これは生成されたPDF内部でページオブジェクトがオブジェクトストリーム(compressed object streams, PDF 1.5+機能相当)として格納されており `strings` では平文検出できないためで、上記3手法の一致により実ページ数6は確定している。
 - ファイルサイズ: 9,009,828 バイト(受け入れ基準51,200バイトを大きく上回る)
 - 判定: ページ数(6)とHTMLスライド数(6)が完全一致したため、`orgh-pitch.html` の追加修正は不要だった。
+
+## 追記: pitch-engineer.pdf の生成(2026-08-06)
+
+`docs/product/pitch-engineer.html`(エンジニア向けピッチ資料、16:9スライド形式・7スライド)を、上記と同じ手順(ヘッドレスChrome、`--headless --no-pdf-header-footer --print-to-pdf`、リポジトリルートを起点とした相対パス指定)でPDF化した。HTML側は無修正。
+
+### 生成物一覧
+
+| ファイルパス | バイト数 | ページ数 | 生成日時 |
+|---|---:|---:|---|
+| `docs/product/pitch-engineer.pdf` | 7,477,536 バイト | 7ページ | 2026-08-06 22:04:56 JST |
+
+`file` コマンドで `PDF document, version 1.4, 7 pages` と判定され、有効なPDFであることを確認済み。サイズは受け入れ基準の51,200バイトを大きく上回っている。
+
+### 実行コマンド
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --no-pdf-header-footer --print-to-pdf=docs/product/pitch-engineer.pdf docs/product/pitch-engineer.html
+```
+
+出力: `7477536 bytes written to file docs/product/pitch-engineer.pdf`(終了コード0)。標準エラーに `Trying to load the allocator multiple times.` というアロケータ関連の警告が出力されたが、既存資料のビルド時と同様に無害であり、PDF生成の成否には影響しない。
+
+### ページ数検証
+
+- スライド数(HTML側の真実源): `grep -c 'class="slide' docs/product/pitch-engineer.html` → **7**
+- ページ数を3手法でクロスチェックし、いずれも **7ページ** で一致(HTMLのスライド数と完全一致):
+  - `pdfinfo docs/product/pitch-engineer.pdf` → `Pages: 7`(`Page size: 960 x 540 pts`)
+  - `mdls -name kMDItemNumberOfPages docs/product/pitch-engineer.pdf` → `kMDItemNumberOfPages = 7`
+  - Python正規表現で `/Count` を直接抽出(`re.findall(rb'/Count\s+(\d+)', data)`)→ `[b'7']`
+- 判定: ページ数(7)とHTMLスライド数(7)が完全一致したため、`pitch-engineer.html` の追加修正(`pdf-fix` コメント付与を含む)は不要だった。HTML側は無修正。
+
+### 実行環境
+
+- Google Chrome: `Google Chrome 151.0.7922.75`(`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version` の出力そのまま。既存ビルド時と同一バージョン)
+- 本追記作業ではHTMLソース(`pitch-engineer.html`)・既存の `.md` ドキュメントは一切変更していない。新規作成したのはPDF(`docs/product/pitch-engineer.pdf`)のみで、本ファイルへは追記のみ行った。
