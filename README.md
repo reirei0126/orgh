@@ -17,6 +17,8 @@ Obsidian/メモ → 意図解釈 → 計画(DAG) → Claude Code / Codex セッ�
 
 このREADMEに載っている`orgh list`と`status --json`は、この録画のミッションが実装したものである。
 
+**ドキュメント**: 技術詳解は [docs/deep-dive.md](docs/deep-dive.md)、ITに詳しくない方は [docs/orgh-first-guide.md](docs/orgh-first-guide.md) から。
+
 ## 組織構造
 
 ```
