@@ -94,3 +94,49 @@ class TestStatusJsonCli:
         out = capsys.readouterr().out
         assert "mission" in out
         assert out.strip().startswith("mission") or "mission" in out.splitlines()[1]
+
+
+class TestStatusPayloadNewStates:
+    """GUI連携で追加した派生状態(awaiting_approval / cancelled)の検証。
+    listing._derive_status と同一規則であること。"""
+
+    def test_status_awaiting_approval_when_any_task_awaiting(self):
+        m = _mission([_task("t1", "awaiting_approval"), _task("t2", "pending")])
+        assert status_payload(m)["status"] == "awaiting_approval"
+
+    def test_status_cancelled_when_all_terminal_but_not_all_done(self):
+        m = _mission([_task("t1", "done"), _task("t2", "cancelled"),
+                      _task("t3", "skipped")])
+        assert status_payload(m)["status"] == "cancelled"
+
+    def test_status_failed_takes_precedence_over_cancelled(self):
+        m = _mission([_task("t1", "failed"), _task("t2", "cancelled")])
+        assert status_payload(m)["status"] == "failed"
+
+
+class TestStatusShowsInflightTruthfully:
+    """orgh status は読み取り専用: クラッシュ復旧用のrunning→pending巻き戻しを
+    適用せず、実行中タスクを実行中のまま表示する(GUI詳細画面の真実性)。"""
+
+    def test_cli_status_json_keeps_running_status(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        m = _mission([_task("t1", "running"), _task("t2", "pending")])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "status", m.id, "--json"])
+        cli.main()
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["tasks"][0]["status"] == "running"
+        assert payload["status"] == "running"
+
+    def test_load_reset_inflight_true_still_rewinds_for_resume(
+            self, cfg, mock_state_dir):
+        m = _mission([_task("t1", "running")])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+        reloaded = store.load()  # 既定(実行再開経路)は従来どおり巻き戻す
+        assert reloaded.tasks[0].status == "pending"

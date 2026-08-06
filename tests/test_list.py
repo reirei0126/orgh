@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from orgh import cli
+from orgh import cli, listing
 from orgh.listing import list_missions
 from orgh.state import Budget, Mission, RunStore, Task
 
@@ -119,6 +119,35 @@ class TestListMissions:
         out = list_missions(runs_dir)
         assert [m["mission_id"] for m in out] == ["m1"]
 
+    def test_broken_mission_reported_in_skipped(self, tmp_path):
+        # 破損mission.jsonの黙殺は「0件」とデータ消失を区別不能にするため、
+        # skippedとしてパスと理由が返る契約
+        runs_dir = tmp_path / "runs"
+        _mk_mission(runs_dir, "m1", "正常ミッション", [_task("t1", "done")])
+        broken = runs_dir / "m0-broken"
+        broken.mkdir(parents=True)
+        (broken / "mission.json").write_text("{not valid json")
+        payload = listing.list_missions_report(runs_dir)
+        assert [m["mission_id"] for m in payload["missions"]] == ["m1"]
+        assert len(payload["skipped"]) == 1
+        assert payload["skipped"][0]["path"].endswith("m0-broken/mission.json")
+        assert payload["skipped"][0]["reason"]
+
+    def test_status_awaiting_approval_when_any_task_awaiting(self, tmp_path):
+        runs_dir = tmp_path / "runs"
+        _mk_mission(runs_dir, "m1", "承認待ち",
+                    [_task("t1", "awaiting_approval"), _task("t2", "pending")])
+        out = list_missions(runs_dir)
+        assert out[0]["status"] == "awaiting_approval"
+
+    def test_status_cancelled_when_all_terminal_but_not_all_done(self, tmp_path):
+        runs_dir = tmp_path / "runs"
+        _mk_mission(runs_dir, "m1", "キャンセル済み",
+                    [_task("t1", "done"), _task("t2", "cancelled"),
+                     _task("t3", "skipped")])
+        out = list_missions(runs_dir)
+        assert out[0]["status"] == "cancelled"
+
     def test_dir_without_mission_json_is_skipped(self, tmp_path):
         runs_dir = tmp_path / "runs"
         _mk_mission(runs_dir, "m1", "正常ミッション", [_task("t1", "done")])
@@ -157,7 +186,7 @@ class TestListJsonCli:
         cli.main()
 
         payload = json.loads(capsys.readouterr().out)
-        assert payload == {"missions": []}
+        assert payload == {"missions": [], "skipped": []}
 
     def test_cli_list_without_json_flag_prints_human_summary(
             self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):

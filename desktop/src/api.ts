@@ -7,9 +7,9 @@
 import type {
   DoctorReport,
   LedgerEvent,
+  ListPayload,
   MissionLogEvent,
   MissionStatus,
-  MissionSummary,
   MissionUpdatedEvent,
   Settings,
 } from "./types";
@@ -67,10 +67,10 @@ async function invokeReal<T>(cmd: string, args?: Record<string, unknown>): Promi
   return invoke<T>(cmd, args);
 }
 
-export async function listMissions(): Promise<MissionSummary[]> {
-  if (isTauriRuntime()) return invokeReal<MissionSummary[]>("list_missions");
+export async function listMissions(): Promise<ListPayload> {
+  if (isTauriRuntime()) return invokeReal<ListPayload>("list_missions");
   await mockDelay();
-  return MOCK_MISSIONS;
+  return { missions: MOCK_MISSIONS, skipped: [] };
 }
 
 export async function missionStatus(missionId: string): Promise<MissionStatus> {

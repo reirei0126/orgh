@@ -126,7 +126,8 @@ def main() -> None:
         mission = planner.plan(cfg, intent, digest)
         store = RunStore(cfg.get("runs_dir", "runs"), mission.id)
         print(f"mission {mission.id}: {len(mission.tasks)} tasks")
-        print(f"ORGH_MISSION_ID={mission.id}")
+        # GUI等がpipe越しに購読するため行バッファリングに依存せず即時flushする
+        print(f"ORGH_MISSION_ID={mission.id}", flush=True)
         for t in mission.tasks:
             print(f"  - {t.id} [{t.worker}] {t.title} deps={t.deps}")
 
@@ -143,10 +144,11 @@ def main() -> None:
         return
 
     if args.cmd == "list":
-        missions = listing.list_missions(cfg.get("runs_dir", "runs"))
+        payload = listing.list_missions_report(cfg.get("runs_dir", "runs"))
         if args.json:
-            print(json.dumps({"missions": missions}, ensure_ascii=False))
+            print(json.dumps(payload, ensure_ascii=False))
             return
+        missions = payload["missions"]
         if not missions:
             print("no missions")
         else:
@@ -154,6 +156,9 @@ def main() -> None:
                 print(f"{m['mission_id']}  [{m['status']}]  "
                       f"{m['tasks_done']}/{m['tasks_total']} tasks  "
                       f"{m['cost_usd']:.4f} USD  {m['intent']}")
+        for s in payload["skipped"]:
+            print(f"! 読めないmission.jsonをスキップ: {s['path']} ({s['reason']})",
+                  file=sys.stderr)
         return
 
     if args.cmd == "events":
@@ -175,7 +180,9 @@ def main() -> None:
         return
 
     store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)
-    mission = store.load()
+    # status/cleanupは読み取り専用: 実行中ステータスの巻き戻し(クラッシュ復旧用)を
+    # 適用すると、動いているタスクをpendingと偽って表示してしまう
+    mission = store.load(reset_inflight=args.cmd not in ("status", "cleanup"))
     if args.cmd == "status":
         if args.json:
             print(json.dumps(status_payload(mission), ensure_ascii=False, indent=2))
@@ -185,12 +192,17 @@ def main() -> None:
         for line in worktree.cleanup_mission_worktrees(mission):
             print(line)
     elif args.cmd == "approve":
-        # 自己改変ガードの解除はこのコマンドのみ(watcher/configからは不可)
+        # 自己改変ガードの解除はこのコマンドのみ(watcher/configからは不可)。
+        # 承認待ちタスクが無いのにAPPROVEDを先置きするとガード発火前のミッションを
+        # 素通しできてしまうため、対象がある場合しか承認させない(二重承認もここで弾く)
+        waiting = [t for t in mission.tasks if t.status == "awaiting_approval"]
+        if not waiting:
+            sys.exit(f"mission {mission.id} に承認待ちタスクが無い"
+                     f"(承認済み・実行中・またはガード未発火)。承認を中止する")
         (store.dir / "APPROVED").touch()
-        for t in mission.tasks:
-            if t.status == "awaiting_approval":
-                t.status = "pending"
-        print(f"mission {mission.id} を承認した。実行を続行する")
+        for t in waiting:
+            t.status = "pending"
+        print(f"mission {mission.id} を承認した。実行を続行する", flush=True)
         mission = run_mission(cfg, mission, store)
         _summary(mission)
     elif args.cmd == "cancel":

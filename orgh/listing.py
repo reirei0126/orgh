@@ -19,22 +19,38 @@ def _summarize_intent(intent: str) -> str:
 
 
 def _derive_status(tasks: list[dict]) -> str:
+    # status_json.status_payload と同一の導出規則を保つこと(GUIが両方を表示する)
     if not tasks:
         return "empty"
     statuses = [t.get("status") for t in tasks]
-    if any(s == "failed" for s in statuses):
-        return "failed"
+    terminal = ("done", "failed", "cancelled", "skipped")
     if all(s == "done" for s in statuses):
         return "done"
+    if any(s == "failed" for s in statuses):
+        return "failed"
+    if any(s == "awaiting_approval" for s in statuses):
+        return "awaiting_approval"
+    if all(s in terminal for s in statuses):
+        return "cancelled"
     return "running"
 
 
 def list_missions(runs_dir: str | Path) -> list[dict]:
+    return list_missions_report(runs_dir)["missions"]
+
+
+def list_missions_report(runs_dir: str | Path) -> dict:
+    """一覧に加え、読めなかったミッションを skipped として明示的に返す。
+
+    破損mission.jsonを黙って読み飛ばすと、GUI/CLIが「0件」と「データ破損」を
+    区別できず、データ消失を「まだミッションがありません」と誤表示する。
+    """
     root = Path(runs_dir)
     if not root.exists():
-        return []
+        return {"missions": [], "skipped": []}
 
-    out = []
+    out: list[dict] = []
+    skipped: list[dict] = []
     for d in sorted(root.iterdir()):
         if not d.is_dir():
             continue
@@ -53,8 +69,9 @@ def list_missions(runs_dir: str | Path) -> list[dict]:
                 "tasks_done": sum(1 for t in tasks if t.get("status") == "done"),
                 "tasks_total": len(tasks),
             })
-        except Exception:
+        except Exception as e:
+            skipped.append({"path": str(mp), "reason": f"{type(e).__name__}: {e}"})
             continue
 
     out.sort(key=lambda m: m["mission_id"])
-    return out
+    return {"missions": out, "skipped": skipped}

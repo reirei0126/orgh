@@ -10,6 +10,7 @@ Claude Codeタスクは session_id を保持し --resume でフィードバッ�
 """
 from __future__ import annotations
 
+import fcntl
 import re
 import time
 import traceback
@@ -289,6 +290,26 @@ def _initiate_budget_stop(mission: Mission, store: RunStore,
 
 def run_mission(cfg: dict, mission: Mission, store: RunStore,
                 on_update=None, poll_cancel=None) -> Mission:
+    """同一ミッションの二重実行防止(GUI/CLI/watchの経路をまたぐプロセス間ロック)
+    を掛けてから実行本体へ。flockはプロセス終了(クラッシュ含む)で自動解放される
+    ため、staleロックは残らない。"""
+    lock_fp = open(store.dir / ".run.lock", "w")
+    try:
+        fcntl.flock(lock_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_fp.close()
+        store.log("mission.lock_conflict")
+        raise SystemExit(
+            f"mission {mission.id} は別プロセスが実行中(approve/resume/watchの"
+            f"二重発行の可能性)。二重実行を中止する")
+    try:
+        return _run_mission_locked(cfg, mission, store, on_update, poll_cancel)
+    finally:
+        lock_fp.close()  # closeでflockも解放される
+
+
+def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
+                        on_update=None, poll_cancel=None) -> Mission:
     workers = cfg.get("loop", {}).get("parallel", 3)
     budget = _setup_budget(cfg, mission)
     store.save(mission)

@@ -8,18 +8,26 @@ import { formatClock, formatCost } from "../format";
 import type { Route } from "../router";
 import type { LedgerEvent, MissionStatus } from "../types";
 
-function ledgerToLine(e: LedgerEvent): LogLine {
+function ledgerToLine(e: LedgerEvent, index: number): LogLine {
   const { ts, event, ...rest } = e;
   const fields = Object.entries(rest)
     .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
     .join(" ");
   return {
-    key: `${ts}-${event}-${Math.random().toString(36).slice(2, 7)}`,
+    // ポーリングで同じ行を再取得しても同一keyになるよう、乱数ではなく
+    // ts+event+取得内index で安定させる
+    key: `${ts}-${event}-${index}`,
     text: `[${formatClock(ts)}] ${event}${fields ? "  " + fields : ""}`,
   };
 }
 
 let lineSeq = 0;
+
+/** 実行中ミッションの進捗・ledgerを追う再取得間隔(ms)。
+ * mission-updatedイベントは自プロセスが起動した子プロセスの節目でしか
+ * 発火しないため、watchデーモン起動のミッションや実行途中の進捗は
+ * ポーリングでしか追えない。 */
+const DETAIL_POLL_MS = 5_000;
 
 export function MissionDetailPage({
   missionId,
@@ -31,7 +39,10 @@ export function MissionDetailPage({
   onError: (message: string) => void;
 }) {
   const [status, setStatus] = useState<MissionStatus | null>(null);
-  const [logLines, setLogLines] = useState<LogLine[]>([]);
+  // ledger由来の行(ポーリングで全置換)と、実行中プロセスのstdout/stderr由来の
+  // ライブ行(追記のみ)を分けて持つ。混ぜると再取得のたびに重複する
+  const [ledgerLines, setLedgerLines] = useState<LogLine[]>([]);
+  const [liveLines, setLiveLines] = useState<LogLine[]>([]);
   const [busy, setBusy] = useState<"approve" | "cancel" | null>(null);
   const missionIdRef = useRef(missionId);
   missionIdRef.current = missionId;
@@ -47,26 +58,36 @@ export function MissionDetailPage({
 
   useEffect(() => {
     setStatus(null);
-    setLogLines([]);
+    setLedgerLines([]);
+    setLiveLines([]);
 
     let cancelled = false;
 
-    missionStatus(missionId)
-      .then((s) => {
-        if (!cancelled) setStatus(s);
-      })
-      .catch((e) => onError(`ミッション状態の取得に失敗しました: ${String(e)}`));
+    const fetchAll = (reportError: boolean) => {
+      missionStatus(missionId)
+        .then((s) => {
+          if (!cancelled) setStatus(s);
+        })
+        .catch((e) => {
+          if (reportError) onError(`ミッション状態の取得に失敗しました: ${String(e)}`);
+        });
+      missionEvents(missionId, 100)
+        .then((events) => {
+          if (!cancelled) setLedgerLines(events.map(ledgerToLine));
+        })
+        .catch((e) => {
+          if (reportError) onError(`実行ログの取得に失敗しました: ${String(e)}`);
+        });
+    };
 
-    missionEvents(missionId, 100)
-      .then((events) => {
-        if (!cancelled) setLogLines(events.map(ledgerToLine));
-      })
-      .catch((e) => onError(`実行ログの取得に失敗しました: ${String(e)}`));
+    fetchAll(true);
+    // ポーリング中の一時的な失敗はバナーを連発させない(次回成功で回復する)
+    const timer = setInterval(() => fetchAll(false), DETAIL_POLL_MS);
 
     const unlistenLog = onMissionLog((payload) => {
       if (payload.missionId !== missionIdRef.current) return;
       lineSeq += 1;
-      setLogLines((prev) => [...prev, { key: `live-${lineSeq}`, text: payload.line }]);
+      setLiveLines((prev) => [...prev, { key: `live-${lineSeq}`, text: payload.line }]);
     });
     const unlistenUpdated = onMissionUpdated((payload) => {
       if (payload.missionId !== missionIdRef.current) return;
@@ -75,11 +96,14 @@ export function MissionDetailPage({
 
     return () => {
       cancelled = true;
+      clearInterval(timer);
       unlistenLog.then((fn) => fn());
       unlistenUpdated.then((fn) => fn());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missionId]);
+
+  const logLines = [...ledgerLines, ...liveLines];
 
   const hasAwaitingApproval = status?.tasks.some((t) => t.status === "awaiting_approval") ?? false;
 
@@ -87,6 +111,9 @@ export function MissionDetailPage({
     setBusy("approve");
     try {
       await approveMission(missionId);
+      // approveは子プロセスをspawnして即座に戻る(実行自体は継続する)。
+      // 承認直後の状態遷移(awaiting_approval→pending/running)を反映する
+      refetchStatus();
     } catch (e) {
       onError(`承認の実行に失敗しました: ${String(e)}`);
     } finally {
@@ -136,7 +163,11 @@ export function MissionDetailPage({
               <button
                 className="btn btn-danger"
                 onClick={handleCancel}
-                disabled={busy !== null || status.status !== "running"}
+                disabled={
+                  busy !== null ||
+                  (status.status !== "running" && status.status !== "awaiting_approval")
+                }
+                title="CANCELフラグを置き、実行中プロセスが検知した時点で停止します(即時停止ではありません)"
               >
                 {busy === "cancel" ? <span className="spinner" /> : "✕"} キャンセル
               </button>

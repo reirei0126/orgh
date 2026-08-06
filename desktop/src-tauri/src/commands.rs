@@ -8,16 +8,15 @@
 use tauri::AppHandle;
 
 use crate::cli;
-use crate::models::{
-    DoctorReport, EventsPayload, LedgerEvent, ListPayload, MissionStatus, MissionSummary,
-};
+use crate::models::{DoctorReport, EventsPayload, LedgerEvent, ListPayload, MissionStatus};
 use crate::settings::{self, Settings};
 
 #[tauri::command]
-pub fn list_missions(app: AppHandle) -> Result<Vec<MissionSummary>, String> {
+pub fn list_missions(app: AppHandle) -> Result<ListPayload, String> {
+    // missionsだけでなくskipped(読めなかったmission.json)も返す。
+    // 破損データを黙殺すると「0件」とデータ消失をUIで区別できない
     let settings = settings::load_settings(&app)?;
-    let payload: ListPayload = cli::run_json(&settings, &["list", "--json"])?;
-    Ok(payload.missions)
+    cli::run_json(&settings, &["list", "--json"])
 }
 
 #[tauri::command]

@@ -41,10 +41,10 @@
   ]
 }
 ```
-- 実装: `orgh/listing.py` `list_missions()` をそのまま再利用(`orgh/cli.py` の `list --json` 分岐)。
-- `status` 派生規則: タスク0件→`empty`。1件でも`failed`→`failed`。全件`done`→`done`。それ以外→`running`。
-- ミッションが1件もない場合 `{"missions": []}`(エラーではない)。
-- `runs/` 配下の壊れた `mission.json`(JSON不正など)は黙ってスキップされ、結果に含まれない。
+- 実装: `orgh/listing.py` `list_missions_report()` を再利用(`orgh/cli.py` の `list --json` 分岐)。
+- `status` 派生規則(`orgh status --json` と同一規則): タスク0件→`empty`。全件`done`→`done`。1件でも`failed`→`failed`。1件でも`awaiting_approval`→`awaiting_approval`。全件終端(done/cancelled/skipped)で`done`以外を含む→`cancelled`。それ以外→`running`。
+- ミッションが1件もない場合 `{"missions": [], "skipped": []}`(エラーではない)。
+- `runs/` 配下の壊れた `mission.json`(JSON不正など)は `skipped` 配列(`{"path": ..., "reason": ...}`)として明示的に返る。黙殺すると「0件」とデータ破損をGUIが区別できないため。
 
 ### 1.2 `orgh events <mission_id> --json [--tail N]`
 
@@ -138,7 +138,7 @@ Tauriの既定動作でJS側の `invoke()` 引数名は自動的にcamelCaseへ�
 
 | コマンド | 引数 | 戻り値 | 対応するCLI |
 |---|---|---|---|
-| `list_missions` | なし | `MissionSummary[]` | `orgh list --json` の `missions` 配列をそのまま返す |
+| `list_missions` | なし | `ListPayload`(missions+skipped) | `orgh list --json` の出力そのもの(camelCase変換のみ) |
 | `mission_status` | `mission_id: string` | `MissionStatus` | `orgh status <id> --json` の出力そのもの(camelCase変換のみ) |
 | `mission_events` | `mission_id: string`, `tail: number` | `LedgerEvent[]` | `orgh events <id> --json --tail <tail>` の `events` 配列をそのまま返す |
 | `start_mission` | `intent: string \| null`, `note: string \| null` | `string`(mission_id) | `orgh run --intent <intent>` または `orgh run --note <note>` を起動(§3.1) |

@@ -258,15 +258,19 @@ class RunStore:
             tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
             os.replace(tmp, self.dir / "mission.json")
 
-    def load(self) -> Mission:
+    def load(self, reset_inflight: bool = True) -> Mission:
         data = json.loads((self.dir / "mission.json").read_text())
         data["tasks"] = [Task(**t) for t in data["tasks"]]
         if data.get("budget"):
             data["budget"] = Budget(**data["budget"])
         mission = Mission(**data)
-        for t in mission.tasks:
-            if t.status in _INFLIGHT_STATUSES:
-                t.status = "pending"
+        # 実行中系→pendingの巻き戻しはクラッシュ後の再実行(run/resume/approve)用。
+        # 読み取り専用の照会(status等)でこれを適用すると実行中タスクを
+        # pendingと偽るため、reset_inflight=Falseで生の永続状態を返せるようにする
+        if reset_inflight:
+            for t in mission.tasks:
+                if t.status in _INFLIGHT_STATUSES:
+                    t.status = "pending"
         return mission
 
     def log(self, event: str, **kw: Any) -> None:

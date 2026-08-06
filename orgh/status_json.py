@@ -7,10 +7,18 @@ from typing import Any
 def status_payload(mission: Any) -> dict:
     """mission オブジェクトから json.dumps 可能な dict を組み立てる純関数。"""
     statuses = [t.status for t in mission.tasks]
+    # listing._derive_status と同一の導出規則を保つこと(GUIが両方を表示する)
+    terminal = ("done", "failed", "cancelled", "skipped")
     if statuses and all(s == "done" for s in statuses):
         mission_status = "done"
     elif any(s == "failed" for s in statuses):
         mission_status = "failed"
+    elif any(s == "awaiting_approval" for s in statuses):
+        mission_status = "awaiting_approval"
+    elif statuses and all(s in terminal for s in statuses):
+        # 全タスク終端でdone以外を含む(cancel/budget stop後)。runningのままだと
+        # 停止済みミッションへ再キャンセルを誘発する
+        mission_status = "cancelled"
     else:
         mission_status = "running"
 

@@ -28,10 +28,22 @@ pub struct MissionSummary {
     pub tasks_total: u32,
 }
 
-/// `orgh list --json` の生レスポンス全体(deserialize専用の中間形)。
-#[derive(Debug, Deserialize)]
+/// `orgh list --json` で読み飛ばされた壊れたmission.jsonの情報。
+/// types.ts の `SkippedMission` に対応。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkippedMission {
+    pub path: String,
+    pub reason: String,
+}
+
+/// `orgh list --json` の生レスポンス全体。フロントへは missions と skipped を
+/// そのまま渡す(壊れたデータを黙殺して「0件」と誤表示しないため)。
+/// `skipped` は旧CLIとの互換のため欠落を許容する。
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ListPayload {
     pub missions: Vec<MissionSummary>,
+    #[serde(default)]
+    pub skipped: Vec<SkippedMission>,
 }
 
 /// `orgh status <id> --json` の `tasks[]` 要素。types.ts の `TaskStatus`。

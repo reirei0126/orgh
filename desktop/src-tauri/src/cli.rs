@@ -105,6 +105,9 @@ pub fn spawn_and_bridge(
 ) -> Result<String, String> {
     let mut child = Command::new(&program)
         .args(&args)
+        // Pythonはpipe接続時にstdoutをブロックバッファリングするため、
+        // ORGH_MISSION_ID行の即時受信には非バッファ出力の強制が必須
+        .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -120,6 +123,9 @@ pub fn spawn_and_bridge(
         .expect("stderrはStdio::pipedで確保済みのはず");
 
     let mission_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(known_mission_id.clone()));
+    // ID検出前に子プロセスが死んだとき、原因(config不正・note不在等)は
+    // stderrにしか出ない。イベントとして流すだけだと失われるため末尾を保持する
+    let stderr_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let (id_tx, id_rx) = mpsc::channel::<Result<String, String>>();
 
     // mission_idが既知(approve_mission)なら、待受(id_rx.recv)がすぐ解決するよう
@@ -132,9 +138,18 @@ pub fn spawn_and_bridge(
     {
         let app = app.clone();
         let mission_id = Arc::clone(&mission_id);
+        let stderr_tail = Arc::clone(&stderr_tail);
         thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().map_while(Result::ok) {
+                {
+                    let mut tail = stderr_tail.lock().expect("stderr_tail mutex poisoned");
+                    tail.push(line.clone());
+                    // 保持は末尾20行まで(エラー原因の特定に十分な範囲で無限成長を防ぐ)
+                    if tail.len() > 20 {
+                        tail.remove(0);
+                    }
+                }
                 let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
                 let _ = app.emit(
                     "mission-log",
@@ -202,7 +217,8 @@ pub fn spawn_and_bridge(
                 }
                 None => {
                     // ORGH_MISSION_ID行を一度も出さずに終了した(start_mission異常系)。
-                    let msg = match status {
+                    // stderr末尾を含めて本来の失敗理由(config不正・note不在等)を返す
+                    let mut msg = match status {
                         Ok(s) if !s.success() => {
                             format!("orgh runがORGH_MISSION_IDを出力せずに終了した (status={s})")
                         }
@@ -211,6 +227,13 @@ pub fn spawn_and_bridge(
                         }
                         Err(e) => format!("子プロセスの終了待ちに失敗: {e}"),
                     };
+                    let tail = stderr_tail
+                        .lock()
+                        .expect("stderr_tail mutex poisoned")
+                        .join("\n");
+                    if !tail.trim().is_empty() {
+                        msg.push_str(&format!("\n--- stderr ---\n{tail}"));
+                    }
                     let _ = id_tx.send(Err(msg));
                 }
             }

@@ -20,9 +20,30 @@ export interface MissionSummary {
 }
 
 /** list時点のステータス派生規則(orgh/listing.py _derive_status 準拠)。
- * タスク0件="empty"。1件でもfailed="failed"。全件done="done"。
+ * タスク0件="empty"。全件done="done"。1件でもfailed="failed"。
+ * 1件でもawaiting_approval="awaiting_approval"。
+ * 全件終端(done/cancelled/skipped)でdone以外を含む="cancelled"。
  * それ以外(pending/running混在)="running"。 */
-export type MissionListStatus = "empty" | "running" | "done" | "failed";
+export type MissionListStatus =
+  | "empty"
+  | "running"
+  | "done"
+  | "failed"
+  | "awaiting_approval"
+  | "cancelled";
+
+/** list_missions() で読み飛ばされた壊れた mission.json の情報。
+ * 破損データを黙殺すると「0件」とデータ消失を区別できないため明示する。 */
+export interface SkippedMission {
+  path: string;
+  reason: string;
+}
+
+/** list_missions() の戻り値全体。orgh list --json 由来。 */
+export interface ListPayload {
+  missions: MissionSummary[];
+  skipped: SkippedMission[];
+}
 
 /** mission_status(missionId) の戻り値。orgh status <id> --json 由来。 */
 export interface MissionStatus {
@@ -36,9 +57,14 @@ export interface MissionStatus {
 }
 
 /** 実行中ミッションのステータス派生規則(orgh/status_json.py 準拠)。
- * 全件done="done"。1件でもfailed="failed"。それ以外="running"。
+ * listing._derive_status と同一規則(「empty」を除く)。
  * ("empty" はここには出ない: statusはタスクが1件以上あるミッションに使う) */
-export type MissionRunStatus = "running" | "done" | "failed";
+export type MissionRunStatus =
+  | "running"
+  | "done"
+  | "failed"
+  | "awaiting_approval"
+  | "cancelled";
 
 export interface TaskStatus {
   id: string;
