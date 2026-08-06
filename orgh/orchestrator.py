@@ -215,6 +215,10 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         try:
             passed, feedback = _review_with_retry(cfg, store, t, budget,
                                                   wait=infra_wait)
+        except _CancelledDuringRole:
+            # キャンセル起因は_run_taskの包括ハンドラでcancelled化する。
+            # ここの包括exceptに食わせるとfailedに化けて通常resume不能になる
+            raise
         except Exception as e:
             # レビューが繰り返し失敗してもworkerの成果(last_output/worktree)は
             # 捨てない。原因の分かる形でfailedにし、resumeでの再挑戦に委ねる
@@ -417,6 +421,12 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
             if _blocked_forever(mission) and not futures:
                 break
     store.save(mission)
+    # 完了直前(最後のタスクのdone確定後)に届いたCANCELは、もう止める対象が
+    # 無いため完了扱いになる。残存する数ms級の競合窓は仕様として受容し、
+    # 「キャンセルは間に合わなかった」ことをledgerに明示して観測可能にする
+    if _cancel_flag(store).exists() and not cancelling and \
+            all(t.status in TERMINAL for t in mission.tasks):
+        store.log("mission.cancel_too_late")
     store.log("mission.finished",
               done=[t.id for t in mission.tasks if t.status == "done"],
               failed=[t.id for t in mission.tasks if t.status == "failed"],

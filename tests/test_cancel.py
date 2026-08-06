@@ -261,3 +261,21 @@ class TestCancelRoleInteractions:
         t = orch._run_task(cfg, store, m.tasks[0],
                            Budget(limit_usd=None, spent_usd=0.0))
         assert t.status == "cancelled"
+
+    def test_cancelled_during_role_not_swallowed_as_failed(
+            self, cfg, mock_state_dir, monkeypatch):
+        # _CancelledDuringRoleが_attempt_loopの包括exceptでfailedに化けない
+        from orgh import orchestrator as orch
+        from orgh.state import Budget, Mission, RunStore, Task
+        m = Mission(id="mrv", intent="c", context_digest="(t)",
+                    tasks=[Task(id="t1", title="x", prompt="p",
+                                worker="claude_code", deps=[])])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+        def cancelled_review(*a, **k):
+            (store.dir / "CANCEL").touch()
+            raise orch._CancelledDuringRole("terminated")
+        monkeypatch.setattr(orch, "_review_with_retry", cancelled_review)
+        t = orch._run_task(cfg, store, m.tasks[0],
+                           Budget(limit_usd=None, spent_usd=0.0))
+        assert t.status == "cancelled"
