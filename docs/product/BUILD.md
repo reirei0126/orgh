@@ -46,7 +46,7 @@
 
 | ファイルパス | バイト数 | ページ数 | 生成日時 |
 |---|---:|---:|---|
-| `docs/product/orgh-pitch.pdf` | 10,583,569 バイト | 6ページ | 2026-08-06 19:26 JST |
+| `docs/product/orgh-pitch.pdf` | 9,009,828 バイト | 6ページ | 2026-08-06 20:19 JST |
 | `docs/product/orgh-techbook.pdf` | 5,074,027 バイト | 8ページ | 2026-08-06 19:26 JST |
 
 両ファイルとも `file` コマンドで `PDF document, version 1.4` と判定され、有効なPDFであることを確認済み。サイズはいずれも受け入れ基準の51,200バイトを大きく上回っている。
@@ -67,3 +67,21 @@
 
 - Google Chrome: `Google Chrome 151.0.7922.75`(既存ビルド時と同一バージョン)
 - 本追記作業ではHTMLソース(`orgh-pitch.html`, `orgh-techbook.html`)・既存の `.md` ドキュメントは一切変更していない。新規作成したのは2本のPDF(`docs/product/orgh-pitch.pdf`, `docs/product/orgh-techbook.pdf`)のみで、本ファイルへは追記のみ行った。
+
+## 追記: orgh-pitch.pdf のページ数検証(2026-08-06 20:19 JST)
+
+`docs/product/orgh-pitch.html` は16:9スライド形式(`.slide` 要素1つ=1ページ、`@page{ size:1280px 720px; }`)へ全面改修済み(HTML先頭のHTMLコメント「改善ログ(v4/16:9)」参照、本検証作業以前からの既存改修)。この構成でのPDF再生成・ページ数一致を検証した。今回の検証ではページ数がスライド数と一致したため、`orgh-pitch.html` 自体への追加編集(`pdf-fix` コメントの付与を含む)は行っていない。
+
+- スライド数(HTML側の真実源): `grep -c 'class="slide' docs/product/orgh-pitch.html` → **6**
+- 生成コマンド(上記「実行コマンド」のorgh-pitch.pdf向けコマンドと同一、再掲):
+  ```bash
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --no-pdf-header-footer --print-to-pdf=docs/product/orgh-pitch.pdf docs/product/orgh-pitch.html
+  ```
+  出力: `9009828 bytes written to file docs/product/orgh-pitch.pdf`(終了コード0)
+- ページ数を3手法でクロスチェックし、いずれも **6ページ** で一致(HTMLのスライド数と完全一致):
+  - `pdfinfo docs/product/orgh-pitch.pdf` → `Pages: 6`
+  - `mdls -name kMDItemNumberOfPages docs/product/orgh-pitch.pdf` → `kMDItemNumberOfPages = 6`
+  - Python正規表現で `/Count` を直接抽出(`re.findall(rb'/Count\s+(\d+)', data)`)→ `[b'6']`
+  - 補足: `strings docs/product/orgh-pitch.pdf | grep -c '/Type */Page[^s]'` は0を返すが、これは生成されたPDF内部でページオブジェクトがオブジェクトストリーム(compressed object streams, PDF 1.5+機能相当)として格納されており `strings` では平文検出できないためで、上記3手法の一致により実ページ数6は確定している。
+- ファイルサイズ: 9,009,828 バイト(受け入れ基準51,200バイトを大きく上回る)
+- 判定: ページ数(6)とHTMLスライド数(6)が完全一致したため、`orgh-pitch.html` の追加修正は不要だった。
