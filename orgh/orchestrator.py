@@ -65,6 +65,19 @@ def _cancel_flag(store: RunStore):
     return store.dir / "CANCEL"
 
 
+def _cancellable_sleep(store: RunStore, seconds: float) -> bool:
+    """リトライ待機。CANCEL検知で早期復帰しTrueを返す。
+
+    素のtime.sleepだと待機中のキャンセルが最大でinfra_wait(既定60秒)止まらない
+    (停止対象subprocessが存在しない区間のため、terminateでは中断できない)。"""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if _cancel_flag(store).exists():
+            return True
+        time.sleep(min(1.0, max(0.0, deadline - time.time())))
+    return _cancel_flag(store).exists()
+
+
 class _CancelledDuringRole(Exception):
     """キャンセルのterminateがreviewer/planner subprocessを落とした際の内部信号。
     包括エラーハンドラでfailedに化けさせず、cancelledとして確定させる。"""
@@ -113,7 +126,8 @@ def _review_with_retry(cfg: dict, store: RunStore, t: Task, budget: Budget,
             if i < retries:
                 store.log("role.retry", role="reviewer", task=t.id,
                           retry=i + 1, error=repr(e)[:300])
-                time.sleep(wait)
+                if _cancellable_sleep(store, wait):
+                    raise _CancelledDuringRole("cancelled during retry wait") from e
     raise last  # type: ignore[misc]
 
 
@@ -203,7 +217,10 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                           detail=res.output[:200])
                 with store.lock:
                     t.attempts -= 1  # このattemptは消費しない
-                time.sleep(infra_wait)
+                if _cancellable_sleep(store, infra_wait):
+                    with store.lock:
+                        t.status = "cancelled"
+                    return t
                 continue  # プロンプトは変えずそのまま再試行
             prompt = _retry_prompt(
                 adapter, cfg, t,
