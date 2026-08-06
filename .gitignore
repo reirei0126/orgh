@@ -8,3 +8,4 @@ config.yaml
 build/
 dist/
 ops/
+docs/product/*.pdf

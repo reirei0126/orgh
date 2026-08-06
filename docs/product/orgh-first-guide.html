@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<!--
+  品質改善ログ (t3)
+  - 改善点1: 本文領域がページ内で左寄りだったため、main・ヘッダー・フッターを最大40emで中央揃えにし、全角約40字の行長に統一した
+  - 改善点2: 見出し直後で改ページされる恐れがあったため、h1〜h3にbreak-afterとpage-break-afterのavoid指定を追加した
+  - 改善点3: カード・工程・比較欄・注意欄・図表が印刷時に途中分割され得たため、対象要素にbreak-insideとpage-break-insideのavoid指定を追加した
+  - 改善点4: 4枚の役割カードで本文量によってバッジ位置がずれるため、Gridの行を等高化し、カード内をFlex配置にして余白と下端を揃えた
+  - 改善点5: 補助線の灰色が白背景に対して低コントラストだったため、できないことの×印を本文補助色へ変更して視認性を高めた
+  - 改善点6: 「4人の係」など内容と合わない表現や英字前後の詰まりを、「4つの係」など自然で一貫した日本語表記へ修正した
+-->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>orgh 入門ガイド — ITに詳しくなくても大丈夫</title>
+<style>
+  :root {
+    --accent: #2955d1;
+    --accent-soft: #eaf0ff;
+    --ink: #22262c;
+    --ink-soft: #454b54;
+    --line: #dde2ea;
+    --paper: #ffffff;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", meiryo, sans-serif;
+    line-height: 1.8;
+    font-size: 16px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page {
+    max-width: 46em;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 4rem;
+  }
+
+  header.hero {
+    max-width: 40em;
+    margin: 0 auto 2.5rem;
+    padding-bottom: 2rem;
+    border-bottom: 3px solid var(--accent);
+  }
+
+  .eyebrow {
+    display: inline-block;
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+  }
+
+  h1 {
+    font-size: 2.1rem;
+    line-height: 1.4;
+    margin: 0 0 0.6em;
+    color: var(--ink);
+  }
+
+  .lead {
+    max-width: 40em;
+    font-size: 1.05rem;
+    color: var(--ink-soft);
+    line-height: 1.8;
+    margin: 0;
+  }
+
+  main {
+    max-width: 40em;
+    margin: 0 auto;
+  }
+
+  section {
+    margin-bottom: 3rem;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    line-height: 1.5;
+    margin: 0 0 1rem;
+    padding-left: 0.75rem;
+    border-left: 6px solid var(--accent);
+    color: var(--ink);
+  }
+
+  h3 {
+    font-size: 1.1rem;
+    margin: 1.5rem 0 0.6em;
+    color: var(--ink);
+  }
+
+  h1, h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  p { margin: 0 0 1em; line-height: 1.8; }
+
+  ul.plain, ol.plain { margin: 0 0 1em; padding-left: 1.4em; line-height: 1.8; }
+  ul.plain li, ol.plain li { margin-bottom: 0.5em; }
+
+  strong { color: var(--ink); }
+
+  /* ---- 4枚カード: 小さな会社の係 ---- */
+  .roles-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: 1fr;
+    align-items: stretch;
+    gap: 1rem;
+    margin: 1.5rem 0 2rem;
+  }
+
+  .role-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    border: 1px solid var(--line);
+    border-top: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 1.1rem 1.1rem 1.3rem;
+    background: var(--paper);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .role-icon {
+    width: 38px;
+    height: 38px;
+    color: var(--accent);
+    margin-bottom: 0.6rem;
+  }
+
+  .role-icon svg { width: 100%; height: 100%; display: block; }
+
+  .role-card h3 {
+    margin: 0 0 0.3em;
+    font-size: 1.05rem;
+  }
+
+  .role-card .role-line {
+    flex: 1;
+    color: var(--ink-soft);
+    font-size: 0.95rem;
+    line-height: 1.7;
+    margin: 0 0 0.6em;
+  }
+
+  .role-badge {
+    display: inline-block;
+    align-self: flex-start;
+    margin-top: auto;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 0.2em 0.65em;
+    border-radius: 999px;
+  }
+
+  /* ---- タイムライン(流れ) ---- */
+  ol.timeline {
+    list-style: none;
+    margin: 1.5rem 0 2rem;
+    padding: 0;
+    counter-reset: step;
+  }
+
+  ol.timeline li {
+    position: relative;
+    padding: 0 0 1.5rem 2.6rem;
+    margin: 0;
+    border-left: 2px solid var(--line);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  ol.timeline li:last-child {
+    border-left: 2px solid transparent;
+    padding-bottom: 0;
+  }
+
+  ol.timeline li::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute;
+    left: -1.05rem;
+    top: 0;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    break-inside: avoid;
+  }
+
+  .timeline-title {
+    font-weight: 700;
+    margin: 0 0 0.25em;
+    line-height: 1.6;
+  }
+
+  .timeline-body {
+    color: var(--ink-soft);
+    margin: 0;
+    line-height: 1.75;
+    font-size: 0.97rem;
+  }
+
+  /* ---- できる/できない 2列 ---- */
+  .capability-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin: 1rem 0 1.5rem;
+  }
+
+  .capability-col h3 {
+    margin-top: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+  }
+
+  .capability-col {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .capability-col ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .capability-col li {
+    position: relative;
+    padding-left: 1.6em;
+    margin-bottom: 0.7em;
+    line-height: 1.7;
+    font-size: 0.97rem;
+    color: var(--ink-soft);
+  }
+
+  .can li::before {
+    content: "";
+    position: absolute;
+    left: 0.15em;
+    top: 0.35em;
+    width: 0.75em;
+    height: 0.45em;
+    border-left: 2.5px solid var(--accent);
+    border-bottom: 2.5px solid var(--accent);
+    transform: rotate(-45deg);
+  }
+
+  .cannot li::before {
+    content: "";
+    position: absolute;
+    left: 0.2em;
+    top: 0.45em;
+    width: 0.7em;
+    height: 2.5px;
+    background: var(--ink-soft);
+    transform: rotate(45deg);
+  }
+
+  .cannot li::after {
+    content: "";
+    position: absolute;
+    left: 0.2em;
+    top: 0.45em;
+    width: 0.7em;
+    height: 2.5px;
+    background: var(--ink-soft);
+    transform: rotate(-45deg);
+  }
+
+  /* ---- 気をつけること ---- */
+  .caution-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 1rem 0 1.5rem;
+  }
+
+  .caution-item {
+    border: 1px solid var(--line);
+    border-left: 5px solid var(--accent);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    background: var(--accent-soft);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .caution-item h3 {
+    margin: 0 0 0.35em;
+    font-size: 1rem;
+  }
+
+  .caution-item p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.95rem;
+    line-height: 1.75;
+  }
+
+  /* ---- はじめかた 3ステップ ---- */
+  .steps-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin: 1.5rem 0 1.5rem;
+  }
+
+  .step-card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem;
+    background: var(--paper);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .step-card h3 {
+    margin: 0 0 0.4em;
+    font-size: 1rem;
+  }
+
+  .step-card p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 0.93rem;
+    line-height: 1.7;
+  }
+
+  footer {
+    max-width: 40em;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+    line-height: 1.8;
+  }
+
+  footer .brand {
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  @media (max-width: 700px) {
+    .roles-grid, .capability-grid, .steps-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 18mm 16mm;
+  }
+
+  @media print {
+    body {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page { padding: 0; max-width: none; }
+    h1, h2, h3 {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+    .role-card,
+    ol.timeline li,
+    .capability-col,
+    .caution-item,
+    .step-card,
+    table,
+    figure {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="hero">
+    <span class="eyebrow">はじめての orgh</span>
+    <h1>orgh 入門ガイド<br>— ITに詳しくなくても大丈夫</h1>
+    <p class="lead">
+      このガイドは、<strong>orgh</strong>(オルグ)というツールを初めて触る人向けに書いています。
+      専門用語が出てきたときは、その場でカッコ書きの一言説明を添えます。
+    </p>
+  </header>
+
+  <main>
+
+    <section id="what">
+      <h2>orgh は何をしてくれるのか</h2>
+      <p>
+        orgh は、あなたが書いた「やりたいことのメモ」を、AIで構成された小さな会社に丸ごと渡すツールです。
+        その会社の中では、計画係(Planner)が仕事を分け、作業係(Worker)が並列で手を動かし、
+        検品係(Reviewer)が仕上がりをチェックし、ダメなら差し戻します。
+        一区切りついたら振り返り係(Retro)が「今回学んだこと」をノート(playbooks：会社の共有ノートのようなもの)に
+        書き残すので、次に頼むときは会社が少し賢くなっています。
+      </p>
+    </section>
+
+    <section id="roles">
+      <h2>小さな会社で働く4つの係</h2>
+      <p>
+        「小さな会社をまるごと雇う」つもりで読んでください。orgh の中では、この4つの係がそれぞれの持ち場を担当します。
+      </p>
+
+      <div class="roles-grid">
+
+        <article class="role-card">
+          <div class="role-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="6" y="3.5" width="12" height="17" rx="1.6"></rect>
+              <path d="M9 3.5h6v2.2H9z"></path>
+              <path d="M8.5 11h7M8.5 14h7M8.5 17h4.5"></path>
+            </svg>
+          </div>
+          <h3>計画係</h3>
+          <p class="role-line">メモを読んで、誰が何をやるかタスクに分け、順番や依存関係を決める係。</p>
+          <span class="role-badge">orgh での名前：Planner</span>
+        </article>
+
+        <article class="role-card">
+          <div class="role-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3.2"></circle>
+              <path d="M12 3.5v2.4M12 18.1v2.4M4.6 12H2.2M21.8 12h-2.4M6.1 6.1 4.4 4.4M19.6 19.6l-1.7-1.7M17.9 6.1l1.7-1.7M4.4 19.6l1.7-1.7"></path>
+            </svg>
+          </div>
+          <h3>作業係</h3>
+          <p class="role-line">分けられたタスクを、複数のAIが同時並行で手を動かして進める係。</p>
+          <span class="role-badge">orgh での名前：Worker</span>
+        </article>
+
+        <article class="role-card">
+          <div class="role-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="10.5" cy="10.5" r="6.5"></circle>
+              <path d="M15.3 15.3 20.5 20.5"></path>
+              <path d="M8 10.5 9.8 12.3 13.3 8.8"></path>
+            </svg>
+          </div>
+          <h3>検品係</h3>
+          <p class="role-line">仕上がりを合格条件と照らしてチェックし、ダメなら指摘つきで差し戻す係。</p>
+          <span class="role-badge">orgh での名前：Reviewer</span>
+        </article>
+
+        <article class="role-card">
+          <div class="role-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 3.8h9.5A2.5 2.5 0 0 1 18 6.3v13.9H8.5A2.5 2.5 0 0 1 6 17.7z"></path>
+              <path d="M6 17.7A2.5 2.5 0 0 1 8.5 15.2H18"></path>
+              <path d="M9 8h6M9 11h6"></path>
+            </svg>
+          </div>
+          <h3>振り返り係</h3>
+          <p class="role-line">ひと通り終わったら「今回学んだこと」を共有ノート(playbooks)に書き残す係。</p>
+          <span class="role-badge">orgh での名前：Retro</span>
+        </article>
+
+      </div>
+    </section>
+
+    <section id="flow">
+      <h2>メモを書いてから結果が返ってくるまでの流れ</h2>
+      <p>メモを渡した後の仕事の流れを、順番に見てみましょう。</p>
+
+      <ol class="timeline">
+        <li>
+          <p class="timeline-title">あなたがメモを書く</p>
+          <p class="timeline-body">「このリポジトリ(コードやファイル一式が入った作業フォルダのことです)のテストを増やしたい」のような、やりたいことの一文でOKです。</p>
+        </li>
+        <li>
+          <p class="timeline-title">計画係(Planner)が仕事を分ける</p>
+          <p class="timeline-body">メモを読んで「誰が何をするか」を細かいタスクの一覧に分解します。タスク同士の順番や依存関係(先に終わらせないといけない仕事)も一緒に決めます。</p>
+        </li>
+        <li>
+          <p class="timeline-title">作業係(Worker)が並列で作業する</p>
+          <p class="timeline-body">分けられたタスクを、複数のAIが同時並行で手を動かして進めます。同じ作業フォルダを触って衝突しないよう、タスクごとに「作業用の分身フォルダ(worktree。gitというバージョン管理の仕組みが提供する機能です)」を用意してから作業することもあります。</p>
+        </li>
+        <li>
+          <p class="timeline-title">検品係(Reviewer)がチェックする</p>
+          <p class="timeline-body">各タスクの仕上がりを、あらかじめ決めた「合格条件」と照らして判定します。実際にファイルを読んだりテストを動かしたりして確認します。</p>
+        </li>
+        <li>
+          <p class="timeline-title">ダメなら差し戻し</p>
+          <p class="timeline-body">検品で不合格になったタスクは、指摘つきで作業係に戻され、同じ担当がやり直します(会話の続きとしてやり直すので、一から説明し直す必要はありません)。それでも直らない、そもそも計画自体に無理があるという判定が出た場合は、計画係まで話が戻って計画を練り直します。</p>
+        </li>
+        <li>
+          <p class="timeline-title">振り返り係(Retro)が学びをノートに残す</p>
+          <p class="timeline-body">ひと通り終わると、「今回何がうまくいって何が手間取ったか」を共有ノート(playbooks)に書き足します。次回以降、計画係と作業係はこのノートを読んでから仕事を始めるので、同じ失敗を繰り返しにくくなります。</p>
+        </li>
+        <li>
+          <p class="timeline-title">あなたに結果が返ってくる</p>
+          <p class="timeline-body">実行の記録や成果物は保存され、状況を確認するコマンドで進み具合や合否を見られます。</p>
+        </li>
+      </ol>
+    </section>
+
+    <section id="capability">
+      <h2>できること・できないこと</h2>
+
+      <div class="capability-grid">
+        <div class="capability-col">
+          <h3>できること</h3>
+          <ul class="can">
+            <li>「メモ1行」からタスク分解・並列作業・品質チェック・やり直しまでを自動で回す。</li>
+            <li>複数の仕事を同時並行で進める(並列実行)。</li>
+            <li>仕事の合否を機械的な基準(ファイルの中身やテストの実行結果など)でチェックする。</li>
+            <li>実行にかかったお金(AIの利用料)を記録し、上限を超えたら止まる仕組みを持つ。</li>
+            <li>危険な操作(orgh自身の中身を書き換えるような作業)の前に、人間の許可待ちで止まる。</li>
+            <li>過去のミッションで学んだことをノートに蓄積し、次回の計画・作業に活かす。</li>
+          </ul>
+        </div>
+        <div class="capability-col">
+          <h3>できないこと</h3>
+          <ul class="cannot">
+            <li>「絶対に安全」「絶対に正しい」ことは保証しない。検品係は決めた合格条件を満たしているかしか見ておらず、成果物に悪意がないかまでは審査していない。</li>
+            <li>人間の最終確認なしに勝手に世の中へ公開したり、取り返しのつかない操作を最後まで自動でやりきったりはしない。</li>
+            <li>秘密情報(パスワードやAPIキーなど)が結果に紛れ込んでいないかを自動でせき止める仕組みは持っていない。</li>
+            <li>複数人・複数拠点での本格的な同時運用のような大規模な使い方は想定されていない。あくまで一人の持ち場での利用が前提。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="caution">
+      <h2>気をつけること</h2>
+
+      <div class="caution-list">
+        <div class="caution-item">
+          <h3>お金がかかる仕組みがある</h3>
+          <p>orgh は裏でAI(大規模言語モデル)を何度も呼び出して計画・作業・検品・振り返りをさせています。呼び出すたびに利用料が発生する仕組みなので、実行するたびにお金がかかります。全体の上限額・タスク1つあたりの上限額を決めておくことができ、超えそうになると実行中の仕事が完了するのを待ったうえで、それ以上の新しい仕事には着手せず止まります。</p>
+        </div>
+        <div class="caution-item">
+          <h3>暴走を防ぐ承認の仕組みがある</h3>
+          <p>作業の対象が orgh 自身の中身(プログラム本体や、設定・共有ノートの置き場所)に触れる場合、orgh は自動では実行せず、いったん止まって人間の許可を待ちます。この許可は人間が明示的なコマンドを打ったときだけ与えられ、自動起動の仕組みを使っていてもこの許可待ちは省略されません。設定でこの仕組み自体を無効にする手段も用意されていません。</p>
+        </div>
+        <div class="caution-item">
+          <h3>任せきりにせず、結果は人間が確認すること</h3>
+          <p>検品係のチェックは「決めた合格条件を満たしているか」を見るだけで、成果物の意図や中身の妥当性まで保証するものではありません。実行の記録や成果物は保存されるので、最終的に「本当に狙い通りか」「公開・反映して問題ないか」は必ず人間の目で確認してください。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="start">
+      <h2>はじめかた 3ステップ</h2>
+
+      <div class="steps-grid">
+        <div class="step-card">
+          <span class="step-num">1</span>
+          <h3>道具をそろえる</h3>
+          <p>orgh 本体をインストールし、設定ファイル(どこのメモを見るか、誰に作業させるかなどを書くファイル)を自分用に用意します。</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">2</span>
+          <h3>メモを1つ書く</h3>
+          <p>「やりたいこと」を一文でメモに書くか、コマンドに直接指示として渡します。まずは小さくて確認しやすいお願いから始めるのがおすすめです。</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">3</span>
+          <h3>実行して結果を見に行く</h3>
+          <p>進み具合や合否を確認するコマンドで様子を見て、最後に成果物を人間の目でチェックします。小さなお願いを2〜3回繰り返すと、振り返りノートが育って仕事の質も上がっていきます。</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <p class="brand">orgh — github.com/reirei0126/orgh</p>
+    <p>このガイドは docs/orgh-first-guide.md をもとに作成しています。</p>
+  </footer>
+
+</div>
+</body>
+</html>

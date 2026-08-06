@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<!--
+  品質改善ログ (t4)
+  - 見出し階層: h1を1個に保ち、h2→h3の連続した階層と目次アンカー全件を検証した
+  - 可読性: 本文幅を72ch相当に抑え、行間を維持し、補助文字色をWCAG AAに余裕のある濃さへ変更した
+  - 図表整列: 状態遷移図とBudget図をCSS Grid化し、ボックス・矢印の折返しずれを防いだ
+  - 表組み: 固定最小幅を廃止してセルを固定レイアウト化し、長い識別子が紙幅内で折り返すようにした
+  - 印刷: 見出しの改ページ回避と、コード・表・図のまとまりの分割回避を標準/旧式プロパティの両方で指定した
+  - HTML妥当性: lang、UTF-8 charset、閉じタグ、不正ネスト、重複id、目次リンク切れを検証した
+  - 技術的正確性: README.md / docs/deep-dive.md とコンポーネント名、コマンド、設定キー、状態遷移、処理フローを照合し、誤記「orgh cli approve」と未知キー警告の矛盾表現を修正した
+  - 自己完結性: 外部フォント・画像・CSS・JavaScriptを追加せず、外部URLからのリソース読込みがないことを確認した
+-->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>orgh 深掘り解説(エンジニア向け) — 技術資料</title>
+<style>
+  :root {
+    --bg: #faf9f6;
+    --paper: #ffffff;
+    --ink: #1c1c1a;
+    --ink-soft: #4a4944;
+    --ink-faint: #62605a;
+    --border: #d9d6cd;
+    --border-soft: #e8e6df;
+    --accent: #2f6b63;
+    --accent-soft: #e3ede9;
+    --code-bg: #f2f1eb;
+    --font-body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic Medium", "Yu Gothic", "Meiryo", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.85;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 3rem 1.75rem 5rem;
+  }
+
+  header.doc-header {
+    border-bottom: 3px solid var(--ink);
+    padding-bottom: 1.25rem;
+    margin-bottom: 2.25rem;
+  }
+
+  header.doc-header .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  header.doc-header h1 {
+    font-size: 1.85rem;
+    letter-spacing: 0.01em;
+    margin: 0.4rem 0 0.6rem;
+    line-height: 1.4;
+  }
+
+  header.doc-header p.lede {
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 68ch;
+  }
+
+  header.doc-header .scope {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+  }
+
+  header.doc-header .scope code {
+    font-size: 0.78rem;
+  }
+
+  h2 {
+    font-size: 1.35rem;
+    margin-top: 3rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--accent);
+    scroll-margin-top: 1rem;
+  }
+
+  h3 {
+    font-size: 1.05rem;
+    margin-top: 2.1rem;
+    margin-bottom: 0.75rem;
+    padding-left: 0.7rem;
+    border-left: 4px solid var(--accent);
+    scroll-margin-top: 1rem;
+  }
+
+  h4 {
+    font-size: 0.95rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--ink-soft);
+  }
+
+  h1, h2, h3, h4 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  p { margin: 0 0 1rem; }
+
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+  a:hover, a:focus { border-bottom-color: var(--accent); }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--code-bg);
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    padding: 0.05em 0.35em;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  pre {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+  li { margin-bottom: 0.45rem; }
+
+  blockquote.cite {
+    margin: 1rem 0;
+    padding: 0.6rem 1rem;
+    background: var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    color: var(--ink-soft);
+    font-size: 0.92rem;
+  }
+  blockquote.cite p { margin: 0; }
+
+  /* ---------- Table of contents ---------- */
+  nav.toc {
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.4rem 1.6rem;
+    margin-bottom: 2.5rem;
+  }
+  nav.toc .toc-title {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.75rem;
+  }
+  nav.toc ol.toc-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+    counter-reset: toc-l1;
+  }
+  nav.toc ol.toc-list > li {
+    counter-increment: toc-l1;
+    margin-bottom: 0.4rem;
+  }
+  nav.toc ol.toc-list > li > a::before {
+    content: counter(toc-l1) ". ";
+    color: var(--accent);
+    font-family: var(--font-mono);
+  }
+  nav.toc ol.toc-sub {
+    list-style: none;
+    padding-left: 1.5rem;
+    margin: 0.3rem 0 0.5rem;
+    counter-reset: toc-l2;
+  }
+  nav.toc ol.toc-sub > li {
+    counter-increment: toc-l2;
+    margin-bottom: 0.25rem;
+    font-size: 0.9rem;
+  }
+  nav.toc ol.toc-sub > li > a::before {
+    content: counter(toc-l1) "." counter(toc-l2) " ";
+    color: var(--ink-faint);
+    font-family: var(--font-mono);
+  }
+  nav.toc a { color: var(--ink); }
+  nav.toc a:hover { color: var(--accent); }
+
+  /* ---------- Tables ---------- */
+  .table-scroll {
+    overflow-x: auto;
+    margin: 1rem 0 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+    min-width: 0;
+    font-size: 0.88rem;
+  }
+  table caption {
+    text-align: left;
+    font-size: 0.8rem;
+    color: var(--ink-faint);
+    padding: 0.5rem 0.8rem 0;
+  }
+  th, td {
+    padding: 0.55rem 0.8rem;
+    border-bottom: 1px solid var(--border-soft);
+    text-align: left;
+    vertical-align: top;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* ---------- Diagram: pipeline ---------- */
+  .diagram {
+    margin: 1.25rem 0 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .diagram-stage {
+    border: 1px solid var(--border);
+    background: var(--paper);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+    page-break-inside: avoid;
+  }
+  .diagram-stage.accent-stage {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .stage-label {
+    font-weight: 700;
+    font-size: 0.98rem;
+    margin-bottom: 0.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .stage-label .stage-file {
+    font-family: var(--font-mono);
+    font-weight: 400;
+    font-size: 0.75rem;
+    color: var(--ink-faint);
+  }
+  .stage-body p {
+    margin: 0 0 0.35rem;
+    font-size: 0.87rem;
+    color: var(--ink-soft);
+  }
+  .stage-body p:last-child { margin-bottom: 0; }
+
+  .arrow-down {
+    text-align: center;
+    font-family: var(--font-mono);
+    color: var(--accent);
+    font-size: 1.1rem;
+    line-height: 1.2;
+    padding: 0.3rem 0;
+  }
+  .arrow-down span {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    margin-top: 0.1rem;
+  }
+
+  .diagram-branch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem;
+  }
+  .diagram-branch .branch-item { margin: 0; }
+
+  .loop-back {
+    margin-top: 0.6rem;
+    border: 1px dashed var(--accent);
+    border-radius: 6px;
+    padding: 0.7rem 1rem;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    background: var(--paper);
+  }
+  .loop-arrow {
+    font-family: var(--font-mono);
+    color: var(--accent);
+    font-weight: 700;
+    margin-right: 0.4rem;
+  }
+
+  .support-note {
+    margin-top: 1.1rem;
+    font-size: 0.88rem;
+    color: var(--ink-soft);
+    border-top: 1px solid var(--border-soft);
+    padding-top: 0.9rem;
+  }
+
+  /* ---------- Diagram: state flow ---------- */
+  .state-flow {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(3.5rem, auto) minmax(4.5rem, 1fr)) minmax(3.5rem, auto);
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.75rem 0.2rem;
+    margin-bottom: 0.6rem;
+  }
+  .state-flow.secondary {
+    grid-template-columns: minmax(4.5rem, auto) minmax(8rem, 1fr) minmax(4.5rem, auto);
+    margin-top: -0.2rem;
+  }
+  .state-box {
+    flex: 0 0 auto;
+    border: 1.5px solid var(--ink);
+    border-radius: 5px;
+    padding: 0.4rem 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    background: var(--paper);
+  }
+  .state-box.success { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+  .state-box.fail { border-color: var(--ink-faint); color: var(--ink-faint); }
+  .state-arrow {
+    flex: 0 0 auto;
+    text-align: center;
+    font-family: var(--font-mono);
+    color: var(--accent);
+    font-size: 0.95rem;
+    line-height: 1.15;
+    min-width: 2.2rem;
+  }
+  .state-arrow span {
+    display: block;
+    font-size: 0.62rem;
+    color: var(--ink-faint);
+    white-space: normal;
+    max-width: 9rem;
+  }
+  .state-arrow.loop { color: var(--ink-faint); }
+
+  /* ---------- Diagram: budget split ---------- */
+  .mini-diagram {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(7.5rem, auto) minmax(0, 1fr);
+    align-items: stretch;
+    gap: 0.9rem;
+    margin: 1.1rem 0 1.4rem;
+  }
+  .mini-box {
+    flex: 1 1 200px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.8rem 1rem;
+    background: var(--paper);
+  }
+  .mini-box strong { display: block; margin-bottom: 0.3rem; }
+  .mini-box p { font-size: 0.85rem; color: var(--ink-soft); margin: 0; }
+  .mini-link {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--accent);
+    text-align: center;
+    min-width: 7.5rem;
+    gap: 0.25rem;
+  }
+
+  /* ---------- Decision diagram: worktree ---------- */
+  .decision-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 1.1rem 0 1.4rem;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .decision-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .decision-branch {
+    flex: 1 1 220px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.7rem 0.9rem;
+    background: var(--paper);
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+  }
+  .decision-branch strong { color: var(--ink); display: block; margin-bottom: 0.25rem; }
+
+  footer.doc-footer {
+    margin-top: 4rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  @media print {
+    body { background: #fff; font-size: 12.5px; }
+    main { max-width: none; padding: 0; }
+    nav.toc { break-inside: avoid; page-break-inside: avoid; }
+    h2 { break-after: avoid; page-break-after: avoid; break-before: page; page-break-before: always; }
+    h2:first-of-type { break-before: avoid; page-break-before: avoid; }
+    h3, h4 { break-after: avoid; page-break-after: avoid; }
+    .diagram, .diagram-stage, .mini-diagram, .mini-box, .decision-flow, .decision-branch, table, .state-flow, pre {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .table-scroll { overflow: visible; }
+    a { color: var(--ink); border-bottom: none; }
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 16mm 14mm;
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <header class="doc-header">
+    <div class="eyebrow">orgh — technical deep dive</div>
+    <h1>orgh 深掘り解説(エンジニア向け)</h1>
+    <p class="lede">
+      本ドキュメントは <code>org-harness</code>(通称 orgh: AIエージェント・オーケストレーションハーネス)の実装を、
+      ソースコードを直接参照しながら解説する。対象読者は本リポジトリに変更を加えるエンジニアであり、
+      抽象的な機能紹介ではなく「どのファイルのどの行がその挙動を作っているか」を優先する。
+    </p>
+    <p class="scope">
+      読解対象: <code>orgh/</code> 配下の全 <code>*.py</code>
+      (<code>__init__.py, adapters/base.py, cli.py, doctor.py, gc.py, guard.py, listing.py,
+      orchestrator.py, planner.py, procreg.py, report.py, results.py, sources/base.py,
+      sources/obsidian.py, state.py, status_json.py, watcher.py, worktree.py</code>)、
+      および <code>prompts/*.md</code>、<code>config.example.yaml</code>。実装から確認できない事項は記載しない。
+    </p>
+  </header>
+
+  <nav class="toc" aria-label="目次">
+    <div class="toc-title">目次</div>
+    <ol class="toc-list">
+      <li><a href="#architecture">アーキテクチャ全体像</a></li>
+      <li>
+        <a href="#components">各コンポーネントの責務と設計判断</a>
+        <ol class="toc-sub">
+          <li><a href="#components-ingest">ingest / SourceAdapter</a></li>
+          <li><a href="#components-planner">Planner</a></li>
+          <li><a href="#components-orchestrator">Orchestrator</a></li>
+          <li><a href="#components-adapters">Worker adapters</a></li>
+          <li><a href="#components-reviewer">Reviewer</a></li>
+          <li><a href="#components-replan">REPLAN エスカレーション</a></li>
+          <li><a href="#components-retro">Retro</a></li>
+          <li><a href="#components-playbooks">playbooks — 組織知の蓄積・注入・代謝</a></li>
+          <li><a href="#components-gc">gc による代謝</a></li>
+        </ol>
+      </li>
+      <li><a href="#task-states">タスクの状態遷移</a></li>
+      <li>
+        <a href="#governance">worktree 分離 / Budget 共有プールの split 設計 / 統治線</a>
+        <ol class="toc-sub">
+          <li><a href="#governance-worktree">worktree 分離</a></li>
+          <li><a href="#governance-budget">Budget 共有プールの split 設計</a></li>
+          <li><a href="#governance-guard">統治線(ガード・承認)の実装</a></li>
+        </ol>
+      </li>
+      <li>
+        <a href="#config">設定リファレンスの読み方</a>
+        <ol class="toc-sub">
+          <li><a href="#config-validation">検証の仕組み</a></li>
+          <li><a href="#config-keys">主要キーと既定値</a></li>
+          <li><a href="#config-priority">優先順位・上書きルール</a></li>
+        </ol>
+      </li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="architecture">1. アーキテクチャ全体像</h2>
+
+  <p>
+    orgh は「Obsidian vault に書いたノート(または CLI 引数)」を起点に、Planner が JSON でタスク DAG を設計し、
+    Orchestrator が worker CLI(<code>claude</code>, <code>codex</code> 等)を並列起動して実行し、Reviewer が成果を検査し、
+    Retro が学びを playbooks に蒸留する、というループを繰り返すバッチ指向のオーケストレータである。
+    常駐監視は <code>orgh watch</code> が担う。
+  </p>
+
+  <div class="diagram" aria-label="orgh パイプライン全体図">
+    <div class="diagram-stage">
+      <div class="stage-label">入力層(SourceAdapter)<span class="stage-file">orgh/sources/base.py, orgh/sources/obsidian.py</span></div>
+      <div class="stage-body">
+        <p>Obsidian vault → <code>scan_vault()</code> → candidates(inbox / mission_tag)</p>
+        <p><code>is_triggered()</code>(#go / frontmatter <code>orgh: go</code>)が真のときのみ着火</p>
+        <p><code>build_context_digest()</code>(wikilinkで depth=1 まで連結、最大24000字)</p>
+        <p>常駐時は <code>watcher.watch()</code> ループ(<code>orgh/watcher.py</code>)がポーリング</p>
+      </div>
+    </div>
+
+    <div class="arrow-down">↓<span>intent, context_digest</span></div>
+
+    <div class="diagram-stage">
+      <div class="stage-label">Planner<span class="stage-file">orgh/planner.py: plan()</span></div>
+      <div class="stage-body">
+        <p><code>prompts/planner.md</code> をテンプレに <code>claude -p --output-format json</code> を1発叩く</p>
+        <p>playbooks(組織知)・projects_map(workdir解決表)を注入</p>
+        <p>出力: <code>Mission(tasks: Task[])</code> の DAG(id / prompt / deps / acceptance / tools)</p>
+      </div>
+    </div>
+
+    <div class="arrow-down">↓<span>Mission</span></div>
+
+    <div class="diagram-stage">
+      <div class="stage-label">Orchestrator<span class="stage-file">orgh/orchestrator.py: run_mission()</span></div>
+      <div class="stage-body">
+        <p><code>ThreadPoolExecutor(max_workers=loop.parallel)</code> で DAG を並列消化</p>
+        <p>ready = deps がすべて done のタスク</p>
+        <p>各タスクごとに: worktree分離 → Worker実行 → Budget課金 → Reviewer → 合格ならcommit / 不合格ならフィードバック再実行 or REPLAN</p>
+        <p>自己改変ガード(guard.py)・CANCELフラグ・Budget枯渇もここで判定</p>
+      </div>
+    </div>
+
+    <div class="arrow-down">↓<span>per-task</span></div>
+
+    <div class="diagram-branch">
+      <div class="diagram-stage branch-item">
+        <div class="stage-label">Worker adapters<span class="stage-file">orgh/adapters/base.py</span></div>
+        <div class="stage-body">
+          <p>ClaudeCodeAdapter / CodexAdapter / ShellAdapter</p>
+          <p><code>subprocess.Popen</code> → procreg登録 → <code>WorkerResult(ok, output, session_id, cost_usd)</code></p>
+        </div>
+      </div>
+      <div class="diagram-stage branch-item">
+        <div class="stage-label">Reviewer<span class="stage-file">orgh/planner.py: review()</span></div>
+        <div class="stage-body">
+          <p><code>prompts/reviewer.md</code></p>
+          <p>pass / feedback を返す。feedback が <code>"REPLAN:"</code> なら Planner へエスカレーション(<code>replan_task()</code>)</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-down">↓<span>全タスク終端(TERMINAL)</span></div>
+
+    <div class="diagram-stage">
+      <div class="stage-label">Retro<span class="stage-file">orgh/planner.py: retro()</span></div>
+      <div class="stage-body">
+        <p><code>prompts/retro.md</code> でミッション summary から教訓を抽出し</p>
+        <p><code>playbooks/&lt;name&gt;.md</code> へ <code>&lt;!-- m:&lt;mission_id&gt; d:&lt;date&gt; --&gt;</code> 付きで追記</p>
+      </div>
+    </div>
+
+    <div class="arrow-down">↓</div>
+
+    <div class="diagram-stage accent-stage">
+      <div class="stage-label">playbooks<span class="stage-file">組織の長期記憶</span></div>
+      <div class="stage-body">
+        <p>次回の Planner/Worker プロンプトに <code>_playbook_context()</code> で再注入</p>
+        <p>(新しい教訓を優先して cap 内に詰める = 「増幅」の実体)</p>
+      </div>
+    </div>
+
+    <div class="arrow-down">↓</div>
+
+    <div class="diagram-stage">
+      <div class="stage-label">gc<span class="stage-file">orgh/gc.py: run_gc()</span></div>
+      <div class="stage-body">
+        <p>playbooks の代謝: backup → 180日超の教訓をarchive → 統合Retroで重複解消 → runs/ の retention_days 超過分を runs/_archive/ へ退避</p>
+        <p><code>watcher.py</code> の <code>_maybe_gc()</code> が <code>gc_interval_days</code> ごとに自動起動</p>
+      </div>
+    </div>
+
+    <div class="loop-back">
+      <span class="loop-arrow">↺</span>playbooks に蓄積された教訓は、次回以降の Planner / Worker プロンプトへ再注入される(1.の入力層〜Plannerへ戻る)。これが「増幅」ループの実体である。
+    </div>
+  </div>
+
+  <p class="support-note">
+    補助的なコンポーネント: <code>RunStore</code>(<code>orgh/state.py</code>)が <code>runs/&lt;mission_id&gt;/mission.json</code> と
+    <code>ledger.jsonl</code> への永続化を、<code>procreg.py</code> が cancel 用のプロセスレジストリを、<code>results.py</code> が
+    Obsidian への進行状況書き戻しを、<code>report.py</code> / <code>listing.py</code> / <code>status_json.py</code> が集計・一覧・機械可読出力を、
+    <code>doctor.py</code> が実行前診断を担う。CLI エントリポイントは <code>orgh/cli.py: main()</code> で、
+    <code>scan / watch / run / resume / status / cancel / approve / cleanup / doctor / gc / report / list</code>
+    の各サブコマンドを提供する。
+  </p>
+
+  <!-- ============================================================ -->
+  <h2 id="components">2. 各コンポーネントの責務と設計判断</h2>
+
+  <h3 id="components-ingest">2.1 ingest / SourceAdapter — orgh/sources/base.py, orgh/sources/obsidian.py</h3>
+  <p>
+    <code>SourceAdapter</code>(<code>orgh/sources/base.py:26</code>)は入力ソースの共通インターフェースで、
+    <code>list_candidates / should_trigger / find / build_context / writeback / notify_failure / feedback / mark_processed / is_processed / describe</code>
+    を定義する(すべて <code>raise NotImplementedError</code> の抽象メソッド、<code>orgh/sources/base.py:37-75</code>)。
+    <code>get_source(cfg)</code>(<code>orgh/sources/base.py:78</code>)が <code>config.source.type</code>(既定 <code>obsidian</code>)でアダプタを選択する。
+  </p>
+  <blockquote class="cite">
+    <p>ファイル冒頭コメント(<code>orgh/sources/base.py:1-7</code>)が明言する設計意図: 「watcher/cliはこのインターフェース経由でのみ入力ソースに触れる」「将来の入力ソース(Notion等)はREGISTRYにアダプタを足すだけで差し替えられる」。現時点で実装済みなのは <code>ObsidianAdapter</code> のみ。</p>
+  </blockquote>
+  <p>
+    現在の唯一の実装 <code>ObsidianAdapter</code>(<code>orgh/sources/obsidian.py:122</code>)は MCP を使わずファイルを直読みする。
+    <code>scan_vault()</code>(<code>orgh/sources/obsidian.py:40</code>)は vault 配下の <code>*.md</code> を再帰走査し、
+    <code>inbox</code> フォルダ配下 or <code>mission_tag</code> タグ付きノートを候補とする。
+    着火判定は <code>is_triggered()</code>(<code>orgh/sources/obsidian.py:58</code>)が担い、<code>trigger_tag</code>(既定 <code>go</code>)の
+    インラインタグ、または frontmatter の <code>orgh: go</code> がある場合のみ着火する。
+  </p>
+  <blockquote class="cite">
+    <p>関数 docstring(<code>orgh/sources/obsidian.py:59-64</code>)の設計判断: 「inbox配置やmission_tagだけでは着火しない」— 誤爆防止のため明示タグを要求する二段階ゲート。さらに <code>_stabilized()</code>(<code>orgh/sources/obsidian.py:118</code>)が <code>watch.stabilize_seconds</code> 経過を要求し、書きかけノートの拾い上げを防ぐ。</p>
+  </blockquote>
+  <p>
+    文脈構築は <code>build_context_digest()</code>(<code>orgh/sources/obsidian.py:79</code>)が担当し、ミッションノート本文に加えて
+    wikilink(<code>[[...]]</code>)で辿れる関連ノートを <code>depth</code>(既定1)まで連結、<code>max_chars</code>(既定24000)で切り詰める。
+    書き戻しは <code>append_callout()</code>(<code>orgh/sources/obsidian.py:73</code>)がノート末尾に1行のコールアウトを追記するだけの
+    「競合安全writeback」である。処理済み管理は <code>WatchState</code>(<code>orgh/sources/obsidian.py:102</code>)がファイルの
+    SHA-256 先頭16文字(<code>_hash()</code>, <code>orgh/sources/obsidian.py:98</code>)をパスごとに <code>runs/_watch_state.json</code> に記録する方式で、
+    本文が変わればハッシュも変わるため再着火する。
+  </p>
+
+  <h3 id="components-planner">2.2 Planner — orgh/planner.py: plan()(orgh/planner.py:98)</h3>
+  <p>
+    Planner はファイル冒頭のコメント(<code>orgh/planner.py:1-3</code>)どおり「<code>claude -p</code>(headless)を1発叩いてJSONを返させる薄いラッパ」であり、
+    Planner / Reviewer / Retro の3役はすべて共通ヘルパー <code>_ask_json()</code>(<code>orgh/planner.py:81</code>)を経由する。
+    <code>_ask_json()</code> は <code>res.output</code> から正規表現 <code>\{.*\}</code>(DOTALL)で最初の JSON ブロックを抜き出し
+    <code>json.loads</code> する(<code>orgh/planner.py:92-95</code>)— コードフェンスや前置き説明が混ざっても頑健に拾える設計である。
+  </p>
+  <p>
+    <code>plan()</code> は <code>prompts/planner.md</code> をテンプレートに、<code>intent</code>(ミッション文)・<code>context</code>(vault由来の文脈)・
+    <code>playbooks</code>(過去の学び)・<code>projects</code>(workdir解決表)・<code>workers</code>(利用可能worker一覧)を埋め込み、
+    <code>_ask_json(cfg, "planner", ...)</code> を呼ぶ。返る JSON の <code>tasks</code> から <code>Mission.new()</code>(<code>orgh/state.py:229</code>)で
+    <code>Task</code> dataclass のリストを組み立てる。
+  </p>
+  <blockquote class="cite">
+    <p><code>_playbook_context()</code>(<code>orgh/planner.py:35</code>)の設計判断: docstring(<code>orgh/planner.py:36-41</code>)によれば、
+    cap(<code>max_chars</code>既定8000字)は「先頭から切り捨て」ではなく「全playbookの全行をメタデータ日付
+    (<code>&lt;!-- m:&lt;mission_id&gt; d:&lt;date&gt; --&gt;</code>)で降順ソートしてから詰める」方式(<code>orgh/planner.py:45-61</code>)。
+    これにより playbook が育つほど古い教訓から溢れ、常に新しい教訓が生き残る — リポジトリ内で「増幅」と呼ばれている自己強化ループの実体である。</p>
+  </blockquote>
+  <p>
+    <code>_projects_context()</code>(<code>orgh/planner.py:64</code>)は <code>config.projects_map</code> で指定したファイルの内容をそのまま注入する。
+    docstring(<code>orgh/planner.py:65-70</code>)にある設計判断の理由は実運用で観測した不具合の再発防止で、
+    「ノートに対象リポのパスが書かれていないとPlannerはworkdir "." を出力し、orgh自身のリポで実行されてしまう(実運用7307189eで実証)」ため、
+    プロジェクトマップを明示的に注入する。
+  </p>
+
+  <h3 id="components-orchestrator">2.3 Orchestrator — orgh/orchestrator.py: run_mission()(orgh/orchestrator.py:290)</h3>
+  <p>
+    <code>run_mission()</code> は <code>ThreadPoolExecutor(max_workers=cfg.loop.parallel)</code>(既定3)を使い、
+    <code>_ready(m)</code>(<code>orgh/orchestrator.py:50</code>)— 「status が pending かつ deps がすべて done のタスク」— を毎ループ抽出して
+    <code>pool.submit(_run_task, ...)</code> する。ループはポーリング粒度 <code>_POLL_INTERVAL = 0.5秒</code>(<code>orgh/orchestrator.py:29</code>)で
+    <code>wait(..., return_when=FIRST_COMPLETED)</code> する。
+  </p>
+  <p>タスクディスパッチ直前に3つのゲートが挟まる(<code>orgh/orchestrator.py:301-327</code>):</p>
+  <ol>
+    <li><code>_cancel_flag(store).exists()</code> または <code>poll_cancel()</code> が真なら <code>_initiate_cancel()</code> を呼び、未着手タスクを終了させて以後ディスパッチしない。</li>
+    <li><code>budget.exceeded()</code> なら <code>_initiate_budget_stop()</code> を呼び、実行中タスクの完了は待つが未着手はディスパッチしない。</li>
+    <li><code>needs_approval(cfg, t.workdir)</code> かつ <code>APPROVED</code> マーカーが無ければ、そのタスクだけを承認待ちにして先送りする(4.3節で詳述)。</li>
+  </ol>
+  <p>
+    1タスクの実処理は <code>_attempt_loop()</code>(<code>orgh/orchestrator.py:108</code>)。<code>_run_task()</code>(<code>orgh/orchestrator.py:67</code>)は
+    その外側の薄いラッパで、docstring(<code>orgh/orchestrator.py:68-69</code>)が言う設計意図は
+    「実処理の全例外を1タスクの失敗に閉じ込め、ミッション全体を道連れにしない」。
+  </p>
+  <p><code>_attempt_loop()</code> の主なロジック:</p>
+  <ul>
+    <li>worktree 分離(<code>worktree.enabled</code> 時、4.1節で詳述)。</li>
+    <li><code>max_attempts</code>(既定3)回まで、worker実行 → コスト課金 → タスク予算超過チェック(<code>orgh/orchestrator.py:150-158</code>)→ 失敗ならインフラエラー判定 → Reviewer呼び出し、を繰り返す。</li>
+    <li>
+      インフラエラー判定 <code>_is_infra_error()</code>(<code>orgh/orchestrator.py:46</code>)は "Request timed out" 等の正規表現
+      (<code>orgh/orchestrator.py:34-40</code>)にマッチする出力を worker の実質的失敗ではなくネットワーク断等とみなし、
+      <code>t.attempts</code> を消費せずに <code>infra_retry_wait</code> 秒待って再試行する
+      (コメント <code>orgh/orchestrator.py:31-33</code> によれば「実運用7307189e t5: ネットワーク断で3attempt≒6.4USD相当を浪費した事例への対処」)。
+      ただし <code>infra_max_retries</code>(既定3)で無限リトライは防ぐ。
+    </li>
+    <li>
+      Reviewer 呼び出しは <code>_review_with_retry()</code>(<code>orgh/orchestrator.py:81</code>)がレビュー呼び出し自体の失敗
+      (max_turns超過等)のみ最大2回リトライする。worker 実行はやり直さない —
+      コメント(<code>orgh/orchestrator.py:83-84</code>)が言う理由は「成果とコストを捨てない」ため。
+    </li>
+    <li>
+      Reviewer の feedback が <code>"REPLAN:"</code> で始まる場合、<code>replan_task()</code>(<code>orgh/planner.py:153</code>)にエスカレーションする
+      (2.6節で詳述)。<code>t.replans &gt;= 1</code> なら以後は失敗として打ち切る(1タスク1回まで、<code>orgh/orchestrator.py:220-225</code>)。
+    </li>
+    <li>
+      不合格(REPLANでない通常の差し戻し)の場合は <code>_retry_prompt()</code>(<code>orgh/orchestrator.py:98</code>)がフィードバックを次のプロンプトに組み込む。
+      <code>adapter.supports_resume</code> が真の worker(claude_code)はフィードバックのみで足りる(セッション resume が文脈を保持するため)が、
+      <code>False</code> の worker(codex等)には <code>worker_prompt()</code> で組み立てた元タスク一式を再度連結した自己完結プロンプトを渡す —
+      コメント(<code>orgh/orchestrator.py:99-102</code>)の理由は「実運用7307189e t3で発見: 断片だけ受けたcodexが実装せず確認質問を返して失敗した」。
+    </li>
+  </ul>
+  <p>合格したタスクは <code>commit_task_result()</code>(<code>orgh/worktree.py:94</code>)でタスクブランチへコミットされる(4.1節で詳述)。</p>
+
+  <h3 id="components-adapters">2.4 Worker adapters — orgh/adapters/base.py</h3>
+  <p>
+    <code>BaseAdapter</code>(<code>orgh/adapters/base.py:27</code>)はテンプレートメソッドパターンで、サブクラスは
+    <code>_command()</code>(引数列とstdin)と <code>_parse()</code>(<code>WorkerResult</code> への変換)だけを実装すればよい。
+    共通の <code>run()</code>(<code>orgh/adapters/base.py:37</code>)が <code>subprocess.Popen</code> を起動し、
+    <code>registry_key</code>(mission_id)が渡された場合は <code>procreg.register()</code> に登録する。
+    <code>WorkerResult</code>(<code>orgh/adapters/base.py:18</code>)は <code>ok / output / session_id / cost_usd / raw</code> の5フィールドに
+    正規化する共通契約であり、ファイル冒頭コメント(<code>orgh/adapters/base.py:1-2</code>)の言葉を借りれば
+    「どのCLIエージェントも『prompt in -&gt; WorkerResult out』に正規化する」。
+    タイムアウトは <code>subprocess.TimeoutExpired</code> をここで捕捉し <code>WorkerResult(ok=False, output="timeout")</code> に変換する
+    (それ以外の例外は orchestrator 側の <code>_run_task</code> の例外隔離に委ねる、<code>orgh/adapters/base.py:3-5</code>)。
+  </p>
+  <div class="table-scroll">
+    <table>
+      <caption>実装3種(orgh/adapters/base.py)</caption>
+      <thead><tr><th>アダプタ</th><th>supports_resume</th><th>概要</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>ClaudeCodeAdapter</code><br><code>orgh/adapters/base.py:68</code></td>
+          <td>True</td>
+          <td><code>claude -p --output-format json --max-turns N</code> を組み立て、<code>--resume &lt;session_id&gt;</code> でセッションを継続できる。
+          <code>_parse()</code>(<code>orgh/adapters/base.py:89</code>)は stdout 最終行を JSON として解釈し
+          <code>result / session_id / total_cost_usd / is_error</code> を取り出す。</td>
+        </tr>
+        <tr>
+          <td><code>CodexAdapter</code><br><code>orgh/adapters/base.py:104</code></td>
+          <td>既定 False</td>
+          <td><code>codex exec</code> + <code>config.workers.codex.extra_args</code> を叩く。</td>
+        </tr>
+        <tr>
+          <td><code>ShellAdapter</code><br><code>orgh/adapters/base.py:119</code></td>
+          <td>—</td>
+          <td><code>config.workers.shell.argv</code> のテンプレートで任意のCLI LLM(gemini等)を呼ぶ汎用アダプタ。
+          <code>{prompt}</code> トークンを実プロンプトに置換する。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    <code>REGISTRY</code>(<code>orgh/adapters/base.py:132</code>)と <code>get_adapter(name, cfg)</code>(<code>orgh/adapters/base.py:135</code>)が
+    タスクの <code>worker</code> フィールド(既定 <code>claude_code</code>)からアダプタを解決する。
+  </p>
+
+  <h3 id="components-reviewer">2.5 Reviewer — orgh/planner.py: review()(orgh/planner.py:116)</h3>
+  <p>
+    <code>prompts/reviewer.md</code> をテンプレートに <code>title / prompt / acceptance / output</code>(<code>t.last_output</code> の先頭12000字)を埋め込み
+    <code>_ask_json(cfg, "reviewer", ...)</code> を呼ぶ。
+  </p>
+  <blockquote class="cite">
+    <p><code>prompts/reviewer.md</code> 自体の指示(2行目)は「甘い判定は組織全体を劣化させる。満たしていなければ遠慮なく差し戻せ」であり、
+    判定手順として「acceptance自体を検査し、機械検証可能な条件が1つもない・主観語のみの場合は <code>pass=false</code> かつ
+    feedback 先頭に <code>REPLAN:</code> を付ける」ことを Reviewer 役に指示している。これが2.6節の REPLAN エスカレーションの発火源である。</p>
+  </blockquote>
+
+  <h3 id="components-replan">2.6 REPLAN エスカレーション — orgh/planner.py: replan_task()(orgh/planner.py:153)</h3>
+  <p>
+    docstring(<code>orgh/planner.py:155-156</code>)の設計意図は「計画の欠陥が指摘されたタスクの指示と受け入れ条件をPlannerに再設計させる」。
+    <code>prompts/replan.md</code> に現在の <code>prompt / acceptance</code> と Reviewer の指摘(<code>reason</code>)を渡し、
+    新しい <code>prompt / acceptance</code> を JSON で受け取る。
+    orchestrator 側(<code>orgh/orchestrator.py:218-234</code>)では、REPLAN 適用時に <code>t.attempts -= 1</code>(REPLAN自体はattemptを消費しない)、
+    <code>t.replans += 1</code> としたうえで <code>worker_prompt()</code> を再構築し「再設計後の指示で最初から」再実行する。
+    1タスクにつき REPLAN は1回まで(<code>t.replans &gt;= 1</code> で打ち切り、<code>orgh/orchestrator.py:220-225</code>)。
+  </p>
+
+  <h3 id="components-retro">2.7 Retro — orgh/planner.py: retro()(orgh/planner.py:126)</h3>
+  <blockquote class="cite">
+    <p>docstring(<code>orgh/planner.py:127</code>)いわく「完了ミッションから学びを抽出して playbooks/ に追記 → 次回以降の全員が賢くなる」。</p>
+  </blockquote>
+  <p>
+    <code>mission.tasks</code> から <code>status / title / attempts / review_notes</code> のサマリを組み立て <code>prompts/retro.md</code> に渡し、
+    返る <code>{"playbook_name", "lessons"}</code> を <code>playbooks/&lt;playbook_name&gt;.md</code> に追記する。追記時、本文が <code>-</code> で始まる行にのみ
+    <code>&lt;!-- m:&lt;mission_id&gt; d:&lt;today&gt; --&gt;</code> のメタデータコメントを付与する(<code>orgh/planner.py:142-146</code>)—
+    これが2.2節の <code>_playbook_context()</code> が日付ソートに使うメタデータである。
+  </p>
+  <div class="table-scroll">
+    <table>
+      <caption>Retro の呼び出し経路(挙動が微妙に異なる)</caption>
+      <thead><tr><th>経路</th><th>挙動</th></tr></thead>
+      <tbody>
+        <tr><td><code>orgh run</code></td><td>毎回無条件に retro する(<code>--no-retro</code> で抑制可、<code>orgh/cli.py:119-124</code>)。</td></tr>
+        <tr><td><code>orgh watch</code></td><td>着火ループの中で毎回 retro する(<code>orgh/watcher.py:85</code>)。</td></tr>
+        <tr>
+          <td><code>orgh resume</code></td>
+          <td><code>_maybe_retro()</code>(<code>orgh/cli.py:183</code>)経由で、全タスクが done かつ <code>RETRO_DONE</code> マーカーが無い場合のみ retro する —
+          コメント(<code>orgh/cli.py:184-186</code>)の理由は「resumeは従来retroを呼ばず、resumeで完走したミッションの教訓がplaybookに残らなかった(実運用7307189eで発見)」ため。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p><code>RETRO_DONE</code> マーカー(<code>store.dir / "RETRO_DONE"</code>)は3経路共通で、再resume時の二重追記を防ぐ。</p>
+
+  <h3 id="components-playbooks">2.8 playbooks — 組織知の蓄積・注入・代謝</h3>
+  <p>
+    playbooks は <code>.md</code> ファイル群(<code>playbooks_dir</code>、既定 <code>playbooks</code>)で、書き手は2.7節の Retro、
+    読み手は2.2節の <code>_playbook_context()</code>(Planner/Worker双方のプロンプトに注入、<code>worker_prompt()</code> は
+    <code>orgh/planner.py:164-168</code> で <code>max_chars=4000</code> を指定)である。
+    人手での追記も想定されている(<code>_META_RE</code> にマッチしない行は日付 <code>"0000-00-00"</code> 扱いで最古として扱われる、
+    <code>orgh/planner.py:45,51</code>)。
+  </p>
+
+  <h3 id="components-gc">2.9 gc による代謝 — orgh/gc.py: run_gc()(orgh/gc.py:115)</h3>
+  <blockquote class="cite">
+    <p>ファイル冒頭のコメント(<code>orgh/gc.py:1-4</code>)が明言する問題意識: 「追記onlyのplaybookは矛盾・重複・陳腐化した教訓が淘汰されず、
+    8000字capにより新しい教訓ほど切り捨てられていた(増幅が数ヶ月でノイズ増幅に反転する)」。</p>
+  </blockquote>
+  <p><code>run_gc()</code> は厳守の順序で4段階を実行する:</p>
+  <ol>
+    <li>
+      <strong><code>_backup()</code></strong>(<code>orgh/gc.py:41</code>): <code>playbooks/_backup/&lt;date&gt;/</code> へ全量コピー。
+      失敗(<code>_backup</code> がファイルとして存在する等)したら <code>OSError</code> を送出して即中断し、playbooks には一切触れない。
+    </li>
+    <li>
+      <strong><code>_archive_old_lessons()</code></strong>(<code>orgh/gc.py:50</code>): <code>ARCHIVE_AFTER_DAYS = 180</code>(<code>orgh/gc.py:27</code>)より
+      古い教訓行を <code>playbooks/_archive/</code> へ退避(削除ではなく追記+除去)。
+    </li>
+    <li>
+      <strong><code>_consolidate()</code></strong>(<code>orgh/gc.py:74</code>): 退避後の各ファイルを <code>prompts/gc.md</code> 経由で1回 LLM に通し、
+      重複統合・矛盾解消(新日付優先)した結果で全置換する。
+    </li>
+    <li>
+      <strong><code>_gc_runs()</code></strong>(<code>orgh/gc.py:91</code>): <code>config.gc.retention_days</code>(既定90)を超えた
+      <code>runs/&lt;mission_id&gt;/</code> を <code>runs/_archive/</code> へ移動(削除しない)。判定は各ミッションの <code>mission.json</code> の
+      <code>created_at</code> を読む。
+    </li>
+  </ol>
+  <p>
+    自動起動は <code>orgh/watcher.py: _maybe_gc()</code>(<code>orgh/watcher.py:27</code>)が担い、<code>watch.gc_interval_days</code>
+    (既定14、<code>null</code>で無効)ごとに1回だけ実行する。初回パス(stateファイルが無い場合)は現在時刻をベースラインとして
+    書き込むだけで gc は走らせない(<code>orgh/watcher.py:33-40</code>)— 「初回パスでいきなり実playbooksを書き換えないため」。
+    手動実行は <code>orgh gc</code> サブコマンド(<code>orgh/cli.py:74-77</code>)。
+  </p>
+
+  <!-- ============================================================ -->
+  <h2 id="task-states">3. タスクの状態遷移</h2>
+  <p>
+    <code>Task.status</code>(<code>orgh/state.py:208</code>)は Python の <code>str</code> 型フィールドであり、専用の enum クラスは定義されていない。
+    <code>orgh/state.py</code> 自体が状態名として実際に含む文字列リテラルは次の3箇所である(grepで確認済み):
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>箇所</th><th>内容</th></tr></thead>
+      <tbody>
+        <tr><td><code>orgh/state.py:208</code></td><td><code>status: str = "pending"</code> — <code>Task</code> の既定値。同じ行のコメントに <code>pending -&gt; running -&gt; review -&gt; done / failed</code> と明記</td></tr>
+        <tr><td><code>orgh/state.py:239</code></td><td><code>_INFLIGHT_STATUSES = ("queued", "running", "review")</code></td></tr>
+        <tr><td><code>orgh/state.py:269</code></td><td><code>RunStore.load()</code> 内で <code>_INFLIGHT_STATUSES</code> に該当するタスクを <code>"pending"</code> へ巻き戻す</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    つまり <code>state.py</code> レベルで名前が確認できる状態は <strong>pending / queued / running / review / done / failed</strong> の6つである。
+    <code>RunStore.load()</code>(<code>orgh/state.py:261</code>)はミッション再開(resume)時にこの <code>_INFLIGHT_STATUSES</code> を使い、
+    「実行中にクラッシュした場合、ロード時にpendingへ巻き戻す(デッドロック解消)」(<code>orgh/state.py:238</code> 直上のコメント)を行う。
+    <code>Budget / Mission / RunStore</code> の永続化はすべて <code>asdict()</code>(<code>orgh/state.py:256</code>)による JSON シリアライズで、
+    <code>mission.json</code> への保存は tmp書き込み→<code>os.replace</code> のアトミック置換である(<code>orgh/state.py:257-259</code>)。
+  </p>
+
+  <p><code>state.py</code> に定義がある6状態の遷移は次のとおり:</p>
+  <div class="state-flow">
+    <div class="state-box">pending</div>
+    <div class="state-arrow">→<span>_ready(): depsが全てdone</span></div>
+    <div class="state-box">queued</div>
+    <div class="state-arrow">→<span>pool.submit</span></div>
+    <div class="state-box">running</div>
+    <div class="state-arrow">→<span>adapter.run()成功</span></div>
+    <div class="state-box">review</div>
+    <div class="state-arrow">→<span>Reviewer合格</span></div>
+    <div class="state-box success">done</div>
+  </div>
+  <div class="state-flow secondary">
+    <div class="state-box">running</div>
+    <div class="state-arrow">→<span>失敗・attempts上限到達</span></div>
+    <div class="state-box fail">failed</div>
+  </div>
+  <div class="state-flow secondary">
+    <div class="state-box">review</div>
+    <div class="state-arrow loop">↺<span>不合格・feedbackで再実行(attempts+1)</span></div>
+    <div class="state-box">running</div>
+  </div>
+
+  <p>
+    一方で <code>Task.status</code> には <code>state.py</code> に文字列リテラルとしては現れない値も実行時に代入される。
+    これは <code>Task.status</code> が bare <code>str</code> であることを利用して、オーケストレーション層(<code>orgh/orchestrator.py</code>)・
+    自己改変ガード層(<code>orgh/guard.py</code> を呼ぶ <code>orgh/orchestrator.py</code>)・CLI層(<code>orgh/cli.py</code>)が
+    独自の終端値・一時停止値を追加しているためであり、<code>state.py</code> は状態空間の一部(実行中系のロールバック対象)しか
+    列挙していない。具体的には:
+  </p>
+  <ul>
+    <li>
+      <code>orgh/orchestrator.py:26</code> の <code>TERMINAL</code> タプルは <code>done / failed</code> に加えて2つの終端値
+      (タスク予算超過や <code>_initiate_budget_stop()</code> による見送り、CANCEL フラグによる中止)を追加で持つ。
+      これらは <code>_run_task / _attempt_loop / _initiate_cancel / _initiate_budget_stop</code> の各所
+      (<code>orgh/orchestrator.py:130-131, 163-165, 253-256, 279-282</code>)で <code>t.status</code> に代入される。
+    </li>
+    <li>
+      <code>orgh/orchestrator.py:315-320</code> では、自己改変ガード(4.3節)が発動したタスクに対し、<code>pending</code> から遷移する
+      一時停止的な値(承認待ち)を代入する。この値からの復帰は <code>orgh approve</code> サブコマンド
+      (<code>orgh/cli.py:149-157</code>)のみが行い、<code>store.dir / "APPROVED"</code> マーカーを作成したうえで該当タスクを
+      <code>"pending"</code> に戻して <code>run_mission()</code> を再実行する。
+    </li>
+    <li>
+      <code>orgh/cli.py:169-173</code>(resume)は、直前の中止・見送り相当の状態にあるタスクを <code>attempts=0</code> の
+      <code>"pending"</code> に戻す。<code>--retry-failed</code> 指定時は <code>failed</code> タスクも同様に <code>pending, attempts=0</code> へ戻す
+      (<code>orgh/cli.py:174-177</code>)。
+    </li>
+    <li>
+      <code>orgh/cli.py:158-165</code>(cancel)は <code>CANCEL</code> フラグファイルを作成し、<code>pending</code> のタスクを即座に中止相当の値へ
+      遷移させる。実行中タスクは <code>_attempt_loop()</code> がループの都度 <code>cancel_flag.exists()</code> を検査して中止相当へ遷移する
+      (<code>orgh/orchestrator.py:128-131, 161-165</code>)。
+    </li>
+  </ul>
+  <p>
+    state.py に閉じた表現を優先する理由は、<code>Task.status</code> の「正規の」状態機械定義がリポジトリ中に単一の enum として存在せず、
+    実際の状態空間は <code>orgh/state.py</code>(ロールバック対象の3状態を含む土台)と <code>orgh/orchestrator.py</code>(終端値・一時停止値の
+    実代入元)と <code>orgh/cli.py</code>(人手操作による復帰)に分散しているという実装上の事実そのものが、このハーネスの
+    アーキテクチャ的特徴だからである。エンジニアが新しい終端状態を追加する場合、<code>state.py</code> の
+    <code>_INFLIGHT_STATUSES</code> や <code>orgh/orchestrator.py</code> の <code>TERMINAL</code> タプル、<code>orgh/results.py</code> のアイコン辞書、
+    <code>orgh/listing.py</code> の <code>_derive_status()</code>、<code>orgh/status_json.py</code> の判定ロジックなど、複数箇所を横断して
+    更新する必要がある。
+  </p>
+
+  <!-- ============================================================ -->
+  <h2 id="governance">4. worktree 分離 / Budget 共有プールの split 設計 / 統治線(ガード・承認)の実装</h2>
+
+  <h3 id="governance-worktree">4.1 worktree 分離 — orgh/worktree.py</h3>
+  <p>
+    <code>config.worktree.enabled</code>(既定 <code>false</code>)かつ対象 <code>workdir</code> が git リポジトリの場合、タスクごとに
+    専用の worktree とブランチを割り当てる。エントリポイントは <code>ensure_task_worktree()</code>(<code>orgh/worktree.py:32</code>)で、
+    呼び出し元は <code>orgh/orchestrator.py:110-116</code>(<code>_attempt_loop</code> 冒頭)。
+  </p>
+
+  <div class="decision-flow">
+    <div class="decision-row">
+      <div class="decision-branch">
+        <strong>新規 worktree 作成時</strong>
+        パス <code>&lt;root&gt;/&lt;mission_id&gt;-&lt;task_id&gt;</code>、ブランチ名 <code>orgh/&lt;mission_id&gt;/&lt;task_id&gt;</code>
+        (<code>orgh/worktree.py:46-47</code>)。依存タスクのブランチ(<code>orgh/&lt;mission_id&gt;/&lt;dep&gt;</code>)を
+        <code>merge_dep_branches()</code>(<code>orgh/worktree.py:74</code>)でマージしてから開始する。
+      </div>
+      <div class="decision-branch">
+        <strong>既存 worktree を再利用</strong>
+        「<code>task.branch</code> が設定済みかつ <code>workdir</code> が実在する」場合はそのまま再利用(セッションと成果を捨てないための設計)。
+        マージはしない — コメント(<code>orgh/worktree.py:65-66</code>)の理由は「作業途中の状態に後からマージを重ねると衝突リスクの方が大きい」。
+      </div>
+    </div>
+  </div>
+
+  <ul>
+    <li>同一リポへの並列 <code>git worktree add</code> は <code>threading.Lock</code>(<code>orgh/worktree.py:19</code>, <code>_LOCK</code>)で直列化する。
+    docstring(<code>orgh/worktree.py:18</code>)いわく「git側の索引破損を避ける」ため。</li>
+    <li>マージ衝突は <code>git merge --abort</code> してスキップし、タスク自体は止めない(「成果は劣化するが検収で気づける」、<code>orgh/worktree.py:77-78</code>)。</li>
+    <li>非gitリポ・<code>enabled: false</code> は <code>is_git_repo()</code> チェック(<code>orgh/worktree.py:27-29</code>)で判定し、<code>None</code> を返して
+    orchestrator 側の現行動作(通常の <code>workdir</code> 実行)にフォールバックする。</li>
+    <li>合格タスクの成果は <code>commit_task_result()</code>(<code>orgh/worktree.py:94</code>)がタスクブランチへ <code>git add -A &amp;&amp; git commit</code> する。
+    変更が無ければコミットしない(<code>git diff --cached --quiet</code> で判定、<code>orgh/worktree.py:101-103</code>)。
+    identity は <code>user.name=orgh user.email=orgh@local</code> を明示指定する —
+    「ホスト名変化で自動検出が壊れた実例があるため」(<code>orgh/worktree.py:96-97</code>)。</li>
+    <li>ミッション終了時に worktree は自動削除されない。<code>cleanup_mission_worktrees()</code>(<code>orgh/worktree.py:112</code>)が
+    <code>orgh cleanup &lt;mission_id&gt;</code> サブコマンド(<code>orgh/cli.py:146-148</code>)経由で明示的に呼ばれたときのみ、
+    <code>git worktree remove --force</code> とブランチ <code>-D</code> 削除を行う。</li>
+  </ul>
+
+  <h3 id="governance-budget">4.2 Budget 共有プールの split 設計 — orgh/state.py: Budget(orgh/state.py:154)</h3>
+  <blockquote class="cite">
+    <p>docstring(<code>orgh/state.py:155-163</code>)が設計意図を明言する: 「再帰(タスクのサブミッション分解)前提の設計: 上限をミッション単位の固定値にすると
+    子ミッションごとの上限が掛け算になって破綻するため、ルートで確保したプールを <code>split()</code> で親から子へ分割し、参照渡しする。
+    子の <code>charge()</code> は親へ伝播し、親プールの枯渇は子の <code>exceeded()</code> にも波及する」。</p>
+  </blockquote>
+
+  <div class="mini-diagram">
+    <div class="mini-box">
+      <strong>Root Budget</strong>
+      <p><code>limit_usd</code>(ミッション全体上限)・<code>task_budget_usd</code>・<code>spent_usd</code></p>
+    </div>
+    <div class="mini-link">
+      <span>split(limit_usd)</span>
+      <span>↓ 割当 / ↑ charge()伝播 / ↕ exceeded()波及</span>
+    </div>
+    <div class="mini-box">
+      <strong>Child Budget</strong>
+      <p>子ミッション・子タスクへの割当(プール自体は共有のまま)</p>
+    </div>
+  </div>
+
+  <p>実装の要点:</p>
+  <ul>
+    <li><code>Budget</code> は <code>limit_usd</code>(このプールの上限、<code>None</code>=無制限)・<code>task_budget_usd</code>(1タスク上限)・
+    <code>spent_usd</code>(累計消費)の3フィールドを持ち、これのみが永続化対象(<code>orgh/state.py:164-166</code>)。
+    親リンク <code>_parent</code> は <code>__post_init__()</code>(<code>orgh/state.py:168-170</code>)で実行時にのみ張られる非永続フィールドである。</li>
+    <li><code>charge(amount)</code>(<code>orgh/state.py:172</code>)は <code>threading.Lock</code> で保護しつつ <code>self.spent_usd</code> に加算し、
+    <code>self._parent</code> があれば再帰的に <code>_parent.charge(amount)</code> も呼ぶ — 子の消費が親プールにも即座に反映される。</li>
+    <li><code>exceeded()</code>(<code>orgh/state.py:180</code>)は自分の <code>limit_usd</code> 超過、または親の <code>exceeded()</code> が真なら真を返す
+    (親の枯渇が子にも波及)。</li>
+    <li><code>remaining()</code>(<code>orgh/state.py:185</code>)は <code>limit_usd - spent_usd</code>(下限0)。<code>limit_usd is None</code> なら
+    <code>None</code>(無制限)。</li>
+    <li><code>split(limit_usd=None)</code>(<code>orgh/state.py:190</code>)は「子ミッションへの割当を切り出す(プール自体は共有のまま)」。
+    <code>limit_usd</code> 省略時は現在の <code>remaining()</code> をそのまま子の上限にする。</li>
+  </ul>
+  <p>
+    呼び出し側の運用は <code>orgh/orchestrator.py: _setup_budget()</code>(<code>orgh/orchestrator.py:262</code>)が担う。初回実行時は
+    <code>config.loop.budget_usd / task_budget_usd</code> から新規 <code>Budget</code> を作る。resume 時、
+    <code>mission.budget._parent is None</code>(ルートミッション)なら消費(<code>spent_usd</code>)は引き継ぎつつ上限だけ config から再読込する —
+    「予算を上げて続行できるように」(<code>orgh/orchestrator.py:264-265</code>)。<code>split()</code> で割当を受けた子ミッション
+    (<code>_parent</code> が非 <code>None</code>)は上限を上書きしない。
+  </p>
+  <p>
+    タスク単位の予算超過は <code>_attempt_loop()</code> 内(<code>orgh/orchestrator.py:149-158</code>)で
+    <code>t.cost_usd &gt;= budget.task_budget_usd</code> を毎attempt後にチェックし、超過なら即 <code>failed</code> とし次のattempt・レビューには
+    進まない。ミッション単位の予算超過は <code>run_mission()</code> のメインループ(<code>orgh/orchestrator.py:306-308</code>)が
+    <code>budget.exceeded()</code> を毎ポーリングで見て <code>_initiate_budget_stop()</code> を呼び、未着手タスクを打ち切る
+    (実行中タスクの完了は待つ)。
+  </p>
+
+  <h3 id="governance-guard">4.3 統治線(ガード・承認)の実装 — orgh/guard.py, orgh/orchestrator.py, orgh/cli.py</h3>
+  <p>
+    自己改変ガードの実体は <code>needs_approval(cfg, workdir)</code>(<code>orgh/guard.py:25</code>)という純関数で、判定規則は
+    モジュール docstring(<code>orgh/guard.py:1-14</code>)に明記されている:
+  </p>
+  <ol>
+    <li><code>workdir</code> を絶対パスに解決した上で、<code>orgh</code> パッケージディレクトリ(<code>package_dir()</code>,
+    <code>orgh/guard.py:20-22</code>、<code>import orgh; Path(orgh.__file__).resolve().parent</code>)と一致する・その内側・その親である、
+    のいずれかなら承認必須(<code>orgh/guard.py:28-30</code>)。</li>
+    <li><code>config.prompts_dir / config.playbooks_dir</code> の実パスに対し、<code>workdir</code> がそれと一致 or その内側なら承認必須
+    (<code>orgh/guard.py:32-36</code>)。逆方向(<code>prompts_dir / playbooks_dir</code> が <code>workdir</code> の内側にある場合)は対象としない —
+    コメント(<code>orgh/guard.py:12-13</code>)の理由は「運用ディレクトリにprompts/やconfig.yamlを置く正規構成のタスクまで巻き込まないよう」。</li>
+  </ol>
+  <p>
+    呼び出し元は <code>run_mission()</code> のディスパッチループ(<code>orgh/orchestrator.py:313-323</code>)で、
+    <code>needs_approval(cfg, t.workdir)</code> かつ <code>(store.dir / "APPROVED")</code> が存在しない場合、そのタスクだけを承認待ち相当の
+    状態にして次ループ以降もディスパッチしない(他の準備完了タスクはブロックされない — タスク単位の判定であるため)。
+  </p>
+  <blockquote class="cite">
+    <p>このガードには意図的にconfigでの無効化手段が無い(モジュールdocstring 3行目「意図的に config での無効化手段を設けない」、
+    <code>orgh/guard.py:6</code>)。承認できる唯一の経路は <code>orgh approve &lt;mission_id&gt;</code> サブコマンド(<code>orgh/cli.py:149-157</code>)で、
+    <code>store.dir / "APPROVED"</code> マーカーファイルを作成したうえで該当タスクを <code>pending</code> に戻し <code>run_mission()</code> を
+    再実行する。<code>orgh/orchestrator.py:313-314</code> のコメントが明言するとおり、「watcher経由でもスキップ不可。configでも無効化不可」—
+    <code>orgh watch</code> の自動着火ループも同じ <code>run_mission()</code> を呼ぶため、このガードを迂回できない。</p>
+  </blockquote>
+  <p>
+    キャンセルの統治線は <code>runs/&lt;mission_id&gt;/CANCEL</code> フラグファイルが「唯一の停止信号」(<code>orgh/orchestrator.py:5-9</code>)である。
+    <code>orgh cancel &lt;mission_id&gt;</code>(別プロセス、<code>orgh/cli.py:158-167</code>)はフラグを置くだけで、ミッションを実行中のプロセス自身が
+    <code>run_mission()</code> ループごとに <code>_cancel_flag(store).exists()</code>(<code>orgh/orchestrator.py:63,301-303</code>)を検知し、
+    <code>procreg.terminate()</code>(<code>orgh/procreg.py:33</code>)で実行中 subprocess を SIGTERM、未着手タスクを中止相当にする
+    (<code>_initiate_cancel()</code>, <code>orgh/orchestrator.py:247-259</code>)。<code>poll_cancel</code>(<code>orgh watch</code> 経由では
+    <code>ResultsNote.cancel_requested()</code>, <code>orgh/results.py:44-48</code> — 結果ノート本文の <code>#cancel</code> タグ検知)が真を返した場合も
+    同じフラグ経路に合流する(<code>orgh/orchestrator.py:301-303</code>)。
+  </p>
+  <p>
+    プロセスレジストリ <code>orgh/procreg.py</code> はモジュール内メモリの <code>dict[str, set[subprocess.Popen]]</code>
+    (<code>orgh/procreg.py:16</code>)で、<code>register() / unregister()</code> は <code>BaseAdapter.run()</code>
+    (<code>orgh/adapters/base.py:45-56</code>)が Popen 起動直後・終了直後に呼ぶ。別プロセスからの <code>orgh cancel</code> はこのメモリ内
+    レジストリに直接アクセスできないため、<code>CANCEL</code> フラグファイルというファイルシステム経由の signal に頼っている
+    (<code>orgh/procreg.py:6-9</code> のコメントが明言)。
+  </p>
+
+  <!-- ============================================================ -->
+  <h2 id="config">5. 設定リファレンスの読み方</h2>
+  <p>
+    設定は <code>config.yaml</code>(既定パス、<code>--config</code> で変更可、<code>orgh/cli.py:33</code>)を <code>load_config()</code>
+    (<code>orgh/state.py:144</code>)で読み、<code>validate_config()</code>(<code>orgh/state.py:121</code>)でスキーマ検証する。
+    存在しない場合は <code>FileNotFoundError</code>(「<code>config.example.yaml</code> をコピーせよ」、<code>orgh/state.py:146-148</code>)。
+    テンプレートは <code>config.example.yaml</code>。
+  </p>
+
+  <h3 id="config-validation">5.1 検証の仕組み</h3>
+  <p>
+    <code>ConfigSchema</code>(<code>orgh/state.py:78</code>)は既知のトップレベルキーを dataclass で列挙する。
+    <code>workers / roles</code> はワーカー名・役割名が自由なため深掘りしない(値は <code>dict</code> であることのみ検証、
+    <code>orgh/state.py:135-137</code>)。それ以外のセクション(<code>vault / loop / watch / worktree / source / gc</code>)は
+    <code>_SECTION_SCHEMAS</code>(<code>orgh/state.py:96-97</code>)で個別 dataclass にマップされ、<code>_check_section()</code>
+    (<code>orgh/state.py:105</code>)がキーごとに型検証する。
+  </p>
+  <ul>
+    <li><strong>必須キー</strong>: <code>_REQUIRED_KEYS = ("workers",)</code>(<code>orgh/state.py:95</code>)。無いと <code>ConfigError</code>(続行不能)。</li>
+    <li><strong>未知キー</strong>: トップレベル・セクション内とも <code>ConfigWarning</code>(<code>warnings.warn</code>、続行可能)を出すだけで無視される
+    (<code>orgh/state.py:111-113, 129-131</code>)。</li>
+    <li><strong>型不一致</strong>: セクション内キーの型が <code>_TYPE_MAP</code>(<code>orgh/state.py:99-102</code>、
+    <code>from __future__ import annotations</code> により <code>field.type</code> が文字列になるための手動マップ)と合わなければ
+    <code>ConfigError</code>。</li>
+    <li><code>runs_dir / prompts_dir / playbooks_dir / projects_map</code> は文字列必須(<code>orgh/state.py:138-140</code>)。</li>
+  </ul>
+  <p><code>ConfigError / ConfigWarning</code> はいずれも <code>orgh/state.py</code> 冒頭で定義されるカスタム例外・警告クラス(<code>orgh/state.py:23-28</code>)。</p>
+
+  <h3 id="config-keys">5.2 主要キーと既定値(dataclass の default 値、config.example.yaml の値とあわせて記載)</h3>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>キー</th><th>dataclass / 既定値</th><th>意味</th></tr></thead>
+      <tbody>
+        <tr><td><code>workers</code>(必須)</td><td>なし(<code>dict</code>)</td><td>有効な worker とその接続設定。<code>workers.enabled</code> に <code>claude_code / codex / shell</code> を列挙</td></tr>
+        <tr><td><code>roles</code></td><td>なし(<code>dict</code>)</td><td><code>planner / reviewer / retro</code> それぞれのモデル・<code>max_turns</code>・<code>allowed_tools</code></td></tr>
+        <tr><td><code>vault.path</code></td><td><code>VaultCfg</code>(<code>orgh/state.py:33</code>)、既定 <code>""</code></td><td>Obsidian vault の絶対パス</td></tr>
+        <tr><td><code>vault.inbox</code></td><td>既定 <code>"inbox"</code></td><td>ミッション候補と見なすフォルダ名</td></tr>
+        <tr><td><code>vault.mission_tag</code></td><td>既定 <code>"mission"</code></td><td>候補タグ(scan用)</td></tr>
+        <tr><td><code>vault.trigger_tag</code></td><td>既定 <code>"go"</code></td><td>明示着火タグ</td></tr>
+        <tr><td><code>loop.parallel</code></td><td><code>LoopCfg</code>(<code>orgh/state.py:41</code>)、既定 <code>3</code></td><td>同時実行タスク数(<code>ThreadPoolExecutor</code> の <code>max_workers</code>)</td></tr>
+        <tr><td><code>loop.max_attempts</code></td><td>既定 <code>3</code></td><td>1タスクあたりの実行+差し戻し上限</td></tr>
+        <tr><td><code>loop.task_timeout</code></td><td>既定 <code>3600</code>(秒)</td><td>worker subprocess のタイムアウト</td></tr>
+        <tr><td><code>loop.budget_usd</code></td><td>既定 <code>None</code>(無制限)</td><td>ルートミッション全体のコスト上限</td></tr>
+        <tr><td><code>loop.task_budget_usd</code></td><td>既定 <code>None</code>(無制限)</td><td>1タスクあたりのコスト上限</td></tr>
+        <tr><td><code>loop.infra_max_retries</code></td><td>既定 <code>3</code></td><td>インフラエラーのattempt非消費リトライ上限</td></tr>
+        <tr><td><code>loop.infra_retry_wait</code></td><td>既定 <code>60</code>(秒)</td><td>同リトライ前の待機秒</td></tr>
+        <tr><td><code>watch.interval</code></td><td><code>WatchCfg</code>(<code>orgh/state.py:52</code>)、既定 <code>5</code>(秒)</td><td>vault 監視ポーリング間隔</td></tr>
+        <tr><td><code>watch.stabilize_seconds</code></td><td>既定 <code>20</code></td><td>書きかけノートを拾わない猶予秒</td></tr>
+        <tr><td><code>watch.writeback</code></td><td>既定 <code>True</code></td><td>着火結果をノートへ書き戻すか</td></tr>
+        <tr><td><code>watch.gc_interval_days</code></td><td>既定 <code>14</code>(<code>None</code>で無効)</td><td>この日数ごとに自動 gc</td></tr>
+        <tr><td><code>worktree.enabled</code></td><td><code>WorktreeCfg</code>(<code>orgh/state.py:60</code>)、既定 <code>False</code></td><td>タスクごとの git worktree 分離を有効化</td></tr>
+        <tr><td><code>worktree.base_ref</code></td><td>既定 <code>"HEAD"</code></td><td>worktree 分岐元</td></tr>
+        <tr><td><code>worktree.root</code></td><td>既定 <code>".orgh-worktrees"</code></td><td>worktree 置き場(相対なら <code>workdir</code> 起点)</td></tr>
+        <tr><td><code>source.type</code></td><td><code>SourceCfg</code>(<code>orgh/state.py:67</code>)、既定 <code>"obsidian"</code></td><td>入力ソース種別</td></tr>
+        <tr><td><code>gc.retention_days</code></td><td><code>GcCfg</code>(<code>orgh/state.py:73</code>)、既定 <code>90</code></td><td>この日数より古いミッションを <code>runs/_archive/</code> へ</td></tr>
+        <tr><td><code>runs_dir</code></td><td>既定 <code>"runs"</code></td><td>ミッション実行状態の永続化先</td></tr>
+        <tr><td><code>prompts_dir</code></td><td>既定 <code>"prompts"</code></td><td>役割プロンプト(<code>planner.md / reviewer.md / retro.md / worker_preamble.md / replan.md / gc.md</code>)の置き場。
+        <code>doctor.py</code> の <code>_REQUIRED_PROMPTS</code>(<code>orgh/doctor.py:15-16</code>)がこの6ファイルの存在を検査する</td></tr>
+        <tr><td><code>playbooks_dir</code></td><td>既定 <code>"playbooks"</code></td><td>組織知の置き場</td></tr>
+        <tr><td><code>projects_map</code></td><td>既定 <code>None</code></td><td>対象リポの絶対パス⇔説明の対応表ファイルパス。Planner に注入(2.2節)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 id="config-priority">5.3 優先順位・上書きルール</h3>
+  <ul>
+    <li><strong>config内の優先順位</strong>: 未知キーは内部的には <code>ConfigWarning</code> の対象だが無視されるため、タイポしたキーは運用上は気づかれないままデフォルト値にフォールバックする —
+    <code>doctor</code> の「OK config: 検証済み」(<code>orgh/doctor.py:66</code>)は型検証を通過したことのみを示し、キー名の綴りミスは検出しない。</li>
+    <li><strong>worker/role 単位の上書き</strong>: <code>adapters/base.py: get_adapter(name, cfg)</code>(<code>orgh/adapters/base.py:135</code>)は
+    <code>cfg.get(name, {})</code> でそのワーカー名のサブ辞書のみを渡す。Planner 呼び出し(<code>_ask_json</code>, <code>orgh/planner.py:83</code>)は
+    <code>{**cfg["workers"], "claude_code": cfg["roles"][role]}</code> という合成辞書を渡しており、これは
+    「<code>workers</code> セクションをベースに <code>claude_code</code> キーだけを <code>roles.&lt;role&gt;</code> の設定で上書きする」ことを意味する —
+    Planner / Reviewer / Retro は常に <code>claude_code</code> アダプタ経由で動作し、<code>roles</code> 側の
+    <code>model / max_turns / allowed_tools</code> が実働 worker 用の <code>workers.claude_code</code> 設定を完全に置き換える。</li>
+    <li><strong>タスク単位の tools 上書き</strong>: <code>Task.tools</code>(<code>orgh/state.py:215</code>、Planner が明示付与)は worker 既定の
+    <code>allowed_tools</code> より優先される。<code>ClaudeCodeAdapter._command()</code>(<code>orgh/adapters/base.py:81-82</code>)が
+    <code>allowed_tools or c["allowed_tools"]</code> の順で解決するため。</li>
+    <li><strong>予算の優先順位</strong>: <code>_setup_budget()</code>(4.2節)により、resume 時は config の新しい
+    <code>budget_usd / task_budget_usd</code> が既存 <code>spent_usd</code> を保持したまま上限にのみ反映される
+    (子ミッションの <code>split()</code> 済み <code>Budget</code> は対象外)。</li>
+    <li><strong>CLI引数 --config</strong>: <code>orgh/cli.py:33</code> の <code>ap.add_argument("--config", default="config.yaml")</code> が唯一の
+    config パス指定手段であり、環境変数等の代替経路はコード上に存在しない。</li>
+  </ul>
+
+  <footer class="doc-footer">
+    <span>orgh — github.com/reirei0126/orgh</span>
+    <span>Source: docs/deep-dive.md</span>
+  </footer>
+
+</main>
+</body>
+</html>
