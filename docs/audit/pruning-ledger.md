@@ -19,7 +19,7 @@
 
 判定ルール(優先順位順):
 
-0. **内部ヘルパー関数の統合評価**: 1つの呼び出し元(親のパイプライン関数、または唯一のCLIサブコマンド)からしか参照されない内部関数・実装本体は、独立に下記1〜6を適用せず、**親の判定をそのまま継承する**。親を残す判断をした場合、内部ヘルパーだけを個別に削除候補として承認欄に出さない(理由: 親を残す限りヘルパーも実行され続けるため、独立した削除候補として扱うと「親はKEEP、部品はCANDIDATE」という実行不能な組み合わせが生まれる)。対象例: `orgh/gc.py::_archive_old_lessons`/`_consolidate`/`_gc_runs`(親: `run_gc`)、`orgh/worktree.py::merge_dep_branches`(親: `ensure_task_worktree`)、`orgh/doctor.py::run_doctor`(親: CLIの`orgh/cli.py::doctor`)、`orgh/worktree.py::cleanup_mission_worktrees`(親: CLIの`orgh/cli.py::cleanup`)。
+0. **内部ヘルパー関数の統合評価**: 1つの呼び出し元(親のパイプライン関数、または唯一のCLIサブコマンド)からしか参照されない内部関数・実装本体は、独立に下記1〜6を適用せず、**親の判定をそのまま継承する**。親を残す判断をした場合、内部ヘルパーだけを個別に削除候補として承認欄に出さない(理由: 親を残す限りヘルパーも実行され続けるため、独立した削除候補として扱うと「親はKEEP、部品はCANDIDATE」という実行不能な組み合わせが生まれる)。対象例: `orgh/gc.py::_backup`/`_archive_old_lessons`/`_consolidate`/`_gc_runs`(親: `run_gc`)、`orgh/worktree.py::merge_dep_branches`(親: `ensure_task_worktree`)、`orgh/doctor.py::run_doctor`(親: CLIの`orgh/cli.py::doctor`)、`orgh/worktree.py::cleanup_mission_worktrees`(親: CLIの`orgh/cli.py::cleanup`)。
 1. **U = 0**(紐づくユースケースが1件も無い)→ 原則 **UNKNOWN**(「本当に不要」なのか「usecase台帳の記載漏れ」なのかを機械ルールだけでは区別できないため、無条件のCANDIDATE化はしない)。ただし以下の3区分でこの原則から外れる(2026-08-07 review-audit-r2反映で3区分を明文化。旧版はT=3〜9の扱いが未定義だった):
    - **T ≥ 10** → 記載漏れの可能性が高いとみなし **KEEP**。運用文書(HANDOFF.md・README.md・git log等)に実運用を裏付ける明示的な記述があれば判定根拠列に併記する。
    - **3 ≤ T ≤ 9** → 運用文書上の明示的な裏付けの有無を問わず **WATCH** とする(無関係語の水増しでは説明できない実質的な参照が一定数ある以上、無条件のUNKNOWNには据え置かない。例: `orgh/cli.py::scan`、T=7、運用文書上の裏付けなし)。
@@ -50,8 +50,8 @@
 
 | 判定 | 件数(初版2026-08-06) | 件数(本改訂) | 増減 | 意味 |
 |---|---|---|---|---|
-| **KEEP** | 49 | **60** | +11 | 現行ユースケースに必須。証跡も十分(T≥10)、機械しきい値を上書きするだけの強い運用証跡がある、または内部ヘルパー統合評価によりKEEPの親機能の判定を継承している。 |
-| **WATCH** | 20 | **27** | +7 | 現行ユースケースに紐づくが証跡が薄い(3≤T≤9)、休止(dormant)ユースケース専属の実装、またはユースケース帰属が無くとも(U=0)T=3〜9の実質的な参照がある実装(1章ルール1)。定期的な再確認を推奨。 |
+| **KEEP** | 49 | **59** | +10 | 現行ユースケースに必須。証跡も十分(T≥10)、機械しきい値を上書きするだけの強い運用証跡がある、または内部ヘルパー統合評価によりKEEPの親機能の判定を継承している。 |
+| **WATCH** | 20 | **28** | +8 | 現行ユースケースに紐づくが証跡が薄い(3≤T≤9)、休止(dormant)ユースケース専属の実装、またはユースケース帰属が無くとも(U=0)T=3〜9の実質的な参照がある実装(1章ルール1)。定期的な再確認を推奨。 |
 | **CANDIDATE** | 19 | **2** | −17 | 削除候補。ユースケースは紐づくが実装が使われた形跡がほぼ皆無(U≥1かつT≤2、1章ルール3)。 |
 | **UNKNOWN** | 1 | **0** | −1 | ユースケースへの一意な帰属を判断する材料が不足。 |
 | **合計** | 89 | 89 | 0 | |
@@ -105,7 +105,7 @@
 | `orgh/cli.py::watch` | cli | UC-03 | 54 | **KEEP** | entrypointが`orgh watch`でUC-03のtrigger文言と完全一致 | 承認/保留/却下: |
 | `orgh/doctor.py::run_doctor` | module | UC-14 | 1 | **KEEP** | `orgh/cli.py::doctor`の唯一の実処理本体。CLIサブコマンドと実装本体は同一評価単位とするルール(1章ルール0)により親の判定(KEEP, T=10)を継承。T=1は永続ログを残さない設計上の構造的特性であり利用実績の低さではない | 承認/保留/却下: 承認不要(`orgh/cli.py::doctor`に統合、独立審査対象外) |
 | `orgh/gc.py::_archive_old_lessons` | module | UC-13 | 1 | **WATCH** | run_gc()のバックアップ後ステップ。内部ヘルパーは親と同一判定とするルール(1章ルール0)により`run_gc`(WATCH, T=5)の判定を継承 | 承認/保留/却下: 承認不要(`run_gc`に統合、独立審査対象外) |
-| `orgh/gc.py::_backup` | module | UC-13 | 10 | **KEEP** | run_gc()の最初のステップとしてUC-13のgcパイプライン内部処理 | 承認/保留/却下: |
+| `orgh/gc.py::_backup` | module | UC-13 | 10 | **WATCH** | run_gc()の最初のステップ。内部ヘルパーは親と同一判定とするルール(1章ルール0)により`run_gc`(WATCH, T=5)の判定を継承(T=10単独ではKEEP相当だが、親を削除すれば実行されない部品を親より強く残す判定は実行不能な組み合わせを生む) | 承認/保留/却下: 承認不要(`run_gc`に統合、独立審査対象外) |
 | `orgh/gc.py::_consolidate` | module | UC-13 | 1 | **WATCH** | run_gc()の退避後ステップ。内部ヘルパーは親と同一判定とするルール(1章ルール0)により`run_gc`(WATCH, T=5)の判定を継承 | 承認/保留/却下: 承認不要(`run_gc`に統合、独立審査対象外) |
 | `orgh/gc.py::_gc_runs` | module | UC-13 | 1 | **WATCH** | run_gc()の最終ステップ。内部ヘルパーは親と同一判定とするルール(1章ルール0)により`run_gc`(WATCH, T=5)の判定を継承 | 承認/保留/却下: 承認不要(`run_gc`に統合、独立審査対象外) |
 | `orgh/gc.py::run_gc` | module | UC-13 | 5 | **WATCH** | descriptionの「代謝とruns/保持ポリシー適用を厳守の順序で実行」がUC-13のtriggerそのもの | 承認/保留/却下: |
@@ -196,7 +196,8 @@ feature_id 89件のうち、U=0と判定されたもの(2026-08-07改訂版)。
   2. `docs/deep-dive.md:50`(構成図の`CodexAdapter/ShellAdapter`表記)・`docs/deep-dive.md:129`(ShellAdapterの説明段落)・`docs/deep-dive.md:261`(config表の`shell`列挙)
   3. `docs/audit/usecases.json`のUC-23(ShellAdapter経由の任意CLI LLM利用)を`obsolete`化するか、削除後の状態に合わせて記述を更新
   4. `docs/audit/usecase-inventory.md`のUC-23関連記述、および本監査文書群(`docs/audit/features.json`・`docs/audit/usage-evidence.json`・`docs/audit/feature-inventory.md`・本ファイル)からのShellAdapter/workers.shell行の削除または「削除済み」注記
-- **削除手順の概要**: (1) 上記の後方互換性影響を人間が判断・許容、(2) ShellAdapterクラスとREGISTRY登録をorgh/adapters/base.pyから削除、(3) config.example.yamlのworkers.shellセクションを削除、(4) doctorの疎通確認対象からも除外、(5) 上記の文書一覧を更新。
+  5. 利用者向け成果物 `docs/product/orgh-deep-dive.html`・`docs/product/orgh-techbook.html`(ShellAdapter/任意LLM対応の記述あり)を更新し、対応するPDF(`orgh-deep-dive.pdf`・`orgh-techbook.pdf`)を`docs/product/BUILD.md`の手順で再生成
+- **削除手順の概要**: (1) 上記の後方互換性影響を人間が判断・許容、(2) ShellAdapterクラスとREGISTRY登録をorgh/adapters/base.pyから削除、(3) config.example.yamlのworkers.shellセクションを削除、(4) doctorの疎通確認対象からも除外、(5) 上記の文書一覧を更新、(6) 最終検証としてリポジトリ全体を `ShellAdapter`・`workers.shell`・`shell枠` で横断検索し、削除漏れ・言及残りが無いことを確認。
 - **復元容易性**: 高い(単一ファイル内の1クラス、直近コミット `dde8aa2` 2026-08-03)。
 - **削除しない場合のコスト**: 低〜中。config.example.yamlに例示が残り続けると「gemini等の他LLMを使える」という誤解を新規ユーザーに与える保守負担がある一方、コード自体はREGISTRY登録の数行なので放置コストは小さい。UC-23自体は「assumed」(設計上の拡張点)であり実運用実績が0件のため、消しても既存ミッション(本リポジトリの`runs/`・`ops/demo/runs/`配下)への影響はない。ただし上記の外部config互換性リスクは残るため、判定はCANDIDATEのまま維持する。
 

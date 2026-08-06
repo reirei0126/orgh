@@ -339,10 +339,11 @@
       "evidence": [
         "orgh/cli.py:128-135",
         "orgh/listing.py:32",
+        "/Users/uesugirei/projects/org-harness/runs/8e096d63/mission.json",
         "/Users/uesugirei/projects/org-harness/ops/demo/runs/099e281b/mission.json",
         "README.md:9-18"
       ],
-      "description": "レビュー指摘(review-audit-r1)により追加。稼働中・完了済みミッションを横断的に一覧するための日常運用コマンド。ops/demo/runs/099e281bはこの機能自体を追加したミッション(intent「新コマンド orgh list を追加し...」、コミット60b63ef「orgh list コマンド実装」)であり、README.mdは「新コマンドorgh listの1行目には、それを作ったミッション自身が表示される」と明記する。usecase台帳作成時の記載漏れであったため、当初は該当機能(orgh/cli.py::list、orgh/listing.py::list_missions)がU=0でCANDIDATE誤判定されていた。"
+      "description": "レビュー指摘(review-audit-r1)により追加。稼働中・完了済みミッションを横断的に一覧するための日常運用コマンド。実行時証跡(review-audit-r3で追記): 別ミッション8e096d63(orghデスクトップGUI)の実起動検証タスクが `orgh list --json` を実データに対して実行しており、runs/8e096d63/mission.json に同コマンドの実行記録が8箇所残っている(=機能を作ったミッション自身ではなく、後発の別ミッションによる利用証跡)。ops/demo/runs/099e281bはこの機能自体を追加したミッション(intent「新コマンド orgh list を追加し...」、コミット60b63ef「orgh list コマンド実装」)であり、README.mdは「新コマンドorgh listの1行目には、それを作ったミッション自身が表示される」と明記する。usecase台帳作成時の記載漏れであったため、当初は該当機能(orgh/cli.py::list、orgh/listing.py::list_missions)がU=0でCANDIDATE誤判定されていた。"
     },
     {
       "usecase_id": "UC-27",
