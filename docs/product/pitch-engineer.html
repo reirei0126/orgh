@@ -4,6 +4,9 @@
 <!-- 改善ログ(t2): 3. 宣伝的最上級を全文検査。該当なし。19事例の主張は「非網羅的調査では確認できなかった」に限定済み。 -->
 <!-- 改善ログ(t2): 4. f18d870の実在・件名と全ファイル引用を原文照合。証拠帯を正確な行範囲・原文に修正し、未裏取りの例示数値を削除。 -->
 <!-- 改善ログ(t2): 5. 1枚目の製品説明なしフックを維持。淡色文字と証拠帯を拡大・高コントラスト化し、潰れを防止。 -->
+<!-- 改善ログ(t3): 6. pitch-persona-design.md P2の確定順序(フック→事件簿1→事件簿2→事件簿3→What→何が新しいか→CTA)に合わせDOM順を並び替え、data-slide="1"〜"7"を付与。 -->
+<!-- 改善ログ(t3): 7. 事件簿3枚それぞれに「解決」帯を同一構造・同一位置(visual直後・evidence直前)で追加し、事件と解決を視覚的に分離。 -->
+<!-- 改善ログ(t3): 8. Whatスライドを組織図+①②③マーカー(=傷跡の地図)に改修。①gc/Playbooks ②REPLAN ③承認ゲートを事件簿番号と一致させて配置。 -->
 <!-- pitch-engineer.html — P2(エンジニア仲間)向けピッチ。ops/demo/pitch-persona-design.md のP2確定ストーリー(承認済み)に準拠。 -->
 <!-- 視覚identityは docs/product/orgh-pitch.html の蛍光マーカー・検印モチーフを踏襲せず、ポストモーテム/インシデントレポート調で新規に作成。 -->
 <html lang="ja">
@@ -129,6 +132,32 @@
   .evidence .src{ color:var(--ink-faint); }
   .evidence .lbl{ color:var(--accent); }
 
+  /* ---------- resolution band (事件簿1〜3 共通) ---------- */
+  .resolution{
+    flex:none;
+    margin-top:14px;
+    background:var(--accent-dim);
+    border:1px solid var(--accent);
+    padding:10px 16px;
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+  }
+  .resolution .res-tag{
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:800;
+    letter-spacing:.1em;
+    color:var(--accent);
+    flex:none;
+    text-transform:uppercase;
+  }
+  .resolution .res-text{
+    font-size:13px;
+    line-height:1.6;
+    color:var(--ink);
+  }
+
   /* ---------- slide 1: hook ---------- */
   .hero-lede{
     font-size:16px;
@@ -190,7 +219,7 @@
     flex:none;
   }
 
-  /* ---------- slide 2: org diagram ---------- */
+  /* ---------- slide 5: org diagram（傷跡の地図） ---------- */
   .org{
     flex:1 1 auto;
     min-height:0;
@@ -270,7 +299,76 @@
     color:var(--accent); font-size:11px;
   }
 
-  /* ---------- slide 3: gc before/after ---------- */
+  /* ---------- 傷跡の地図: 番号マーカー①②③ ---------- */
+  .scar-badge{
+    display:inline-flex;
+    flex:none;
+    align-items:center;
+    justify-content:center;
+    width:20px; height:20px;
+    border-radius:50%;
+    border:1px solid var(--accent);
+    background:var(--bg);
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:800;
+    color:var(--accent);
+  }
+  .org-box.scar-target{ position:relative; }
+  .org-box.scar-target .scar-badge{
+    position:absolute; top:-10px; right:-10px;
+  }
+  .org-arrow.scar-gate{
+    flex-direction:column;
+    gap:2px;
+  }
+  .scar-arc{
+    flex:none;
+    border:1px dashed var(--accent);
+    border-bottom:none;
+    height:32px;
+    position:relative;
+    margin-bottom:6px;
+  }
+  .scar-arc .lbl{
+    position:absolute;
+    left:50%; top:50%;
+    transform:translate(-50%,-50%);
+    background:var(--bg);
+    padding:0 12px;
+    display:flex; align-items:center; gap:6px;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--accent);
+    white-space:nowrap;
+  }
+  .scar-arc::after{
+    content:"▼";
+    position:absolute; left:13%; bottom:-9px;
+    color:var(--accent); font-size:11px;
+  }
+  .scar-legend{
+    flex:none;
+    margin-top:14px;
+    display:flex;
+    gap:12px;
+  }
+  .scar-item{
+    flex:1 1 0;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    border:1px solid var(--line);
+    background:var(--panel-alt);
+    padding:10px 12px;
+  }
+  .scar-text{
+    font-size:11.5px;
+    line-height:1.5;
+    color:var(--ink-soft);
+  }
+
+  /* ---------- slide 2: gc before/after ---------- */
   .gc-cols{
     flex:1 1 auto;
     min-height:0;
@@ -317,7 +415,7 @@
     color:var(--accent); font-size:20px; font-family:var(--mono);
   }
 
-  /* ---------- slide 4: replan flow ---------- */
+  /* ---------- slide 3: replan flow ---------- */
   .replan{
     flex:1 1 auto;
     min-height:0;
@@ -364,7 +462,7 @@
   .rp-good .v{ color:var(--good); font-weight:700; font-size:14px; }
   .rp-good .k{ font-family:var(--mono); font-size:10px; color:var(--ink-faint); }
 
-  /* ---------- slide 5: guard flow ---------- */
+  /* ---------- slide 4: guard flow ---------- */
   .guard{
     flex:1 1 auto;
     min-height:0;
@@ -500,8 +598,8 @@
 </head>
 <body>
 
-  <!-- 01: フック(製品名を出さない。ops/demo/pitch-persona-design.md P2の確定コピー) -->
-  <div class="slide">
+  <!-- slide 1: フック(製品名を出さない。ops/demo/pitch-persona-design.md P2の確定コピー) -->
+  <div class="slide" data-slide="1">
     <div class="bar">
       <span class="logo">ORGH</span>
       <span class="page">01 / 07</span>
@@ -510,7 +608,7 @@
     <h2 class="head">うちのAI組織は、<br>4ミッション目で<br>馬鹿になり始めた。</h2>
     <p class="hero-lede">
       教訓を書けば書くほど賢くなるはずだった。<br>
-      実際に起きたのは、その逆だった。
+      実際に起きたのは、その逆だった。まず、記憶が詰まった。
     </p>
     <div class="case-strip">
       <div class="case"><div class="n">M1</div><div class="tag">normal</div></div>
@@ -525,51 +623,11 @@
     </div>
   </div>
 
-  <!-- 02: What30秒(組織図)。CSS grid/flexのみで図解、外部画像なし。根拠: README.md 冒頭のフロー記述 -->
-  <div class="slide">
+  <!-- slide 2: 事件簿1 ノイズ増幅→記憶の代謝(gc)。証拠帯はorgh/gc.py冒頭コメントとHANDOFF.mdの実記録を引用 -->
+  <div class="slide" data-slide="2">
     <div class="bar">
       <span class="logo">ORGH</span>
       <span class="page">02 / 07</span>
-    </div>
-    <p class="eyebrow">WHAT — 30秒でわかる仕組み</p>
-    <h2 class="head">計画・実行・検品・学習が、<br>ひとつの環になって回る。</h2>
-    <div class="org">
-      <div class="org-row">
-        <div class="org-box accent">
-          <div class="t">Planner</div>
-          <div class="s">意図解釈 → タスクDAG設計</div>
-        </div>
-        <div class="org-arrow">→</div>
-        <div class="org-workers">
-          <div class="w">Worker A（git worktree）</div>
-          <div class="w">Worker B（git worktree）</div>
-          <div class="w">Worker C（git worktree）</div>
-        </div>
-        <div class="org-arrow">→</div>
-        <div class="org-box">
-          <div class="t">Reviewer</div>
-          <div class="s">acceptance判定 / 差し戻し</div>
-        </div>
-        <div class="org-arrow">→</div>
-        <div class="org-box">
-          <div class="t">Retro</div>
-          <div class="s">教訓の蒸留</div>
-        </div>
-        <div class="org-arrow">→</div>
-        <div class="org-box">
-          <div class="t">Playbooks</div>
-          <div class="s">全プロンプトへ自動注入</div>
-        </div>
-      </div>
-      <div class="org-loop"><span class="lbl">次ミッションのPlanner / Workerへ自動注入</span></div>
-    </div>
-  </div>
-
-  <!-- 03: 事件簿1 ノイズ増幅→記憶の代謝(gc)。証拠帯はorgh/gc.py冒頭コメントとHANDOFF.mdの実記録を引用 -->
-  <div class="slide">
-    <div class="bar">
-      <span class="logo">ORGH</span>
-      <span class="page">03 / 07</span>
     </div>
     <p class="eyebrow">INCIDENT LOG — 02 / ノイズ増幅</p>
     <h2 class="head">教訓を書き足すほど、<br>教訓が読めなくなっていった。</h2>
@@ -594,17 +652,21 @@
         </div>
       </div>
     </div>
+    <div class="resolution">
+      <span class="res-tag">解決</span>
+      <span class="res-text">orgh gc（180日無参照アーカイブ・重複統合・矛盾解消）。Playbooksは代謝する器になった。だが、捨てるべきなのが教訓ではなく計画なら、実行を繰り返しても直らない。</span>
+    </div>
     <div class="evidence">
       <span class="lbl">$</span> <span class="src">orgh/gc.py:3–4</span> — 追記onlyのplaybookは矛盾・重複・陳腐化した教訓が淘汰されず、8000字capにより新しい教訓ほど切り捨てられていた<br>
       <span class="lbl">$</span> <span class="src">HANDOFF.md:38–39</span> — retro是正は機能: 予算トリビアが消え、構造的教訓のみが蒸留されている (planning.md 2件、coding.md 2件=共有インターフェース先行定義+UI目視必須)
     </div>
   </div>
 
-  <!-- 04: 事件簿2 3周しても直らない→失敗の階層化(REPLAN)。証拠帯はgit log --grep="実運用で発見" --oneline の実出力から f18d870 を引用 -->
-  <div class="slide">
+  <!-- slide 3: 事件簿2 3周しても直らない→失敗の階層化(REPLAN)。証拠帯はgit log --grep="実運用で発見" --oneline の実出力から f18d870 を引用 -->
+  <div class="slide" data-slide="3">
     <div class="bar">
       <span class="logo">ORGH</span>
-      <span class="page">04 / 07</span>
+      <span class="page">03 / 07</span>
     </div>
     <p class="eyebrow">INCIDENT LOG — 03 / 3周しても直らない</p>
     <h2 class="head">同じ指摘を、3回書いた。<br>直らなかったのは、<br>実行の腕じゃなかった。</h2>
@@ -628,6 +690,10 @@
         </div>
       </div>
     </div>
+    <div class="resolution">
+      <span class="res-tag">解決</span>
+      <span class="res-text">REPLAN：Reviewerが「実装でなく計画の欠陥」と判定したらPlannerへ戻し、受け入れ条件を再設計する（attempts非消費・1タスク1回まで）。それでも、正しい計画をそのまま実行してはいけない場面が残った。</span>
+    </div>
     <div class="evidence">
       <span class="lbl">$</span> <span class="src">git log --grep="実運用で発見" --oneline</span><br>
       f18d870 fix: REPLANのacceptanceに成立可能性の制約を追加(実運用で発見)<br>
@@ -635,11 +701,11 @@
     </div>
   </div>
 
-  <!-- 05: 事件簿3 自分を書き換えるミッション→config無効化不可の自己改変承認ゲート。証拠帯はdocs/threat-model.mdとorgh/guard.pyの実記述 -->
-  <div class="slide">
+  <!-- slide 4: 事件簿3 自分を書き換えるミッション→config無効化不可の自己改変承認ゲート。証拠帯はdocs/threat-model.mdとorgh/guard.pyの実記述 -->
+  <div class="slide" data-slide="4">
     <div class="bar">
       <span class="logo">ORGH</span>
-      <span class="page">05 / 07</span>
+      <span class="page">04 / 07</span>
     </div>
     <p class="eyebrow">INCIDENT LOG — 04 / 自分を書き換えるミッション</p>
     <h2 class="head">orghが、orgh自身の<br>設定ファイルを<br>書き換えようとした。</h2>
@@ -659,20 +725,75 @@
         </div>
       </div>
     </div>
+    <div class="resolution">
+      <span class="res-tag">解決</span>
+      <span class="res-text">承認ゲート：実行前に awaiting_approval で強制停止する。続行は orgh approve &lt;mission_id&gt; のみで、configから無効化できない。3件とも、失敗した場所に停止点を残した。</span>
+    </div>
     <div class="evidence">
       <span class="lbl">$</span> <span class="src">docs/threat-model.md:11–14</span> — 自動実行されず awaiting_approval で停止する。続行できるのは orgh approve &lt;mission_id&gt; のみで、orgh watch の自動着火でも承認はスキップされない<br>
       <span class="lbl">$</span> <span class="src">orgh/guard.py:3–5</span> — orgh approve &lt;mission_id&gt; だけが続行の手段。意図的に config での無効化手段を設けない。
     </div>
   </div>
 
-  <!-- 06: 「で、新しいの?」worktree並列はコモディティと自白し、19事例の非網羅的調査で確認できなかった3要素を明記。排他的な断定は使わない -->
-  <div class="slide">
+  <!-- slide 5: What(傷跡の地図)。組織図の上に事件簿1〜3の解決点を①②③でマッピング。根拠: README.md 冒頭のフロー記述 -->
+  <div class="slide" data-slide="5">
+    <div class="bar">
+      <span class="logo">ORGH</span>
+      <span class="page">05 / 07</span>
+    </div>
+    <p class="eyebrow">WHAT — 傷跡の地図</p>
+    <h2 class="head">3件の対処は、<br>この環の3点に残っている。</h2>
+    <p class="lede">記憶は代謝させ、失敗は計画へ戻し、自己改変は実行前に止める。<br>①②③が、さっきの事件簿と同じ番号で対応する。</p>
+    <div class="org">
+      <div class="scar-arc"><span class="lbl"><span class="scar-badge two">②</span>REPLAN — Reviewerが「計画の欠陥」と判定したらPlannerへ差し戻す</span></div>
+      <div class="org-row">
+        <div class="org-box accent">
+          <div class="t">Planner</div>
+          <div class="s">意図解釈 → タスクDAG設計</div>
+        </div>
+        <div class="org-arrow scar-gate">
+          <span class="scar-badge three">③</span>
+          <span>→</span>
+        </div>
+        <div class="org-workers">
+          <div class="w">Worker A（git worktree）</div>
+          <div class="w">Worker B（git worktree）</div>
+          <div class="w">Worker C（git worktree）</div>
+        </div>
+        <div class="org-arrow">→</div>
+        <div class="org-box">
+          <div class="t">Reviewer</div>
+          <div class="s">acceptance判定 / 差し戻し</div>
+        </div>
+        <div class="org-arrow">→</div>
+        <div class="org-box">
+          <div class="t">Retro</div>
+          <div class="s">教訓の蒸留</div>
+        </div>
+        <div class="org-arrow">→</div>
+        <div class="org-box scar-target">
+          <span class="scar-badge one">①</span>
+          <div class="t">Playbooks</div>
+          <div class="s">全プロンプトへ自動注入 / gcで代謝</div>
+        </div>
+      </div>
+      <div class="org-loop"><span class="lbl">次ミッションのPlanner / Workerへ自動注入</span></div>
+      <div class="scar-legend">
+        <div class="scar-item"><span class="scar-badge one">①</span><span class="scar-text">gc — Playbooksが教訓を代謝する（事件簿1の解決）</span></div>
+        <div class="scar-item"><span class="scar-badge two">②</span><span class="scar-text">REPLAN — ReviewerがPlannerへ差し戻す（事件簿2の解決）</span></div>
+        <div class="scar-item"><span class="scar-badge three">③</span><span class="scar-text">承認ゲート — 実行前に強制停止する（事件簿3の解決）</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- slide 6: 「で、新しいの?」worktree並列はコモディティと自白し、19事例の非網羅的調査で確認できなかった3要素を明記。排他的な断定は使わない -->
+  <div class="slide" data-slide="6">
     <div class="bar">
       <span class="logo">ORGH</span>
       <span class="page">06 / 07</span>
     </div>
     <p class="eyebrow">で、新しいの？</p>
-    <h2 class="head">並列実行は、もう新しくない。<br>19事例の非網羅的調査では、<br>3つだけ確認できなかった。</h2>
+    <h2 class="head">並列実行は、もう新しくない。<br>19事例の非網羅的調査で、<br>確認できなかったのは次の3点。</h2>
     <div class="cmp">
       <div class="cmp-col left">
         <div class="cmp-h">ほぼ全事例が持つコモディティ</div>
@@ -691,15 +812,15 @@
     </div>
   </div>
 
-  <!-- 07: CTA。GitHubと技術書第6章「改善への招待」へ誘導 -->
-  <div class="slide">
+  <!-- slide 7: CTA。GitHubと技術書第6章「改善への招待」へ誘導 -->
+  <div class="slide" data-slide="7">
     <div class="bar">
       <span class="logo">ORGH</span>
       <span class="page">07 / 07</span>
     </div>
     <p class="eyebrow">CTA</p>
-    <h2 class="head">ここはもっとこうできるでしょ、<br>を聞かせてくれ。</h2>
-    <p class="lede">事件簿はまだ増える。<br>次に踏むバグは、読んだ人が決めていい。</p>
+    <h2 class="head">動かして、<br>止まり方を突っついてほしい。</h2>
+    <p class="lede">READMEから試すか、未実装の入口から直す。<br>次の事件簿に、外からの指摘を残したい。</p>
     <div class="cta">
       <div class="cta-card">
         <div class="k">REPOSITORY</div>
@@ -722,4 +843,12 @@
   </div>
 
 </body>
+<!-- 改善ログ (codex):
+- スライド1〜4のリード／解決帯 → 記憶の詰まり→計画への逆流→実行前停止を次の事件へ受け渡すコピーに変更 → 事件の羅列をP2の感情線（共感→意外性→信頼）として接続
+- Whatスライドの見出し／リード → ①記憶の代謝、②計画への逆流、③実行前停止を事件簿と同順で明記 → 傷跡の地図を一読で照合可能にする
+- Whatスライドの①②③ブロック → ①gc / Playbooks、②REPLAN、③承認ゲートの既存対応を維持し、リードでも番号対応を明示 → マーカーと事件簿1/2/3の意味ずれを防止
+- スライド6見出し → 「3つだけ」を削り、非網羅的調査で確認できなかった範囲に限定 → 優位性を匂わせる断定を弱め、既存の19事例という事実範囲に揃える
+- CTA見出し／リード → 抽象的な煽りから「動かす／未実装を直す／指摘する」へ変更 → 警戒解除後の行動を、使ってみる・突っつくの具体動詞へ接続
+- 長い見出しの手動改行 → スライド5〜7を意味の切れ目で再配置 → 行末オーファンと読みの停滞を抑制
+-->
 </html>

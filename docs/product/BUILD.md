@@ -119,3 +119,44 @@
 
 - Google Chrome: `Google Chrome 151.0.7922.75`(`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version` の出力そのまま。既存ビルド時と同一バージョン)
 - 本追記作業ではHTMLソース(`pitch-engineer.html`)・既存の `.md` ドキュメントは一切変更していない。新規作成したのはPDF(`docs/product/pitch-engineer.pdf`)のみで、本ファイルへは追記のみ行った。
+
+## 追記: pitch-engineer.pdf の再生成(HTML改修反映、2026-08-06)
+
+`docs/product/pitch-engineer.html` がオーナーFB反映(P2エンジニア向けピッチ、ポストモーテム型7枚、DOM順を「フック→事件簿1→事件簿2→事件簿3→What→何が新しいか→CTA」に並び替え・`data-slide="1"`〜`"7"`付与)で改修され、直前生成のPDF(22:04:56 JST版)よりHTMLが新しくなったため、同一手順で再生成した。現行構成は以下の7枚で確定している。
+
+1. フック
+2. 事件簿1
+3. 事件簿2
+4. 事件簿3
+5. What(orghとは)
+6. 何が新しいか
+7. CTA
+
+### 生成物一覧
+
+| ファイルパス | バイト数 | ページ数 | 生成日時 |
+|---|---:|---:|---|
+| `docs/product/pitch-engineer.pdf` | 7,670,899 バイト | 7ページ | 2026-08-06 22:41:21 JST |
+
+### 実行コマンド
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --no-pdf-header-footer --print-to-pdf=docs/product/pitch-engineer.pdf docs/product/pitch-engineer.html
+```
+
+出力: `7670899 bytes written to file docs/product/pitch-engineer.pdf`(終了コード0)。標準エラーに `Trying to load the allocator multiple times.` という既知の無害な警告のみ。
+
+### ページ数検証
+
+- スライド数(HTML側の真実源): `grep -c 'class="slide"' docs/product/pitch-engineer.html` → **7**
+- ページ数を3手法でクロスチェックし、いずれも **7ページ** で一致:
+  - `pdfinfo docs/product/pitch-engineer.pdf` → `Pages: 7`(`Page size: 960 x 540 pts`)
+  - `mdls -name kMDItemNumberOfPages docs/product/pitch-engineer.pdf` → `kMDItemNumberOfPages = 7`
+  - Python正規表現で `/Count` を直接抽出 → `[b'7']`
+- ファイル更新時刻: PDF(22:41:21)がHTML(22:37)より新しいことを `ls -la` で確認済み。
+- 判定: ページ数(7)とHTMLスライド数(7)が完全一致。`pitch-engineer.html` への追加修正は不要だった。HTML側は無修正。
+
+### 実行環境
+
+- Google Chrome: `Google Chrome 151.0.7922.75`(既存ビルド時と同一バージョン)
+- 本追記作業ではHTMLソース(`pitch-engineer.html`)・既存の `.md` ドキュメントは一切変更していない。上書き生成したのはPDF(`docs/product/pitch-engineer.pdf`)のみで、本ファイルへは追記のみ行った。
