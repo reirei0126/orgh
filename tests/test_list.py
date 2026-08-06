@@ -1,10 +1,20 @@
 """orgh list: runs配下の全ミッションをid/intent要約/状態/累計コストで一覧する。"""
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
+import pytest
+
+from orgh import cli
 from orgh.listing import list_missions
 from orgh.state import Budget, Mission, RunStore, Task
+
+from .conftest import write_config
+
+REQUIRED_MISSION_KEYS = {"mission_id", "intent", "status", "cost_usd",
+                         "tasks_done", "tasks_total"}
 
 
 def _task(id: str, status: str) -> Task:
@@ -115,3 +125,52 @@ class TestListMissions:
         (runs_dir / "not-a-mission").mkdir(parents=True)
         out = list_missions(runs_dir)
         assert [m["mission_id"] for m in out] == ["m1"]
+
+
+class TestListJsonCli:
+    """GUI連携用: orgh list --json が単一JSONをstdoutへ出す契約の検証。"""
+
+    def test_cli_list_json_outputs_parseable_json_with_required_keys(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        m = Mission(id="m1", intent="一覧試験", context_digest="(test)",
+                    tasks=[_task("t1", "done")],
+                    budget=Budget(limit_usd=None, spent_usd=0.5))
+        RunStore(cfg["runs_dir"], m.id).save(m)
+
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "list", "--json"])
+        cli.main()
+
+        out = capsys.readouterr().out
+        payload = json.loads(out)
+        assert "missions" in payload
+        assert len(payload["missions"]) == 1
+        assert REQUIRED_MISSION_KEYS <= payload["missions"][0].keys()
+        assert payload["missions"][0]["mission_id"] == "m1"
+
+    def test_cli_list_json_empty_when_no_missions(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "list", "--json"])
+        cli.main()
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {"missions": []}
+
+    def test_cli_list_without_json_flag_prints_human_summary(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        m = Mission(id="m1", intent="一覧試験", context_digest="(test)",
+                    tasks=[_task("t1", "done")])
+        RunStore(cfg["runs_dir"], m.id).save(m)
+
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "list"])
+        cli.main()
+
+        out = capsys.readouterr().out
+        assert "m1" in out
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(out)

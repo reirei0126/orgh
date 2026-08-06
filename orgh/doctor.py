@@ -16,18 +16,26 @@ _REQUIRED_PROMPTS = ("planner.md", "reviewer.md", "retro.md",
                      "worker_preamble.md", "replan.md", "gc.md")
 
 
-def _check_binary(name: str, bin_path: str) -> tuple[bool, str]:
+def _check_binary(name: str, bin_path: str) -> dict:
+    """1バイナリの疎通確認結果を {name, ok, detail} で返す。
+
+    detail は OK/NG 判定文言を含まない、名前を除いた説明部分のみ
+    (run_doctor のテキスト行・doctor_payload の両方から共有するため)。
+    """
     try:
         r = subprocess.run([bin_path, "--version"], capture_output=True,
                            text=True, timeout=15, stdin=subprocess.DEVNULL)
     except FileNotFoundError:
-        return False, f"NG {name}: {bin_path} が見つからない"
+        return {"name": name, "ok": False, "detail": f"{bin_path} が見つからない"}
     except (subprocess.TimeoutExpired, OSError) as e:
-        return False, f"NG {name}: {bin_path} 実行失敗 ({e!r})"
+        return {"name": name, "ok": False,
+                "detail": f"{bin_path} 実行失敗 ({e!r})"}
     if r.returncode != 0:
-        return False, f"NG {name}: {bin_path} --version がrc={r.returncode}"
+        return {"name": name, "ok": False,
+                "detail": f"{bin_path} --version がrc={r.returncode}"}
     ver = (r.stdout or r.stderr).strip().splitlines()
-    return True, f"OK {name}: {ver[0][:60] if ver else bin_path}"
+    return {"name": name, "ok": True,
+            "detail": ver[0][:60] if ver else bin_path}
 
 
 def _binaries(cfg: dict) -> dict[str, str]:
@@ -48,44 +56,51 @@ def _binaries(cfg: dict) -> dict[str, str]:
     return bins
 
 
-def run_doctor(cfg: dict) -> tuple[list[str], bool]:
-    lines: list[str] = []
-    ok = True
+def _run_checks(cfg: dict) -> list[dict]:
+    """全チェックを {name, ok, detail, prefix?} のリストで返す。
 
-    seen: dict[str, tuple[bool, str]] = {}
+    prefix はテキスト行の先頭記号(OK/NG以外、例: 未設定を示す "--")を
+    明示したいチェックにのみ付く。省略時は ok から "OK"/"NG" を導出する。
+    run_doctor(テキスト) と doctor_payload(JSON) が同じ結果を共有する。
+    """
+    checks: list[dict] = []
+
+    seen: dict[str, dict] = {}
     for name, bin_path in _binaries(cfg).items():
         if bin_path in seen:
-            good, _ = seen[bin_path]
-            lines.append(f"{'OK' if good else 'NG'} {name}: (= {bin_path})")
+            prev = seen[bin_path]
+            checks.append({"name": name, "ok": prev["ok"],
+                           "detail": f"(= {bin_path})"})
         else:
-            good, line = _check_binary(name, bin_path)
-            seen[bin_path] = (good, line)
-            lines.append(line)
-        ok &= seen[bin_path][0]
+            c = _check_binary(name, bin_path)
+            seen[bin_path] = c
+            checks.append(c)
 
-    lines.append("OK config: 検証済み")  # ここに到達した時点でスキーマ検証は通過
+    # ここに到達した時点でスキーマ検証は通過
+    checks.append({"name": "config", "ok": True, "detail": "検証済み"})
 
     prompts = Path(cfg.get("prompts_dir", "prompts")).expanduser()
     missing = [n for n in _REQUIRED_PROMPTS if not (prompts / n).exists()]
     if missing:
-        ok = False
-        lines.append(f"NG prompts_dir: {prompts} に不足 {missing}")
+        checks.append({"name": "prompts_dir", "ok": False,
+                       "detail": f"{prompts} に不足 {missing}"})
     else:
-        lines.append(f"OK prompts_dir: {prompts}")
+        checks.append({"name": "prompts_dir", "ok": True, "detail": str(prompts)})
 
     vault = (cfg.get("vault") or {}).get("path")
     if vault:
         vp = Path(vault).expanduser()
         if not vp.is_dir():
-            ok = False
-            lines.append(f"NG vault: {vp} に到達できない")
+            checks.append({"name": "vault", "ok": False,
+                           "detail": f"{vp} に到達できない"})
         elif not os.access(vp, os.W_OK):
-            ok = False
-            lines.append(f"NG vault: {vp} に書き込めない")
+            checks.append({"name": "vault", "ok": False,
+                           "detail": f"{vp} に書き込めない"})
         else:
-            lines.append(f"OK vault: {vp}")
+            checks.append({"name": "vault", "ok": True, "detail": str(vp)})
     else:
-        lines.append("-- vault: 未設定(watch/scanを使わないなら問題なし)")
+        checks.append({"name": "vault", "ok": True, "prefix": "--",
+                       "detail": "未設定(watch/scanを使わないなら問題なし)"})
 
     runs = Path(cfg.get("runs_dir", "runs")).expanduser()
     try:
@@ -93,9 +108,31 @@ def run_doctor(cfg: dict) -> tuple[list[str], bool]:
         probe = runs / ".doctor_probe"
         probe.write_text("ok")
         probe.unlink()
-        lines.append(f"OK runs_dir: {runs}")
+        checks.append({"name": "runs_dir", "ok": True, "detail": str(runs)})
     except OSError as e:
-        ok = False
-        lines.append(f"NG runs_dir: {runs} に書き込めない ({e!r})")
+        checks.append({"name": "runs_dir", "ok": False,
+                       "detail": f"{runs} に書き込めない ({e!r})"})
 
+    return checks
+
+
+def _format_line(check: dict) -> str:
+    prefix = check.get("prefix") or ("OK" if check["ok"] else "NG")
+    return f"{prefix} {check['name']}: {check['detail']}"
+
+
+def run_doctor(cfg: dict) -> tuple[list[str], bool]:
+    checks = _run_checks(cfg)
+    lines = [_format_line(c) for c in checks]
+    ok = all(c["ok"] for c in checks)
     return lines, ok
+
+
+def doctor_payload(cfg: dict) -> dict:
+    """orgh doctor --json 用のペイロード(機械可読)。"""
+    checks = _run_checks(cfg)
+    return {
+        "ok": all(c["ok"] for c in checks),
+        "checks": [{"name": c["name"], "ok": c["ok"], "detail": c["detail"]}
+                   for c in checks],
+    }

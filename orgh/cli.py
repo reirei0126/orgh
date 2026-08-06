@@ -11,6 +11,8 @@
   orgh doctor                     # 外部CLI疎通・config・vault・書き込み権限の確認
   orgh gc                         # playbookの統合・退避とruns/のアーカイブ
   orgh list                       # runs配下の全ミッションをid/intent/状態/コストで一覧
+  orgh events <mission_id>        # ミッションのledger.jsonlをイベントとして表示
+  # 上記の list/doctor/events/status は --json で機械可読出力(GUI連携用)
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import doctor, gc, listing, planner, report, watcher
+from .events_json import events_payload
 from .orchestrator import run_mission
 from .sources.base import get_source
 from .state import RunStore, load_config
@@ -35,9 +38,16 @@ def main() -> None:
 
     sub.add_parser("scan")
     sub.add_parser("watch")
-    sub.add_parser("doctor")
+    dp = sub.add_parser("doctor")
+    dp.add_argument("--json", action="store_true")
     sub.add_parser("gc")
-    sub.add_parser("list")
+    lp = sub.add_parser("list")
+    lp.add_argument("--json", action="store_true")
+
+    ep = sub.add_parser("events")
+    ep.add_argument("mission_id")
+    ep.add_argument("--json", action="store_true")
+    ep.add_argument("--tail", type=int, default=100)
 
     rp = sub.add_parser("report")
     rp.add_argument("--days", type=int)
@@ -64,6 +74,12 @@ def main() -> None:
         return
 
     if args.cmd == "doctor":
+        if args.json:
+            payload = doctor.doctor_payload(cfg)
+            print(json.dumps(payload, ensure_ascii=False))
+            if not payload["ok"]:
+                sys.exit(1)
+            return
         lines, ok = doctor.run_doctor(cfg)
         for line in lines:
             print(line)
@@ -110,6 +126,7 @@ def main() -> None:
         mission = planner.plan(cfg, intent, digest)
         store = RunStore(cfg.get("runs_dir", "runs"), mission.id)
         print(f"mission {mission.id}: {len(mission.tasks)} tasks")
+        print(f"ORGH_MISSION_ID={mission.id}")
         for t in mission.tasks:
             print(f"  - {t.id} [{t.worker}] {t.title} deps={t.deps}")
 
@@ -127,6 +144,9 @@ def main() -> None:
 
     if args.cmd == "list":
         missions = listing.list_missions(cfg.get("runs_dir", "runs"))
+        if args.json:
+            print(json.dumps({"missions": missions}, ensure_ascii=False))
+            return
         if not missions:
             print("no missions")
         else:
@@ -134,6 +154,24 @@ def main() -> None:
                 print(f"{m['mission_id']}  [{m['status']}]  "
                       f"{m['tasks_done']}/{m['tasks_total']} tasks  "
                       f"{m['cost_usd']:.4f} USD  {m['intent']}")
+        return
+
+    if args.cmd == "events":
+        runs_dir = cfg.get("runs_dir", "runs")
+        mission_dir = Path(runs_dir) / args.mission_id
+        if not mission_dir.is_dir():
+            msg = f"mission '{args.mission_id}' not found"
+            if args.json:
+                print(json.dumps({"error": msg}, ensure_ascii=False))
+                sys.exit(1)
+            sys.exit(msg)
+        payload = events_payload(runs_dir, args.mission_id, tail=args.tail)
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+            return
+        for ev in payload["events"]:
+            rest = {k: v for k, v in ev.items() if k not in ("ts", "event")}
+            print(f"{ev.get('ts')}  {ev.get('event')}  {rest}")
         return
 
     store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)
