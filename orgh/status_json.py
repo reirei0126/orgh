@@ -9,7 +9,11 @@ def status_payload(mission: Any) -> dict:
     statuses = [t.status for t in mission.tasks]
     # listing._derive_status と同一の導出規則を保つこと(GUIが両方を表示する)
     terminal = ("done", "failed", "cancelled", "skipped")
-    if statuses and all(s == "done" for s in statuses):
+    if not statuses:
+        # listは"empty"を返すのにstatusが"running"だと同一ミッションが
+        # 画面間で食い違う
+        mission_status = "empty"
+    elif all(s == "done" for s in statuses):
         mission_status = "done"
     elif any(s == "failed" for s in statuses):
         mission_status = "failed"

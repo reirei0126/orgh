@@ -183,6 +183,14 @@ button {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+/* flex子の既定min-width:autoだと空白なしの長いintentでタイトルが縮まず、
+   右側の操作ボタンが.mainのoverflow-x:hiddenの外へ切れて押せなくなる */
+.page-header > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .page-title {

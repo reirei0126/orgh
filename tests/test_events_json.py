@@ -167,3 +167,15 @@ class TestEventShapeValidation:
         assert len(payload["events"]) == 100
         assert payload["events"][-1]["event"] == "e2999"
         assert payload["events"][0]["event"] == "e2900"
+
+    def test_bool_and_nonfinite_ts_are_rejected(self, tmp_path):
+        # boolはintの派生なのでisinstance検査を素通りしてRust側のf64を壊す
+        d = tmp_path / "m1"
+        d.mkdir()
+        (d / "ledger.jsonl").write_text("\n".join([
+            '{"ts": true, "event": "x"}',
+            '{"ts": NaN, "event": "y"}',
+            '{"ts": 1.0, "event": "ok"}',
+        ]))
+        payload = events_payload(tmp_path, "m1")
+        assert [e["event"] for e in payload["events"]] == ["ok"]

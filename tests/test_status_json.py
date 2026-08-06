@@ -140,3 +140,8 @@ class TestStatusShowsInflightTruthfully:
         store.save(m)
         reloaded = store.load()  # 既定(実行再開経路)は従来どおり巻き戻す
         assert reloaded.tasks[0].status == "pending"
+
+    def test_status_empty_when_no_tasks_matches_list_rule(self):
+        # listは"empty"を返すためstatusも同一規則で揃える(画面間の食い違い防止)
+        m = _mission([])
+        assert status_payload(m)["status"] == "empty"

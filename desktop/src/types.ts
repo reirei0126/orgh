@@ -57,9 +57,9 @@ export interface MissionStatus {
 }
 
 /** 実行中ミッションのステータス派生規則(orgh/status_json.py 準拠)。
- * listing._derive_status と同一規則(「empty」を除く)。
- * ("empty" はここには出ない: statusはタスクが1件以上あるミッションに使う) */
+ * listing._derive_status と完全に同一規則(0タスクなら "empty")。 */
 export type MissionRunStatus =
+  | "empty"
   | "running"
   | "done"
   | "failed"

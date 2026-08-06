@@ -6,6 +6,7 @@ ledger.jsonl を直接読む(RunStore.load() は mission.json 前提かつ実行
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 
@@ -29,8 +30,13 @@ def _iter_valid(lines: list[str]) -> list[dict]:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
+        ts = ev.get("ts") if isinstance(ev, dict) else None
+        # boolはintの派生なので明示除外(ts: true がRust側のf64デシリアライズを
+        # 壊し、正常イベントを含む応答全体が失敗する)。NaN/Infも同様に弾く
         if not isinstance(ev, dict) or \
-                not isinstance(ev.get("ts"), (int, float)) or \
+                isinstance(ts, bool) or \
+                not isinstance(ts, (int, float)) or \
+                not math.isfinite(ts) or \
                 not isinstance(ev.get("event"), str):
             continue
         events.append(ev)

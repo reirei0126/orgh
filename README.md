@@ -226,7 +226,7 @@ npm run tauri dev
 ```bash
 cd desktop
 npm install
-npm run tauri build          # 配布用(.app / .dmg等)
+npm run tauri build          # 配布用(.appのみ。tauri.conf.jsonのtargetsで限定済み — .dmgが要る場合は targets を "all" に戻す)
 npm run tauri build -- --debug  # デバッグビルド(高速・検証用)
 ```
 

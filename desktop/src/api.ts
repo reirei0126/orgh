@@ -89,9 +89,22 @@ export async function missionEvents(missionId: string, tail: number): Promise<Le
   return tail <= 0 ? [] : events.slice(-tail);
 }
 
+// ORGH_MISSION_ID確定前のplanningログはmissionId: nullで届き、logStoreは
+// 単一のpendingバッファで保持する。確定前に2件目を起動すると両者のログが
+// 混在して誤帰属するため、ID確定までアプリ全体で新規起動を直列化する
+let startInFlight = false;
+
 export async function startMission(intent: string | null, note: string | null): Promise<string> {
-  if (isTauriRuntime()) return invokeReal<string>("start_mission", { intent, note });
-  return mockStartOrApprove(null, intent ?? note ?? "(no intent)");
+  if (startInFlight) {
+    throw new Error("別のミッションがplanning中です。ミッションIDが確定してから再実行してください");
+  }
+  startInFlight = true;
+  try {
+    if (isTauriRuntime()) return await invokeReal<string>("start_mission", { intent, note });
+    return await mockStartOrApprove(null, intent ?? note ?? "(no intent)");
+  } finally {
+    startInFlight = false;
+  }
 }
 
 export async function approveMission(missionId: string): Promise<void> {
@@ -134,6 +147,17 @@ function mockDelay(): Promise<void> {
 async function mockStartOrApprove(existingId: string | null, intentForLog: string | null): Promise<string> {
   const missionId = existingId ?? Math.random().toString(16).slice(2, 10);
   await mockDelay();
+  if (existingId) {
+    // 承認の状態遷移を模す(遷移しないと承認後もawaiting_approvalのままで
+    // 承認ボタンが何度でも押せてしまう)
+    const status = MOCK_STATUS[existingId];
+    status?.tasks.forEach((t) => {
+      if (t.status === "awaiting_approval") t.status = "running";
+    });
+    if (status) status.status = "running";
+    const summary = MOCK_MISSIONS.find((m) => m.missionId === existingId);
+    if (summary) summary.status = "running";
+  }
   if (!existingId) {
     const intent = intentForLog ?? "(no intent)";
     const now = Date.now() / 1000;
@@ -170,11 +194,22 @@ async function mockStartOrApprove(existingId: string | null, intentForLog: strin
     await mockDelay();
     mockEmit<MissionLogEvent>("mission-log", { missionId, line: "[task t1] done" });
     const status = MOCK_STATUS[missionId];
-    if (status && !existingId) {
-      status.tasks[0].status = "done";
-      MOCK_EVENTS[missionId]?.push({ ts: Date.now() / 1000, event: "task.review", task: "t1", passed: true });
+    if (status) {
+      const target = existingId
+        ? status.tasks.find((t) => t.status === "running")
+        : status.tasks[0];
+      if (target) {
+        target.status = "done";
+        MOCK_EVENTS[missionId]?.push({ ts: Date.now() / 1000, event: "task.review", task: target.id, passed: true });
+      }
+      const doneCount = status.tasks.filter((t) => t.status === "done").length;
+      const allDone = doneCount === status.tasks.length;
+      if (allDone) status.status = "done";
       const summary = MOCK_MISSIONS.find((m) => m.missionId === missionId);
-      if (summary) summary.tasksDone = 1;
+      if (summary) {
+        summary.tasksDone = doneCount;
+        if (allDone) summary.status = "done";
+      }
     }
     mockEmit<MissionUpdatedEvent>("mission-updated", { missionId });
   })();

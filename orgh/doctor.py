@@ -82,11 +82,12 @@ def _run_checks(cfg: dict) -> list[dict]:
     # rolesはスキーマ上は任意だが、planning/review/retroの実行時に必須
     # (欠けているとdoctor全OKでも初回planでKeyErrorになる)
     roles = cfg.get("roles") or {}
-    missing_roles = [r for r in ("planner", "reviewer", "retro")
-                     if r not in roles]
-    if missing_roles:
+    # キーが在るだけでは足りない: roles.planner: null のような値も実行時に落ちる
+    bad_roles = [r for r in ("planner", "reviewer", "retro")
+                 if not isinstance(roles.get(r), dict)]
+    if bad_roles:
         checks.append({"name": "roles", "ok": False,
-                       "detail": f"必須role未定義 {missing_roles}"
+                       "detail": f"必須roleが未定義または設定が空 {bad_roles}"
                                  "(plan/review/retroの実行時に失敗する)"})
     else:
         checks.append({"name": "roles", "ok": True,
