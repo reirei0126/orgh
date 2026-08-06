@@ -606,10 +606,7 @@
     </div>
     <p class="eyebrow">INCIDENT LOG — 01</p>
     <h2 class="head">うちのAI組織は、<br>4ミッション目で<br>馬鹿になり始めた。</h2>
-    <p class="hero-lede">
-      教訓を書けば書くほど賢くなるはずだった。<br>
-      実際に起きたのは、その逆だった。まず、記憶が詰まった。
-    </p>
+    <p class="hero-lede">教訓を書くほど、賢くなるはずだった。逆だった。</p>
     <div class="case-strip">
       <div class="case"><div class="n">M1</div><div class="tag">normal</div></div>
       <div class="case-arrow">→</div>
@@ -630,7 +627,7 @@
       <span class="page">02 / 07</span>
     </div>
     <p class="eyebrow">INCIDENT LOG — 02 / ノイズ増幅</p>
-    <h2 class="head">教訓を書き足すほど、<br>教訓が読めなくなっていった。</h2>
+    <h2 class="head">教訓は、<br>腐る。</h2>
     <div class="visual">
       <div class="gc-cols">
         <div class="gc-panel">
@@ -654,7 +651,7 @@
     </div>
     <div class="resolution">
       <span class="res-tag">解決</span>
-      <span class="res-text">orgh gc（180日無参照アーカイブ・重複統合・矛盾解消）。Playbooksは代謝する器になった。だが、捨てるべきなのが教訓ではなく計画なら、実行を繰り返しても直らない。</span>
+      <span class="res-text">重複と矛盾が溜まり、古い学びが新しい判断を上書きした。だから代謝を作った — 統合し、矛盾は新しい方を採り、使わない教訓は棚に上げる。</span>
     </div>
     <div class="evidence">
       <span class="lbl">$</span> <span class="src">orgh/gc.py:3–4</span> — 追記onlyのplaybookは矛盾・重複・陳腐化した教訓が淘汰されず、8000字capにより新しい教訓ほど切り捨てられていた<br>
@@ -669,7 +666,7 @@
       <span class="page">03 / 07</span>
     </div>
     <p class="eyebrow">INCIDENT LOG — 03 / 3周しても直らない</p>
-    <h2 class="head">同じ指摘を、3回書いた。<br>直らなかったのは、<br>実行の腕じゃなかった。</h2>
+    <h2 class="head">同じ指摘を、3回書いた。<br>悪いのは腕じゃなく、<br>設問だった。</h2>
     <div class="visual">
       <div class="replan">
         <div class="replan-row">
@@ -692,7 +689,7 @@
     </div>
     <div class="resolution">
       <span class="res-tag">解決</span>
-      <span class="res-text">REPLAN：Reviewerが「実装でなく計画の欠陥」と判定したらPlannerへ戻し、受け入れ条件を再設計する（attempts非消費・1タスク1回まで）。それでも、正しい計画をそのまま実行してはいけない場面が残った。</span>
+      <span class="res-text">受け入れ条件そのものが矛盾していた。それ以来レビューには出口が2つある — 実装が悪いか、計画が悪いか。</span>
     </div>
     <div class="evidence">
       <span class="lbl">$</span> <span class="src">git log --grep="実運用で発見" --oneline</span><br>
@@ -708,7 +705,7 @@
       <span class="page">04 / 07</span>
     </div>
     <p class="eyebrow">INCIDENT LOG — 04 / 自分を書き換えるミッション</p>
-    <h2 class="head">orghが、orgh自身の<br>設定ファイルを<br>書き換えようとした。</h2>
+    <h2 class="head">いちばん危険な依頼は、<br>「自分を書き換えて」<br>だった。</h2>
     <div class="visual">
       <div class="guard">
         <div class="g-step">タスクのworkdirがorgh自身（パッケージ / prompts_dir / playbooks_dir）を指している</div>
@@ -727,7 +724,7 @@
     </div>
     <div class="resolution">
       <span class="res-tag">解決</span>
-      <span class="res-text">承認ゲート：実行前に awaiting_approval で強制停止する。続行は orgh approve &lt;mission_id&gt; のみで、configから無効化できない。3件とも、失敗した場所に停止点を残した。</span>
+      <span class="res-text">自分への変更を検知したら、止まって人間を待つ。この関所はconfigでは消せない — 便利さに負ける未来の自分を、信用していない。</span>
     </div>
     <div class="evidence">
       <span class="lbl">$</span> <span class="src">docs/threat-model.md:11–14</span> — 自動実行されず awaiting_approval で停止する。続行できるのは orgh approve &lt;mission_id&gt; のみで、orgh watch の自動着火でも承認はスキップされない<br>
@@ -742,8 +739,8 @@
       <span class="page">05 / 07</span>
     </div>
     <p class="eyebrow">WHAT — 傷跡の地図</p>
-    <h2 class="head">3件の対処は、<br>この環の3点に残っている。</h2>
-    <p class="lede">記憶は代謝させ、失敗は計画へ戻し、自己改変は実行前に止める。<br>①②③が、さっきの事件簿と同じ番号で対応する。</p>
+    <h2 class="head">3つの傷が、<br>3つの機構になった。</h2>
+    <p class="lede">記憶は代謝し、失敗は計画へ戻り、自己改変は人間で止まる。番号は、さっきの事件簿のままだ。</p>
     <div class="org">
       <div class="scar-arc"><span class="lbl"><span class="scar-badge two">②</span>REPLAN — Reviewerが「計画の欠陥」と判定したらPlannerへ差し戻す</span></div>
       <div class="org-row">
@@ -793,7 +790,8 @@
       <span class="page">06 / 07</span>
     </div>
     <p class="eyebrow">で、新しいの？</p>
-    <h2 class="head">並列実行は、もう新しくない。<br>19事例の非網羅的調査で、<br>確認できなかったのは次の3点。</h2>
+    <h2 class="head">新しいのは、3つだけ。<br>たぶん。</h2>
+    <p class="lede">並列実行もworktreeも、もうコモディティだ。OSS13+商用6を調べて、この3つに相当する実装だけは見つからなかった。</p>
     <div class="cmp">
       <div class="cmp-col left">
         <div class="cmp-h">ほぼ全事例が持つコモディティ</div>
@@ -819,8 +817,8 @@
       <span class="page">07 / 07</span>
     </div>
     <p class="eyebrow">CTA</p>
-    <h2 class="head">動かして、<br>止まり方を突っついてほしい。</h2>
-    <p class="lede">READMEから試すか、未実装の入口から直す。<br>次の事件簿に、外からの指摘を残したい。</p>
+    <h2 class="head">4つ目の傷を、<br>つけてくれ。</h2>
+    <p class="lede">事件簿はまだ増える。次に踏むバグは、読んだ人が決めていい。</p>
     <div class="cta">
       <div class="cta-card">
         <div class="k">REPOSITORY</div>
@@ -842,6 +840,20 @@
     </div>
   </div>
 
+  <!-- 縦読みテスト (2026-08-06)
+  1. うちのAI組織は、4ミッション目で馬鹿になり始めた。
+  2. 教訓は、腐る。
+  3. 同じ指摘を、3回書いた。悪いのは腕じゃなく、設問だった。
+  4. いちばん危険な依頼は、「自分を書き換えて」だった。
+  5. 3つの傷が、3つの機構になった。
+  6. 新しいのは、3つだけ。たぶん。
+  7. 4つ目の傷を、つけてくれ。
+  評価: 1〜2でAI組織の劣化という課題と、教訓の腐敗という原因を提示している。
+  3〜4で計画の欠陥と自己改変リスクへ原因を掘り下げ、失敗の種類を具体化している。
+  5で3件の失敗が3機構へ変わったことを示し、課題から解決への転換が明確である。
+  6で19事例の調査を踏まえた新規性の証拠へ進み、断定を「たぶん」で適切に限定している。
+  7で外部から次の傷を求める締めへ接続しており、課題→原因→解決→証拠→締めに断絶・飛躍はない。
+  -->
 </body>
 <!-- 改善ログ (codex):
 - スライド1〜4のリード／解決帯 → 記憶の詰まり→計画への逆流→実行前停止を次の事件へ受け渡すコピーに変更 → 事件の羅列をP2の感情線（共感→意外性→信頼）として接続

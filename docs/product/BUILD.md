@@ -160,3 +160,40 @@
 
 - Google Chrome: `Google Chrome 151.0.7922.75`(既存ビルド時と同一バージョン)
 - 本追記作業ではHTMLソース(`pitch-engineer.html`)・既存の `.md` ドキュメントは一切変更していない。上書き生成したのはPDF(`docs/product/pitch-engineer.pdf`)のみで、本ファイルへは追記のみ行った。
+
+## 追記: pitch-engineer.pdf の再生成(コピー確定版反映)
+
+`docs/product/pitch-engineer.html` のコピーが確定版へ差し替えられた(27行挿入・15行削除の改訂。DOM構造・スライド枚数・改ページ制御には変更なし)ため、同一手順でPDFを再生成した。
+
+### 生成物一覧
+
+| ファイルパス | バイト数 | ページ数 | 生成日時 |
+|---|---:|---:|---|
+| `docs/product/pitch-engineer.pdf` | 7,640,012 バイト | 7ページ | 2026-08-06 23:52:38 JST |
+
+### 実行コマンド
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --no-pdf-header-footer --print-to-pdf=docs/product/pitch-engineer.pdf docs/product/pitch-engineer.html
+```
+
+出力: `7640012 bytes written to file docs/product/pitch-engineer.pdf`(終了コード0)。標準エラーに `Trying to load the allocator multiple times.` という既知の無害な警告のみで、再試行は発生していない。
+
+### `file` コマンドによる判定
+
+```
+docs/product/pitch-engineer.pdf: PDF document, version 1.4, 7 pages
+```
+
+有効なPDFであることを確認済み。サイズは受け入れ基準の51,200バイトを大きく上回っている。
+
+### ページ数照合
+
+- スライド数(HTML側の真実源): `grep -c 'class="slide"' docs/product/pitch-engineer.html` → **7**
+- ページ数: `pdfinfo docs/product/pitch-engineer.pdf` → `Pages: 7`(`Page size: 960 x 540 pts`)、`mdls -name kMDItemNumberOfPages docs/product/pitch-engineer.pdf` → `kMDItemNumberOfPages = 7`
+- 判定: ページ数(7)とHTMLスライド数(7)が完全一致。改ページ制御の調整は不要と判断し、`pitch-engineer.html` への追加修正は行っていない(コピー本文・デザイン・図は無変更)。
+
+### 実行環境
+
+- Google Chrome: `Google Chrome 151.0.7922.75`(既存ビルド時と同一バージョン)
+- 本追記作業で変更したのは `docs/product/pitch-engineer.pdf`(上書き再生成)と本ファイル(追記)のみ。`pitch-engineer.html` を含むその他のファイルは一切変更していない。
