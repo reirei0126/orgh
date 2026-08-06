@@ -21,7 +21,7 @@
 
 0. **内部ヘルパー関数の統合評価**: 1つの呼び出し元(親のパイプライン関数、または唯一のCLIサブコマンド)からしか参照されず、**除去すると親の機能自体が成立しない実装本体**は、独立に下記1〜6を適用せず、**親の判定をそのまま継承する**。親を残す判断をした場合、内部ヘルパーだけを個別に削除候補として承認欄に出さない(理由: 親を残す限りヘルパーも実行され続けるため、独立した削除候補として扱うと「親はKEEP、部品はCANDIDATE」という実行不能な組み合わせが生まれる)。対象例: `orgh/gc.py::_backup`/`_archive_old_lessons`/`_consolidate`/`_gc_runs`(親: `run_gc`。この4段が`run_gc`の処理本体そのもの)、`orgh/doctor.py::run_doctor`(親: CLIの`orgh/cli.py::doctor`)、`orgh/worktree.py::cleanup_mission_worktrees`(親: CLIの`orgh/cli.py::cleanup`)。
    **適用除外(2026-08-07 review-audit-r3で限定)**: 呼び出し元が1つでも、**親を残したまま除去できる任意フック・付加挙動**(設定で無効化可能な定期処理など)はこのルールの対象外とし、個別に評価する。該当: `orgh/watcher.py::_maybe_gc`(`watch.gc_interval_days`を空にすれば無効化でき、`watch()`本体の監視・着火機能は成立し続ける)、`orgh/worktree.py::merge_dep_branches`(依存ブランチ不在・マージ競合時はスキップして実行継続する実装のため、除去してもworktree機構の最小動作は成立する)→ いずれも個別評価のうえ、必要なら下記の上書き規則を適用する。
-7. **機械判定の上書き規則(2026-08-07 review-audit-r4で明文化)**: ルール1〜6の機械判定は、次のいずれかを根拠として判定根拠列に明記した場合に限り上書きできる。(a) **実行痕跡**: runs/配下のマーカー・ログ・コンソール出力に当該機能の実行記録が現存する。(b) **文書化された機能価値**: HANDOFF.md・コミット履歴に、実運用の障害・要求から導入された経緯が記録されている。上書きした行は根拠の所在(ファイルパス)を必ず判定根拠列に書く。
+7. **機械判定の上書き規則(2026-08-07 review-audit-r4で明文化、r7で(c)を追加)**: ルール1〜6の機械判定は、次のいずれかを根拠として判定根拠列に明記した場合に限り上書きできる。(a) **実行痕跡**: runs/配下のマーカー・ログ・コンソール出力に当該機能の実行記録が現存する。(b) **文書化された機能価値**: HANDOFF.md・コミット履歴に、実運用の障害・要求から導入された経緯が記録されている。(c) **構造的必然の継承**: 実行痕跡(a)が確認済みの機能から無条件に呼ばれる前提処理は、親の痕跡を共有するものとして(a)を満たす(呼び出し関係と親の痕跡の所在を明記すること)。上書きした行は根拠の所在(ファイルパス)を必ず判定根拠列に書く。
 1. **U = 0**(紐づくユースケースが1件も無い)→ 原則 **UNKNOWN**(「本当に不要」なのか「usecase台帳の記載漏れ」なのかを機械ルールだけでは区別できないため、無条件のCANDIDATE化はしない)。ただし以下の3区分でこの原則から外れる(2026-08-07 review-audit-r2反映で3区分を明文化。旧版はT=3〜9の扱いが未定義だった):
    - **T ≥ 10** → 記載漏れの可能性が高いとみなし **KEEP**。運用文書(HANDOFF.md・README.md・git log等)に実運用を裏付ける明示的な記述があれば判定根拠列に併記する。
    - **3 ≤ T ≤ 9** → 運用文書上の明示的な裏付けの有無を問わず **WATCH** とする(無関係語の水増しでは説明できない実質的な参照が一定数ある以上、無条件のUNKNOWNには据え置かない。例: `orgh/cli.py::scan`、T=7、運用文書上の裏付けなし)。
@@ -34,7 +34,7 @@
 
 ### 機械ルールの上書き(2026-08-07 追加、review-audit-r5でルール7へ統合)
 
-上書きの必要十分条件は**ルール7が唯一の規定**である(実行痕跡(a)または文書化された機能価値(b)のいずれか1つを判定根拠列に所在つきで明記すること)。本節の旧規定(強い運用証跡+記載漏れ指摘の同時要求)はルール7に置き換えられた — 旧規定下で上書きされた行(判定根拠列の「(機械しきい値を上書き)」表記)もすべてルール7の(a)または(b)を満たすことを確認済み。
+上書きの必要十分条件は**ルール7が唯一の規定**である(実行痕跡(a)または文書化された機能価値(b)のいずれか1つを判定根拠列に所在つきで明記すること)。本節の旧規定(強い運用証跡+記載漏れ指摘の同時要求)はルール7に置き換えられた — 旧規定下で上書きされた行(判定根拠列の「(機械しきい値を上書き)」表記)は、r7の再点検でルール7(a)/(b)/(c)いずれかの所在付き根拠を判定根拠列に明記した(cli.py::status/list=(a)runs/8e096d63、validate_config=(c)構造的必然、status_payload=(a)同上)。
 
 ### 既知の限界(人間の判断で補正すべき点)
 
@@ -98,12 +98,12 @@
 | `orgh/cli.py::cleanup` | cli | UC-21 | 4 | **WATCH** | entrypointが`orgh cleanup`でUC-21のtriggerと一致 | 承認/保留/却下: |
 | `orgh/cli.py::doctor` | cli | UC-14 | 10 | **KEEP** | entrypointが`orgh doctor`でUC-14のtriggerと一致 | 承認/保留/却下: |
 | `orgh/cli.py::gc` | cli | UC-13 | 38 | **KEEP** | entrypointが`orgh gc`でUC-13のtriggerと一致 | 承認/保留/却下: |
-| `orgh/cli.py::list` | cli | UC-26 | 4(旧77は「list」一般語検索による水増し。usage-evidence.md参照) | **KEEP** | UC-26(全ミッション一覧確認)を追加。ops/demo/runs/099e281bはこの機能自体を追加したミッションで、README.mdのデモ節が実演記録として明記。T値は是正後4(WATCH域)だが、記載漏れ由来の過小評価だったことがレビューで確認済みのため機械しきい値を上書きしKEEPとする(機械しきい値を上書き) | 承認/保留/却下: |
+| `orgh/cli.py::list` | cli | UC-26 | 4(旧77は「list」一般語検索による水増し。usage-evidence.md参照) | **KEEP** | UC-26(全ミッション一覧確認)を追加。ops/demo/runs/099e281bはこの機能自体を追加したミッションで、README.mdのデモ節が実演記録として明記。T値は是正後4(WATCH域)だが、記載漏れ由来の過小評価だったことがレビューで確認済みのため機械しきい値を上書きしKEEPとする(機械しきい値を上書き)。**ルール7(a)の所在(r7で追記)**: runs/8e096d63/mission.json に `orgh list --json` の実行記録が8箇所現存(同上の実起動検証が実行) | 承認/保留/却下: |
 | `orgh/cli.py::report` | cli | UC-12 | 14 | **KEEP** | entrypointが`orgh report`でUC-12のtriggerと一致 | 承認/保留/却下: |
 | `orgh/cli.py::resume` | cli | UC-06 | 66 | **KEEP** | descriptionの「差し戻し」「resume」がUC-06のresume経由改善ループと一致 | 承認/保留/却下: |
 | `orgh/cli.py::run` | cli | UC-01, UC-02 | 30 | **KEEP** | entrypointが`orgh run --note`/`--intent`でUC-01/UC-02のtriggerそのもの | 承認/保留/却下: |
 | `orgh/cli.py::scan` | cli | (なし) | 7 | **WATCH** | usecases.json全28件中`orgh scan`に言及するものが無いが、T=7は無関係な語のヒットではない実質的な参照(cli.py/doctor.py/sources配下)であり0に近くない。1章ルール1の明文化区分「U=0かつ3≤T≤9→WATCH」に該当し、運用文書上の裏付けが無くてもUNKNOWNではなくWATCHとする(記載漏れの可能性は残るが、本改訂ではusecase追加の裏付けとなる運用文書上の明示記述までは確認できなかったため追加は見送り) | 承認/保留/却下: |
-| `orgh/cli.py::status` | cli | UC-25 | 9(旧145は「status」一般語検索による水増し。usage-evidence.md参照) | **KEEP** | UC-25(単一ミッションの状態確認)を追加。ops/demo/runs/099e281bはこの機能「自体を追加した」ミッションであり、README.mdのデモ節もその実装過程の記録である(2026-08-07 review-audit-r2でusecases.json UC-25の評価を再検証した結果、「機能を作った証跡」であって「機能を利用した証跡」ではないと判明し、UC-25のstatusはactiveからassumedへ訂正した。usecase-inventory.md参照)。T値は是正後9(WATCH域上限)だが、CLIの中核サブコマンドとしてREADMEに継続的に案内されている構造的機能であることを理由に機械しきい値を上書きしKEEPとする(機械しきい値を上書き。根拠を「記載漏れ由来の過小評価」から訂正) | 承認/保留/却下: |
+| `orgh/cli.py::status` | cli | UC-25 | 9(旧145は「status」一般語検索による水増し。usage-evidence.md参照) | **KEEP** | UC-25(単一ミッションの状態確認)を追加。ops/demo/runs/099e281bはこの機能「自体を追加した」ミッションであり、README.mdのデモ節もその実装過程の記録である(2026-08-07 review-audit-r2でusecases.json UC-25の評価を再検証した結果、「機能を作った証跡」であって「機能を利用した証跡」ではないと判明し、UC-25のstatusはactiveからassumedへ訂正した。usecase-inventory.md参照)。T値は是正後9(WATCH域上限)だが、CLIの中核サブコマンドとしてREADMEに継続的に案内されている構造的機能であることを理由に機械しきい値を上書きしKEEPとする(機械しきい値を上書き。根拠を「記載漏れ由来の過小評価」から訂正)。**ルール7(a)の所在(r7で追記)**: runs/8e096d63/mission.json に `orgh status <id> --json` の実行記録が現存(orghデスクトップGUIミッションの実データ結線検証が実行) | 承認/保留/却下: |
 | `orgh/cli.py::watch` | cli | UC-03 | 54 | **KEEP** | entrypointが`orgh watch`でUC-03のtrigger文言と完全一致 | 承認/保留/却下: |
 | `orgh/doctor.py::run_doctor` | module | UC-14 | 1 | **KEEP** | `orgh/cli.py::doctor`の唯一の実処理本体。CLIサブコマンドと実装本体は同一評価単位とするルール(1章ルール0)により親の判定(KEEP, T=10)を継承。T=1は永続ログを残さない設計上の構造的特性であり利用実績の低さではない | 承認/保留/却下: 承認不要(`orgh/cli.py::doctor`に統合、独立審査対象外) |
 | `orgh/gc.py::_archive_old_lessons` | module | UC-13 | 1 | **WATCH** | run_gc()のバックアップ後ステップ。内部ヘルパーは親と同一判定とするルール(1章ルール0)により`run_gc`(WATCH, T=5)の判定を継承 | 承認/保留/却下: 承認不要(`run_gc`に統合、独立審査対象外) |
@@ -141,8 +141,8 @@
 | `orgh/state.py::Budget` | module | UC-10, UC-11, UC-22 | 38 | **KEEP** | descriptionの「再帰的なタスクのサブミッション分解を前提」がUC-22、charge/exceededがUC-10/UC-11 | 承認/保留/却下: |
 | `orgh/state.py::LoopCfg.infra_max_retries` | config | UC-28 | 4 | **KEEP** | UC-28(インフラ障害のattempt非消費リトライ)を追加。`_is_infra_error`とセットで機能するリトライ上限設定であり、同一の根拠(HANDOFF.md:18、runs/09957da4/ledger.jsonlのtask.infra_retry×2)によりKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
 | `orgh/state.py::RunStore` | module | UC-01, UC-02, UC-03 | 95 | **KEEP** | descriptionの「mission.json/ledger.jsonlを永続化」がUC-01/02/03すべての基盤 | 承認/保留/却下: |
-| `orgh/state.py::validate_config` | module | (横断的: 全usecase共通の前提処理) | 1 | **KEEP** | `load_config()`が全CLIコマンドで設定読込直後に無条件で呼ぶ唯一の呼び出し元であり、T=1は「1箇所からしか呼ばれない」構造上の特性であってその1箇所が全実行の入口であることを意味する。特定usecaseに紐づけるのではなく横断的前提機能としてKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
-| `orgh/status_json.py::status_payload` | report | UC-25 | 9 | **KEEP** | UC-25(単一ミッションの状態確認、2026-08-07 review-audit-r2でstatusをactive→assumedへ訂正。usecase-inventory.md参照)を追加。`orgh/cli.py::status --json`の唯一の実処理本体で、tests/test_status_json.py(7件)による専用テストも既存。T=9はWATCH域上限だが親CLI(`orgh/cli.py::status`, KEEP)と同一評価単位として扱いKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
+| `orgh/state.py::validate_config` | module | (横断的: 全usecase共通の前提処理) | 1 | **KEEP** | `load_config()`が全CLIコマンドで設定読込直後に無条件で呼ぶ唯一の呼び出し元であり、T=1は「1箇所からしか呼ばれない」構造上の特性であってその1箇所が全実行の入口であることを意味する。特定usecaseに紐づけるのではなく横断的前提機能としてKEEPへ上書き(機械しきい値を上書き)。**ルール7(c)の所在(r7で追記)**: load_config()(orgh/state.py:144-149)が全CLIコマンドの起動時に無条件で呼ぶ前提処理であり、runs/配下の全ミッション実行記録(8件)が親コマンドの実行痕跡=validate_configの実行痕跡を兼ねる | 承認/保留/却下: |
+| `orgh/status_json.py::status_payload` | report | UC-25 | 9 | **KEEP** | UC-25(単一ミッションの状態確認、2026-08-07 review-audit-r2でstatusをactive→assumedへ訂正。usecase-inventory.md参照)を追加。`orgh/cli.py::status --json`の唯一の実処理本体で、tests/test_status_json.py(7件)による専用テストも既存。T=9はWATCH域上限だが親CLI(`orgh/cli.py::status`, KEEP)と同一評価単位として扱いKEEPへ上書き(機械しきい値を上書き)。**ルール7(a)の所在(r7で追記)**: `orgh status --json` の実装本体であり、runs/8e096d63/mission.json の同コマンド実行記録が本機能の実行痕跡 | 承認/保留/却下: |
 | `orgh/watcher.py::_maybe_gc` | hook | UC-13 | 2 | **WATCH** | 任意フックのためルール0適用外の独立評価(1章ルール0の適用除外)。機械判定ではU≥1・T=2でCANDIDATE相当(ルール3)だが、上書き規則(1章ルール7(a))を適用: 実行痕跡=runs/_gc_state.json。**ただしこのファイルは初回呼び出し時のベースライン書き込みでも作成されるため、証明できるのは「watchループからフックが実際に呼ばれている」ことまでで、run_gc()本体の自動実行までは証明しない**(orgh/watcher.py:37-40)。フック呼び出し実績+手動`orgh gc`(KEEP)の自動化経路という位置づけを根拠にWATCH。削除判断は設定`config.example.yaml::watch.gc_interval_days`(WATCH)と一体で行うこと(2026-08-07 review-audit-r5で証跡の射程を訂正) | 承認/保留/却下: |
 | `orgh/watcher.py::watch` | module | UC-03 | 54 | **KEEP** | entrypointが`orgh watch`でUC-03のtriggerそのもの | 承認/保留/却下: |
 | `orgh/worktree.py::cleanup_mission_worktrees` | integration | UC-21 | 2 | **WATCH** | `orgh/cli.py::cleanup`の唯一の実処理本体。CLIサブコマンドと実装本体は同一評価単位とするルール(1章ルール0)により親の判定(WATCH, T=4)を継承 | 承認/保留/却下: 承認不要(`orgh/cli.py::cleanup`に統合、独立審査対象外) |
