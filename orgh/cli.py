@@ -10,6 +10,7 @@
   orgh cleanup <mission_id>       # worktree/ブランチの掃除(worktree.enabled時)
   orgh doctor                     # 外部CLI疎通・config・vault・書き込み権限の確認
   orgh gc                         # playbookの統合・退避とruns/のアーカイブ
+  orgh list                       # runs配下の全ミッションをid/intent/状態/コストで一覧
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import doctor, gc, planner, report, watcher
+from . import doctor, gc, listing, planner, report, watcher
 from .orchestrator import run_mission
 from .sources.base import get_source
 from .state import RunStore, load_config
@@ -34,6 +35,7 @@ def main() -> None:
     sub.add_parser("watch")
     sub.add_parser("doctor")
     sub.add_parser("gc")
+    sub.add_parser("list")
 
     rp = sub.add_parser("report")
     rp.add_argument("--days", type=int)
@@ -117,6 +119,17 @@ def main() -> None:
             (store.dir / "RETRO_DONE").touch()
             print(f"playbook updated: {fp or '(no lessons)'}")
         _summary(mission)
+        return
+
+    if args.cmd == "list":
+        missions = listing.list_missions(cfg.get("runs_dir", "runs"))
+        if not missions:
+            print("no missions")
+        else:
+            for m in missions:
+                print(f"{m['mission_id']}  [{m['status']}]  "
+                      f"{m['tasks_done']}/{m['tasks_total']} tasks  "
+                      f"{m['cost_usd']:.4f} USD  {m['intent']}")
         return
 
     store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)
