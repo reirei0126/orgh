@@ -1,0 +1,316 @@
+{
+  "usecases": [
+    {
+      "usecase_id": "UC-01",
+      "title": "ノート起点のフルミッション実行(orgh run --note)",
+      "actor": "human",
+      "trigger": "CLI: orgh run --note \"<ノート名>\" — Obsidianノートを起点にplan→execute→review→retroを1コマンドで実行する",
+      "status": "active",
+      "evidence": [
+        "README.md:62",
+        "orgh/cli.py:47",
+        "orgh/cli.py:96-103",
+        "/Users/uesugirei/projects/org-harness/runs/0f9d5591/mission.json"
+      ],
+      "description": "人間がObsidianのノート名を指定してorgh runを実行し、ノート本文とwikilink先を文脈としてミッション全体(計画→並列実行→レビュー→振り返り)を1コマンドで走らせる、orghの主経路。runs/0f9d5591のmission.jsonのintentは実際に「ノート「projects棚卸 Stage1」の内容を実行可能な成果に落とし込む」という定型文で、--note経由の実行であることを示す。"
+    },
+    {
+      "usecase_id": "UC-02",
+      "title": "直接指示起点のフルミッション実行(orgh run --intent)",
+      "actor": "human",
+      "trigger": "CLI: orgh run --intent \"...\" — vaultノートを介さず指示文を直接渡してミッションを実行する",
+      "status": "active",
+      "evidence": [
+        "README.md:65",
+        "orgh/cli.py:48",
+        "orgh/cli.py:104-107",
+        "/Users/uesugirei/projects/org-harness/ops/demo/runs/2bdf2bee/mission.json"
+      ],
+      "description": "vaultにノートを書かずCLI引数として一文の指示を直接渡す実行経路。ops/demo/runs/2bdf2bee/mission.jsonのintentは「orghリポジトリのプロダクト説明資料を、ビジュアルデザインされたHTML+PDFにする。5タスクのDAG...」という具体的な作業指示そのままであり、UC-01のような「ノート「」の内容を実行可能な成果に落とし込む」という定型ラップが無いことから--intent直接実行であると判定できる。"
+    },
+    {
+      "usecase_id": "UC-03",
+      "title": "Obsidian vault監視デーモンによる自動着火(orgh watch)",
+      "actor": "cron",
+      "trigger": "orgh watch デーモンがvaultを一定間隔でポーリングし、ノート本文の #go インラインタグまたはfrontmatterの orgh: go を検知したときのみ自動着火する",
+      "status": "active",
+      "evidence": [
+        "README.md:90-103",
+        "orgh/sources/obsidian.py:58",
+        "/Users/uesugirei/projects/org-harness/runs/_watch_state.json"
+      ],
+      "description": "人間がスマホ等でObsidianノートを編集するだけで、常駐デーモンorgh watchが着火判定・ミッション実行・結果ノートへの書き戻しまでを行う運用形態。runs/_watch_state.jsonには実際のvaultパス(/Users/uesugirei/Documents/Obsidian/vault/00-Inbox/配下の複数ノート)とそのファイルハッシュが記録されており、監視デーモンが実ノートを処理した痕跡である。"
+    },
+    {
+      "usecase_id": "UC-04",
+      "title": "自己改変ガード + 人間承認ゲート(orgh approve)",
+      "actor": "human",
+      "trigger": "タスクのworkdirがorghパッケージ本体・prompts_dir・playbooks_dirのいずれかを指すとき、自動実行されずawaiting_approvalで停止する。解除できるのはorgh approve <mission_id>のみ",
+      "status": "active",
+      "evidence": [
+        "orgh/guard.py:25",
+        "README.md:138-144",
+        "/Users/uesugirei/projects/org-harness/runs/a385f876/APPROVED",
+        "/Users/uesugirei/projects/org-harness/runs/8e096d63/APPROVED"
+      ],
+      "description": "orgh自身のコード・プロンプト・playbooksを対象とするタスクは、watcherの自動着火経由でもconfigでも無効化できない承認ゲートで一旦停止する。runs/a385f876(本タスクの親ミッション)とruns/8e096d63(デスクトップGUI試作ミッション)の両方に実際のAPPROVEDマーカーファイルが存在し、人間が明示的に承認して続行させた痕跡である。"
+    },
+    {
+      "usecase_id": "UC-05",
+      "title": "ミッションのキャンセル(orgh cancel / vault #cancel)",
+      "actor": "human",
+      "trigger": "CLI: orgh cancel <mission_id>、または結果ノート本文への #cancel タグ追記でruns/<mission_id>/CANCELフラグを作成する",
+      "status": "active",
+      "evidence": [
+        "orgh/cli.py:158-167",
+        "README.md:105-109",
+        "/Users/uesugirei/projects/org-harness/runs/d0d795d4/CANCEL"
+      ],
+      "description": "実行中のミッションを人間が明示的に中止する経路。CANCELフラグが唯一の停止信号で、実行中プロセス自身がループごとに検知してsubprocessをterminateする。runs/d0d795d4には実際にCANCELフラグファイルが存在し、同ミッションのt4/t5/t7/t8がcancelled状態で終わっている(HANDOFF.md記載の「d0d795d4はcancel済み」と整合)。"
+    },
+    {
+      "usecase_id": "UC-06",
+      "title": "レビュー不合格時の差し戻し改善ループ(attempts + resume)",
+      "actor": "worker",
+      "trigger": "Reviewerが不合格判定を返すと、feedbackを付けて同一Workerセッションを自動的に--resumeし、max_attempts(既定3)回までやり直す",
+      "status": "active",
+      "evidence": [
+        "orgh/orchestrator.py:108",
+        "orgh/orchestrator.py:118",
+        "/Users/uesugirei/projects/org-harness/runs/8e096d63/mission.json",
+        "/Users/uesugirei/projects/org-harness/runs/0f9d5591/mission.json"
+      ],
+      "description": "検品係(Reviewer)が不合格を出すと、作業係(Worker)は指摘を受けた同じセッションの続きとしてやり直す。runs/8e096d63のt4はattempts=3でdone、runs/0f9d5591のt1はattempts=3消化のうえfailedであり、両方とも複数attemptsが実際に消費された記録である(前者は改善ループが機能した例、後者は上限到達で打ち切られた例)。"
+    },
+    {
+      "usecase_id": "UC-07",
+      "title": "REPLANエスカレーション(計画欠陥の再設計)",
+      "actor": "planner",
+      "trigger": "Reviewerのfeedbackが\"REPLAN:\"で始まる場合、replan_task()がPlannerにタスクのprompt/acceptanceを再設計させる(1タスクにつき1回まで、attempts非消費)",
+      "status": "active",
+      "evidence": [
+        "orgh/planner.py:153",
+        "orgh/orchestrator.py:218-225",
+        "/Users/uesugirei/projects/org-harness/runs/7307189e/ledger.jsonl",
+        "/Users/uesugirei/projects/org-harness/runs/d0d795d4/ledger.jsonl"
+      ],
+      "description": "受け入れ条件自体が機械検証不能・主観語のみだとReviewerが判断した場合、Worker再実行ではなくPlannerへ計画そのものの練り直しを差し戻す経路。runs/7307189e・runs/b6503b9a・runs/d0d795d4のledger.jsonlにいずれも\"REPLAN\"の記録があり、実運用で複数回発火していることを示す。"
+    },
+    {
+      "usecase_id": "UC-08",
+      "title": "Retroによる教訓抽出とplaybook蓄積",
+      "actor": "planner",
+      "trigger": "ミッション終端時、orgh run/orgh watchは無条件に、orgh resumeは全タスクdoneかつRETRO_DONE未作成の場合のみretro()を呼び、playbooks/<name>.mdに教訓を追記する",
+      "status": "active",
+      "evidence": [
+        "orgh/planner.py:126",
+        "playbooks/coding.md:1-2",
+        "playbooks/planning.md:1-4"
+      ],
+      "description": "ミッション完了後に振り返り係(Retro)が学びを抽出し、次回以降のPlanner/Workerプロンプトに自動注入される共有ノート(playbooks)へ書き足す、組織学習のコア機構。playbooks/coding.mdとplaybooks/planning.mdには実際にミッションID付きコメント(例: <!-- m:7307189e d:2026-08-05 -->)を伴う具体的教訓が複数蓄積されており、Retroが繰り返し実行された痕跡である。"
+    },
+    {
+      "usecase_id": "UC-09",
+      "title": "worktree分離による並列タスク実行とブランチ成果物受け渡し",
+      "actor": "worker",
+      "trigger": "config.worktree.enabled: true のとき、タスクごとにensure_task_worktree()が専用のgit worktreeとブランチ(orgh/<mission_id>/<task_id>)を割り当てる",
+      "status": "active",
+      "evidence": [
+        "orgh/worktree.py:32",
+        "/Users/uesugirei/projects/org-harness/config.yaml:48-51",
+        "/Users/uesugirei/projects/org-harness/.orgh-worktrees"
+      ],
+      "description": "同一リポジトリの複数タスクを並列実行しても衝突しないよう、タスクごとに独立したworktreeとブランチで作業させる。本ミッション自身が実行されている作業ディレクトリ(.orgh-worktrees/a385f876-t1)自体がこの機構の生きた証拠であり、config.yamlでもworktree.enabled: trueが設定されている。"
+    },
+    {
+      "usecase_id": "UC-10",
+      "title": "タスク/ミッション単位のコスト計測(Budget.charge)",
+      "actor": "worker",
+      "trigger": "各Worker呼び出し後、adapterが返すWorkerResult.cost_usdをBudget.charge()で累積し、mission.json/ledger.jsonlに記録する(Planner/Reviewer/Retro呼び出しコストも含む)",
+      "status": "active",
+      "evidence": [
+        "orgh/state.py:154",
+        "orgh/state.py:172",
+        "/Users/uesugirei/projects/org-harness/runs/7307189e/mission.json"
+      ],
+      "description": "実行にかかった費用を1タスク・1ミッション単位で計測・累積する仕組み。runs/7307189e/mission.jsonのbudgetフィールドはspent_usd=28.87(limit_usdはnull=無制限)を実際に記録しており、上限設定の有無に関わらずコスト計測自体は常時稼働していることを示す。"
+    },
+    {
+      "usecase_id": "UC-11",
+      "title": "予算上限超過による自動停止(現在は無効化・過去に実費運用で使用)",
+      "actor": "human",
+      "trigger": "config.loop.budget_usd/task_budget_usdに数値を設定すると、超過時に実行中タスクの完了は待ちつつ未着手タスクをskippedにしてミッションを停止する",
+      "status": "obsolete",
+      "evidence": [
+        "/Users/uesugirei/projects/org-harness/config.yaml:45-46",
+        "README.md:123-131",
+        "HANDOFF.md:74-75"
+      ],
+      "description": "API従量課金だった時期には実費上限としてbudget_usdが機能していたが、2026-08-03のユーザー裁定により「claude -pはサブスク認証で実費なし」としてconfig.yamlのbudget_usd/task_budget_usdは共にnull(無制限)に設定変更済み(config.yaml:45のコメントに明記)。HANDOFF.mdは「月次クレジット制が再開されたらbudget_usdを実費上限として復活させること」と明記しており、機構自体はコード上健在だが現在の運用では意図的に停止させている過去の使い方である。"
+    },
+    {
+      "usecase_id": "UC-12",
+      "title": "orgh reportによる合格率・差し戻し率の計器算出",
+      "actor": "human",
+      "trigger": "CLI: orgh report [--days N] [--vault] — ledgerを集計し初回attempt合格率・差し戻し率の週次推移等を出力する",
+      "status": "assumed",
+      "evidence": [
+        "README.md:85",
+        "README.md:175-182",
+        "HANDOFF.md:48"
+      ],
+      "description": "「改善ループが効いているか=増幅が実在するかを測る最重要メトリクス」としてREADMEに明記されている集計コマンド。HANDOFF.mdの後続TODOには「クリーンな新ミッション2〜3本→orgh reportで増幅の数字判定(D本番)」とまだ未実施のタスクとして記載されており、vault/orgh/reports/配下にも出力ファイルが見つからないため、ドキュメント上は整備済みだが実施痕跡が確認できない機能である。"
+    },
+    {
+      "usecase_id": "UC-13",
+      "title": "orgh gcによるplaybook代謝・runsアーカイブ",
+      "actor": "cron",
+      "trigger": "watcher._maybe_gc()がwatch.gc_interval_days(既定14)ごとに自動起動、または人間がorgh gcサブコマンドを手動実行する",
+      "status": "assumed",
+      "evidence": [
+        "orgh/watcher.py:27",
+        "orgh/gc.py:115",
+        "/Users/uesugirei/projects/org-harness/runs/_gc_state.json"
+      ],
+      "description": "追記onlyで肥大化するplaybookの重複統合・矛盾解消・古い教訓の退避、およびruns/の90日超過分アーカイブを行う代謝機構。runs/_gc_state.jsonにはlast_gcのタイムスタンプが1件記録されているのみで、これはドキュメント(docs/deep-dive.md)が明言する「初回パスはベースライン書き込みのみでgcを走らせない」動作と一致する。playbooks/_backup・playbooks/_archiveディレクトリが存在しないため、実際の統合・アーカイブ処理が走った痕跡は確認できない。"
+    },
+    {
+      "usecase_id": "UC-14",
+      "title": "orgh doctorによる事前疎通確認",
+      "actor": "human",
+      "trigger": "CLI: orgh doctor — 外部CLI(claude/codex)の疎通・config検証・vault到達性・書き込み権限を実行前にまとめて確認する",
+      "status": "assumed",
+      "evidence": [
+        "orgh/cli.py:66-72",
+        "orgh/doctor.py:51",
+        "README.md:77-78"
+      ],
+      "description": "「全タスク謎のfailed」を防ぐための事前診断コマンドとしてREADMEに明記されている。doctorは永続的な出力ファイルを残さない設計であり、リポジトリ内・vault内のいずれにも実行ログや実行を示す間接証拠が見つからず、ドキュメント上の整備のみが確認できる。"
+    },
+    {
+      "usecase_id": "UC-15",
+      "title": "orgh自身の機能追加・ドキュメント整備(自己改善ミッション)",
+      "actor": "human",
+      "trigger": "orgh run --note/--intentでworkdirをorgh自身のリポジトリに向けたミッションを実行する(UC-04の承認ゲートを経由)",
+      "status": "active",
+      "evidence": [
+        "/Users/uesugirei/projects/org-harness/ops/demo/runs/099e281b/mission.json",
+        "/Users/uesugirei/projects/org-harness/ops/demo/runs/6fe49f2f/mission.json",
+        "README.md:7-18"
+      ],
+      "description": "orgh自身のコードやドキュメントを、orghのミッション実行を通じて拡張していく「自己増幅」のデモ用途。runs/099e281bはstatus --json/orgh list機能追加(READMEのデモ節に記載のミッションそのもの)、runs/6fe49f2fはdocs/threat-model.mdのようなセキュリティ文書追加であり、いずれも実際に完走している。"
+    },
+    {
+      "usecase_id": "UC-16",
+      "title": "デスクトップGUIプロトタイプ探索(Tauri)",
+      "actor": "human",
+      "trigger": "orgh run --note「Orgh、CLIじゃなくてデスクトップアプリのGUIになると利用しやすい」から着火し、CLI-JSON API・Rustブリッジ・フロントエンドUIを試作する",
+      "status": "active",
+      "evidence": [
+        "/Users/uesugirei/projects/org-harness/runs/8e096d63/mission.json"
+      ],
+      "description": "orghのCLI操作をGUI化する探索ミッション。runs/8e096d63/mission.jsonには4タスク(GUI用CLI-JSON API確定、Rustブリッジ実装、フロントエンドUI実装、実データ結線と起動検証)がすべてdone状態で記録されているが、現在のリポジトリのトラッキング済みファイル一覧にdesktop/配下のファイルは含まれておらず、worktreeブランチ止まりでmainへは未マージの状態である。"
+    },
+    {
+      "usecase_id": "UC-17",
+      "title": "外部ターゲットリポジトリの開発・改修(projects_map経由)",
+      "actor": "human",
+      "trigger": "orgh run --noteで、vault側のprojects_map対応表を通じてworkdirをorgh以外の外部リポジトリ(例: sikore-slot)に解決して実行する",
+      "status": "active",
+      "evidence": [
+        "/Users/uesugirei/projects/org-harness/runs/b6503b9a/mission.json",
+        "/Users/uesugirei/projects/org-harness/runs/db8e54e5/mission.json",
+        "HANDOFF.md:10-12"
+      ],
+      "description": "orghは自分自身だけでなく、ユーザーが手掛ける別プロダクト(スロットゲーム「sikore-slot」等)の開発ツールとしても使われている。runs/b6503b9aは「sikore-slot図柄刷新」、runs/db8e54e5は「Sikoslotデプロイ」というintentで実行されており、HANDOFF.mdはこの経路が「ノートにリポパスが無いとPlannerがworkdir \".\"を出しorgh自身で実行される」という過去の欠陥への対処としてprojects_mapを導入した経緯を記す。"
+    },
+    {
+      "usecase_id": "UC-18",
+      "title": "プロダクト説明資料・ピッチ資料の生成(dogfooding)",
+      "actor": "human",
+      "trigger": "orgh run --intentでdocs/product/配下のピッチHTML・技術書・営業資料を生成/改訂するミッションを実行する",
+      "status": "active",
+      "evidence": [
+        "/Users/uesugirei/projects/org-harness/ops/demo/runs/2bdf2bee/mission.json",
+        "/Users/uesugirei/projects/org-harness/ops/demo/runs/8d93c967/mission.json",
+        "docs/product/BUILD.md"
+      ],
+      "description": "orgh自身のマーケティング・説明資料(ピッチデッキ、技術書、エンジニア向け資料)を、orghのミッション実行そのもので作らせる自己言及的な使い方。ops/demo/runs配下には2bdf2bee(HTML+PDF化)、8d93c967(P2ピッチの確定コピー実装)など資料制作系ミッションが多数記録されており、docs/product/BUILD.mdはその生成物のビルド手順書として現存する。"
+    },
+    {
+      "usecase_id": "UC-19",
+      "title": "Codexワーカーによるマルチエージェント実行",
+      "actor": "planner",
+      "trigger": "Plannerがタスクのworkerフィールドに\"codex\"を割り当てるとCodexAdapterが「codex exec」を起動する(resume非対応のため差し戻し時はプロンプト再構築で対応)",
+      "status": "active",
+      "evidence": [
+        "orgh/adapters/base.py:104",
+        "/Users/uesugirei/projects/org-harness/config.yaml:16",
+        "/Users/uesugirei/projects/org-harness/runs/d0d795d4/mission.json"
+      ],
+      "description": "orghはClaude Code CLIだけでなくCodex CLIも同列のworkerとして扱える設計であり、実際にconfig.yamlのworkers.enabledに[claude_code, codex]の両方が有効化されている。runs/d0d795d4のt3・t8はworker=\"codex\"で実行されており(t3はcodexが実装せず確認質問を返して失敗した実例としてHANDOFF.mdにも言及がある)、複数CLIエージェントの混在運用が実際に行われている。"
+    },
+    {
+      "usecase_id": "UC-20",
+      "title": "実ブラウザ目視QAをacceptanceに組み込む運用規律",
+      "actor": "worker",
+      "trigger": "UI変更を伴うタスクの受け入れ条件に「実ブラウザで起動し主要フローを目視確認した記録」を必須項目として課す(playbookに蒸留された教訓としてPlanner/Workerへ自動注入される)",
+      "status": "active",
+      "evidence": [
+        "playbooks/coding.md:2",
+        "HANDOFF.md:27-34"
+      ],
+      "description": "機械検証(ビルド成功・grep等)だけでは検出できないUI崩壊を防ぐための運用規律。ミッション7307189e(sikore-slot筐体UI刷新)では全タスクが機械検証に合格したにも関わらずレバー不可視・リール真っ黒という重大な見た目の破綻が起きた(発見はユーザーの「どこを押したら回るの?」)ことを受け、playbooks/coding.mdに恒久的な教訓として記録され、以後のミッションのPlanner/Workerプロンプトに自動注入される。"
+    },
+    {
+      "usecase_id": "UC-21",
+      "title": "orgh cleanupによるworktree/ブランチ掃除",
+      "actor": "human",
+      "trigger": "CLI: orgh cleanup <mission_id> — worktree.enabled時にタスクごとに作られたgit worktreeとブランチをgit worktree remove --forceで削除する",
+      "status": "assumed",
+      "evidence": [
+        "orgh/cli.py:146-148",
+        "orgh/worktree.py:112",
+        "HANDOFF.md:64"
+      ],
+      "description": "検収が終わったミッションのworktree/ブランチを片付けるための明示コマンド。HANDOFF.mdの「後回しでよい改善候補」に「worktree掃除: 検収済みミッションはorgh cleanup <id>」と挙げられたまま未着手であり、実際に.orgh-worktrees配下には過去ミッション(2d953f15, 8e096d63等)のworktreeが削除されずに残存していることからも、このコマンドが実運用でまだ使われていないことが確認できる。"
+    },
+    {
+      "usecase_id": "UC-22",
+      "title": "サブミッション再帰(設計済み・実行層未実装)",
+      "actor": "planner",
+      "trigger": "(未実装)タスクをさらに子ミッションへ分解して再帰的に実行する構想。Budget.split()は子への予算分割を想定して設計済みだが、それを呼び出す実行層のコードは存在しない",
+      "status": "assumed",
+      "evidence": [
+        "README.md:198",
+        "orgh/state.py:190"
+      ],
+      "description": "READMEの「既知の割り切り/次の拡張候補」に「サブミッション再帰(Budget設計は対応済み、実行層は未実装)」と明記されている将来拡張。orgh/state.pyのBudget.split()は「子ミッションへの割当を切り出す」設計になっているが、これを呼び出してタスクを子ミッションとして再帰実行するオーケストレーション側のコードパスはリポジトリ内に見当たらない。"
+    },
+    {
+      "usecase_id": "UC-23",
+      "title": "ShellAdapter経由の任意CLI LLM利用(gemini等)",
+      "actor": "worker",
+      "trigger": "(未使用)タスクのworkerフィールドを\"shell\"にし、config.workers.shell.argvにテンプレートを設定すればgemini等任意のCLI LLMを叩ける汎用アダプタ",
+      "status": "assumed",
+      "evidence": [
+        "orgh/adapters/base.py:119-121",
+        "config.example.yaml:31",
+        "/Users/uesugirei/projects/org-harness/config.yaml:16"
+      ],
+      "description": "config.example.yamlのworkers.shellセクションには「他LLM CLI用の汎用枠(例: gemini)」というコメント付きで拡張ポイントが用意されているが、実運用のconfig.yamlのworkers.enabledには[claude_code, codex]しか列挙されておらず、全ミッション・全タスクを通してworker=\"shell\"のタスクは1件も確認できない。"
+    },
+    {
+      "usecase_id": "UC-24",
+      "title": "Notion等の代替入力ソースアダプタ",
+      "actor": "human",
+      "trigger": "(未実装)SourceAdapter抽象化により、REGISTRYにアダプタを追加するだけでObsidian以外の入力ソース(Notion等)に差し替えられる設計上の拡張点",
+      "status": "assumed",
+      "evidence": [
+        "orgh/sources/base.py:1-6",
+        "docs/deep-dive.md:85"
+      ],
+      "description": "orgh/sources/base.pyの冒頭コメントは「将来の入力ソース(Notion等)はREGISTRYにアダプタを足すだけで差し替えられる(Notionアダプタ自体はここでは実装しない—拡張点の確保のみ)」と明言しており、docs/deep-dive.mdも「現時点で実装済みなのはObsidianAdapterのみ」と確認している。設計上の拡張点にとどまり、実装コードも利用実績もない。"
+    }
+  ]
+}
