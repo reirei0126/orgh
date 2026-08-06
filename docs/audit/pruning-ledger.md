@@ -5,6 +5,8 @@
 **このタスクでは実際の削除は一切行っていない。orghのコード・設定への変更もゼロ件。** 削除の実行・承認はすべて人間が行う前提で書かれている。
 
 > **2026-08-07 改訂(レビュー指摘 review-audit-r1 反映)**: 初版(2026-08-06)はU=0を無条件にCANDIDATE化するルールにより、稼働証跡の厚い機能(`orgh status`のT=145等)を「削除候補」と誤誘導していた。本改訂で判定ルールを是正し、usecases.jsonへ欠落していた4ユースケース(UC-25〜UC-28)を追加、内部ヘルパー関数の判定を親機能へ統合し、全該当行を再判定した。変更点の一覧はセクション6bを参照。
+>
+> **2026-08-07 再改訂(レビュー指摘 review-audit-r2 反映)**: r1改訂に対しさらに6件の指摘を受け、(1)セクション6bに欠落していた`orgh/cli.py::scan`の移動記録を追加し件数を17件に訂正、(2)ルール1にU=0かつ3≤T≤9の扱い(WATCH)を明文化、(3)`orgh/watcher.py::_maybe_gc`をルール0(親判定統合)の対象外としていた誤りを是正し`watch()`と統合評価してKEEPへ変更、(4)UC-25/UC-27の実行痕跡をリポジトリ本体の実データで再検証(詳細はusecases.json・usecase-inventory.md側の改訂を参照)、(5)ShellAdapter削除候補の詳細に後方互換性の注意と関連文書の整理範囲を追記、(6)CANDIDATEサマリーの説明文を実際の判定ルールと一致させた。変更点の一覧はセクション6bおよび6cを参照。
 
 ---
 
@@ -18,7 +20,10 @@
 判定ルール(優先順位順):
 
 0. **内部ヘルパー関数の統合評価**: 1つの呼び出し元(親のパイプライン関数、または唯一のCLIサブコマンド)からしか参照されない内部関数・実装本体は、独立に下記1〜6を適用せず、**親の判定をそのまま継承する**。親を残す判断をした場合、内部ヘルパーだけを個別に削除候補として承認欄に出さない(理由: 親を残す限りヘルパーも実行され続けるため、独立した削除候補として扱うと「親はKEEP、部品はCANDIDATE」という実行不能な組み合わせが生まれる)。対象例: `orgh/gc.py::_archive_old_lessons`/`_consolidate`/`_gc_runs`(親: `run_gc`)、`orgh/worktree.py::merge_dep_branches`(親: `ensure_task_worktree`)、`orgh/doctor.py::run_doctor`(親: CLIの`orgh/cli.py::doctor`)、`orgh/worktree.py::cleanup_mission_worktrees`(親: CLIの`orgh/cli.py::cleanup`)。
-1. **U = 0**(紐づくユースケースが1件も無い)→ 原則 **UNKNOWN**(「本当に不要」なのか「usecase台帳の記載漏れ」なのかを機械ルールだけでは区別できないため、無条件のCANDIDATE化はしない)。ただし、T ≥ 10、または運用文書(HANDOFF.md・README.md・git log等)に実運用を裏付ける明示的な記述がある場合は、記載漏れの可能性が高いとみなし **UNKNOWN ではなく KEEP(T≥10)/WATCH(3≤T≤9)** とする。T ≤ 2 かつ運用文書上の裏付けも無い場合のみ UNKNOWN のまま据え置く。
+1. **U = 0**(紐づくユースケースが1件も無い)→ 原則 **UNKNOWN**(「本当に不要」なのか「usecase台帳の記載漏れ」なのかを機械ルールだけでは区別できないため、無条件のCANDIDATE化はしない)。ただし以下の3区分でこの原則から外れる(2026-08-07 review-audit-r2反映で3区分を明文化。旧版はT=3〜9の扱いが未定義だった):
+   - **T ≥ 10** → 記載漏れの可能性が高いとみなし **KEEP**。運用文書(HANDOFF.md・README.md・git log等)に実運用を裏付ける明示的な記述があれば判定根拠列に併記する。
+   - **3 ≤ T ≤ 9** → 運用文書上の明示的な裏付けの有無を問わず **WATCH** とする(無関係語の水増しでは説明できない実質的な参照が一定数ある以上、無条件のUNKNOWNには据え置かない。例: `orgh/cli.py::scan`、T=7、運用文書上の裏付けなし)。
+   - **T ≤ 2** → 運用文書に実運用を裏付ける明示的な記述があれば **WATCH** に格上げする。無ければ **UNKNOWN** のまま据え置く。
 2. **U ≥ 1 かつ紐づく全usecaseのstatusが `obsolete`**(恒久的に成立しない)→ **CANDIDATE**。ただし紐づく全usecaseのstatusが `dormant`(意図的な休止・復活条件が明記されている)の場合は、恒久的に不要な`obsolete`とは区別し **WATCH以上**(実装本体は凍結保持)とする。
 3. **U ≥ 1 かつ T ≤ 2** → **CANDIDATE**(ユースケースはあるが実装が使われた形跡がほぼ皆無)
 4. **U ≥ 1 かつ 3 ≤ T ≤ 9** → **WATCH**(使われているが証跡の厚みが薄い)
@@ -41,17 +46,17 @@
 
 ---
 
-## 2. サマリー(全89機能、2026-08-07 review-audit-r1反映で再集計)
+## 2. サマリー(全89機能、2026-08-07 review-audit-r1・r2反映で再集計)
 
 | 判定 | 件数(初版2026-08-06) | 件数(本改訂) | 増減 | 意味 |
 |---|---|---|---|---|
-| **KEEP** | 49 | **59** | +10 | 現行ユースケースに必須。証跡も十分(T≥10)、または機械しきい値を上書きするだけの強い運用証跡がある。 |
-| **WATCH** | 20 | **27** | +7 | 現行ユースケースに紐づくが証跡が薄い(3≤T≤9)、または休止(dormant)ユースケース専属の実装。定期的な再確認を推奨。 |
-| **CANDIDATE** | 19 | **3** | −16 | 削除候補。紐づくユースケースが無く運用文書上の裏付けも無い、またはT≤2のいずれか。 |
+| **KEEP** | 49 | **60** | +11 | 現行ユースケースに必須。証跡も十分(T≥10)、機械しきい値を上書きするだけの強い運用証跡がある、または内部ヘルパー統合評価によりKEEPの親機能の判定を継承している。 |
+| **WATCH** | 20 | **27** | +7 | 現行ユースケースに紐づくが証跡が薄い(3≤T≤9)、休止(dormant)ユースケース専属の実装、またはユースケース帰属が無くとも(U=0)T=3〜9の実質的な参照がある実装(1章ルール1)。定期的な再確認を推奨。 |
+| **CANDIDATE** | 19 | **2** | −17 | 削除候補。ユースケースは紐づくが実装が使われた形跡がほぼ皆無(U≥1かつT≤2、1章ルール3)。 |
 | **UNKNOWN** | 1 | **0** | −1 | ユースケースへの一意な帰属を判断する材料が不足。 |
 | **合計** | 89 | 89 | 0 | |
 
-再集計の内訳(16件がCANDIDATE/UNKNOWNから移動): usecases.json記載漏れが確認できた9機能(`orgh/cli.py::status`・`--config`・`list`、`orgh/listing.py::list_missions`、`orgh/status_json.py::status_payload`、`orgh/orchestrator.py::_is_infra_error`、`orgh/state.py::LoopCfg.infra_max_retries`・`validate_config`、`orgh/worktree.py::merge_dep_branches`)→**KEEP**、CLI/実装本体の統合評価により1機能(`orgh/doctor.py::run_doctor`)→**KEEP**、内部ヘルパー3機能(`orgh/gc.py::_archive_old_lessons`/`_consolidate`/`_gc_runs`)・CLI/実装本体統合1機能(`orgh/worktree.py::cleanup_mission_worktrees`)・休止ユースケース化1機能(`orgh/orchestrator.py::_initiate_budget_stop`)・記載漏れ1機能(`orgh/cli.py::scan`)→**WATCH**、UNKNOWN 1機能(`config.example.yaml::loop.task_timeout`)→複数usecase帰属により**WATCH**。詳細はセクション3・7を参照。
+再集計の内訳(review-audit-r1反映で17件がCANDIDATE/UNKNOWNから移動): usecases.json記載漏れが確認できた9機能(`orgh/cli.py::status`・`--config`・`list`、`orgh/listing.py::list_missions`、`orgh/status_json.py::status_payload`、`orgh/orchestrator.py::_is_infra_error`、`orgh/state.py::LoopCfg.infra_max_retries`・`validate_config`、`orgh/worktree.py::merge_dep_branches`)→**KEEP**、CLI/実装本体の統合評価により1機能(`orgh/doctor.py::run_doctor`)→**KEEP**、内部ヘルパー3機能(`orgh/gc.py::_archive_old_lessons`/`_consolidate`/`_gc_runs`)・CLI/実装本体統合1機能(`orgh/worktree.py::cleanup_mission_worktrees`)・休止ユースケース化1機能(`orgh/orchestrator.py::_initiate_budget_stop`)・記載漏れ1機能(`orgh/cli.py::scan`)→**WATCH**、UNKNOWN 1機能(`config.example.yaml::loop.task_timeout`)→複数usecase帰属により**WATCH**(9+1+3+1+1+1+1=17件。詳細はセクション6b)。さらにreview-audit-r2反映で1件(`orgh/watcher.py::_maybe_gc`、ルール0の親子統合評価によりCANDIDATE→**KEEP**。詳細はセクション6c)が追加で移動し、cumulative で計18件がCANDIDATE/UNKNOWNから移動、残るCANDIDATEは2件のみとなった。詳細はセクション3・7を参照。
 
 ---
 
@@ -85,7 +90,7 @@
 | `orgh/adapters/base.py::CodexAdapter` | integration | UC-19 | 22 | **KEEP** | descriptionの「codex exec非対話モードで叩く」がUC-19のtriggerそのもの | 承認/保留/却下: |
 | `orgh/adapters/base.py::ShellAdapter` | integration | UC-23 | 1 | **CANDIDATE** | descriptionの「任意のCLI LLM(gemini等)」がUC-23のtriggerそのもの | 承認/保留/却下: |
 | `orgh/adapters/base.py::get_adapter` | module | UC-01, UC-19 | 79 | **KEEP** | descriptionの「worker名文字列からアダプタを解決」がUC-01(claude_code既定)とUC-19(codex選択) | 承認/保留/却下: |
-| `orgh/cli.py::--config` | cli | UC-27 | 16 | **KEEP** | UC-27(任意の作業ディレクトリから明示configで起動)を追加。HANDOFF.md:47のwatch再起動手順`orgh --config ../config.yaml watch`が実運用での必須手順であることを確認しUNKNOWNから復帰(usecase台帳の記載漏れだったと判明) | 承認/保留/却下: |
+| `orgh/cli.py::--config` | cli | UC-27 | 16 | **KEEP** | UC-27(任意の作業ディレクトリから明示configで起動)を追加。2026-08-07 review-audit-r2でHANDOFF.md:47の手順が実施済みか実データで検証: `ps -p 8843`で`orgh --config ../config.yaml watch`が実際に稼働中のプロセスとして確認できた(開始2026-08-05T15:51:14、監査時点で経過1日10時間超)。HANDOFF.md記載の未着手TODOではなく、実行そのものの直接証跡がある(usecase台帳の記載漏れだったと判明) | 承認/保留/却下: |
 | `orgh/cli.py::approve` | cli | UC-04 | 10 | **KEEP** | entrypointが`orgh approve`でUC-04のtrigger(解除経路)と一致 | 承認/保留/却下: |
 | `orgh/cli.py::cancel` | cli | UC-05 | 25 | **KEEP** | entrypointが`orgh cancel`でUC-05のtriggerと一致 | 承認/保留/却下: |
 | `orgh/cli.py::cleanup` | cli | UC-21 | 4 | **WATCH** | entrypointが`orgh cleanup`でUC-21のtriggerと一致 | 承認/保留/却下: |
@@ -95,8 +100,8 @@
 | `orgh/cli.py::report` | cli | UC-12 | 14 | **KEEP** | entrypointが`orgh report`でUC-12のtriggerと一致 | 承認/保留/却下: |
 | `orgh/cli.py::resume` | cli | UC-06 | 66 | **KEEP** | descriptionの「差し戻し」「resume」がUC-06のresume経由改善ループと一致 | 承認/保留/却下: |
 | `orgh/cli.py::run` | cli | UC-01, UC-02 | 30 | **KEEP** | entrypointが`orgh run --note`/`--intent`でUC-01/UC-02のtriggerそのもの | 承認/保留/却下: |
-| `orgh/cli.py::scan` | cli | (なし) | 7 | **WATCH** | usecases.json全28件中`orgh scan`に言及するものが無いが、T=7は無関係な語のヒットではない実質的な参照(cli.py/doctor.py/sources配下)であり0に近くない。ルール1改訂によりUNKNOWNではなくWATCH域として再判定(記載漏れの可能性は残るが、本改訂ではusecase追加の裏付けとなる運用文書上の明示記述までは確認できなかったため追加は見送り) | 承認/保留/却下: |
-| `orgh/cli.py::status` | cli | UC-25 | 9(旧145は「status」一般語検索による水増し。usage-evidence.md参照) | **KEEP** | UC-25(単一ミッションの状態確認)を追加。ops/demo/runs/099e281bはこの機能自体を追加したミッションで、README.mdのデモ節が実演記録として明記。T値は是正後9(WATCH域上限)だが、記載漏れ由来の過小評価だったことがレビューで確認済みのため機械しきい値を上書きしKEEPとする(機械しきい値を上書き) | 承認/保留/却下: |
+| `orgh/cli.py::scan` | cli | (なし) | 7 | **WATCH** | usecases.json全28件中`orgh scan`に言及するものが無いが、T=7は無関係な語のヒットではない実質的な参照(cli.py/doctor.py/sources配下)であり0に近くない。1章ルール1の明文化区分「U=0かつ3≤T≤9→WATCH」に該当し、運用文書上の裏付けが無くてもUNKNOWNではなくWATCHとする(記載漏れの可能性は残るが、本改訂ではusecase追加の裏付けとなる運用文書上の明示記述までは確認できなかったため追加は見送り) | 承認/保留/却下: |
+| `orgh/cli.py::status` | cli | UC-25 | 9(旧145は「status」一般語検索による水増し。usage-evidence.md参照) | **KEEP** | UC-25(単一ミッションの状態確認)を追加。ops/demo/runs/099e281bはこの機能「自体を追加した」ミッションであり、README.mdのデモ節もその実装過程の記録である(2026-08-07 review-audit-r2でusecases.json UC-25の評価を再検証した結果、「機能を作った証跡」であって「機能を利用した証跡」ではないと判明し、UC-25のstatusはactiveからassumedへ訂正した。usecase-inventory.md参照)。T値は是正後9(WATCH域上限)だが、CLIの中核サブコマンドとしてREADMEに継続的に案内されている構造的機能であることを理由に機械しきい値を上書きしKEEPとする(機械しきい値を上書き。根拠を「記載漏れ由来の過小評価」から訂正) | 承認/保留/却下: |
 | `orgh/cli.py::watch` | cli | UC-03 | 54 | **KEEP** | entrypointが`orgh watch`でUC-03のtrigger文言と完全一致 | 承認/保留/却下: |
 | `orgh/doctor.py::run_doctor` | module | UC-14 | 1 | **KEEP** | `orgh/cli.py::doctor`の唯一の実処理本体。CLIサブコマンドと実装本体は同一評価単位とするルール(1章ルール0)により親の判定(KEEP, T=10)を継承。T=1は永続ログを残さない設計上の構造的特性であり利用実績の低さではない | 承認/保留/却下: 承認不要(`orgh/cli.py::doctor`に統合、独立審査対象外) |
 | `orgh/gc.py::_archive_old_lessons` | module | UC-13 | 1 | **WATCH** | run_gc()のバックアップ後ステップ。内部ヘルパーは親と同一判定とするルール(1章ルール0)により`run_gc`(WATCH, T=5)の判定を継承 | 承認/保留/却下: 承認不要(`run_gc`に統合、独立審査対象外) |
@@ -135,8 +140,8 @@
 | `orgh/state.py::LoopCfg.infra_max_retries` | config | UC-28 | 4 | **KEEP** | UC-28(インフラ障害のattempt非消費リトライ)を追加。`_is_infra_error`とセットで機能するリトライ上限設定であり、同一の根拠(HANDOFF.md:18、runs/09957da4/ledger.jsonlのtask.infra_retry×2)によりKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
 | `orgh/state.py::RunStore` | module | UC-01, UC-02, UC-03 | 95 | **KEEP** | descriptionの「mission.json/ledger.jsonlを永続化」がUC-01/02/03すべての基盤 | 承認/保留/却下: |
 | `orgh/state.py::validate_config` | module | (横断的: 全usecase共通の前提処理) | 1 | **KEEP** | `load_config()`が全CLIコマンドで設定読込直後に無条件で呼ぶ唯一の呼び出し元であり、T=1は「1箇所からしか呼ばれない」構造上の特性であってその1箇所が全実行の入口であることを意味する。特定usecaseに紐づけるのではなく横断的前提機能としてKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
-| `orgh/status_json.py::status_payload` | report | UC-25 | 9 | **KEEP** | UC-25(単一ミッションの状態確認)を追加。`orgh/cli.py::status --json`の唯一の実処理本体で、tests/test_status_json.py(7件)による専用テストも既存。T=9はWATCH域上限だが親CLI(status, KEEP)と同一評価単位として扱いKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
-| `orgh/watcher.py::_maybe_gc` | hook | UC-13 | 2 | **CANDIDATE** | descriptionの「watchデーモンが定期的にorgh gc相当を自動実行」がUC-13のtrigger(cron経由)と一致 | 承認/保留/却下: |
+| `orgh/status_json.py::status_payload` | report | UC-25 | 9 | **KEEP** | UC-25(単一ミッションの状態確認、2026-08-07 review-audit-r2でstatusをactive→assumedへ訂正。usecase-inventory.md参照)を追加。`orgh/cli.py::status --json`の唯一の実処理本体で、tests/test_status_json.py(7件)による専用テストも既存。T=9はWATCH域上限だが親CLI(`orgh/cli.py::status`, KEEP)と同一評価単位として扱いKEEPへ上書き(機械しきい値を上書き) | 承認/保留/却下: |
+| `orgh/watcher.py::_maybe_gc` | hook | UC-13 | 2 | **KEEP** | `orgh/watcher.py::watch`のループ末尾からのみ呼ばれる内部関数であり、呼び出し元は`watch()`の1つに限られる。1章ルール0(内部ヘルパー関数の統合評価)を適用し`orgh/watcher.py::watch`(KEEP, T=54, UC-03)の判定を継承する(2026-08-07 review-audit-r2で是正。旧版は「前回指摘の対象外」を理由にルール0適用を見送っていたが、これは根拠にならないため統合評価に改めた)。watch()内部の定期GC実行部 | 承認/保留/却下: 承認不要(`orgh/watcher.py::watch`に統合、独立審査対象外) |
 | `orgh/watcher.py::watch` | module | UC-03 | 54 | **KEEP** | entrypointが`orgh watch`でUC-03のtriggerそのもの | 承認/保留/却下: |
 | `orgh/worktree.py::cleanup_mission_worktrees` | integration | UC-21 | 2 | **WATCH** | `orgh/cli.py::cleanup`の唯一の実処理本体。CLIサブコマンドと実装本体は同一評価単位とするルール(1章ルール0)により親の判定(WATCH, T=4)を継承 | 承認/保留/却下: 承認不要(`orgh/cli.py::cleanup`に統合、独立審査対象外) |
 | `orgh/worktree.py::commit_task_result` | integration | UC-09 | 16 | **KEEP** | descriptionの「合格タスクの成果をタスクブランチへコミット」がUC-09の成果受け渡し経路 | 承認/保留/却下: |
@@ -177,33 +182,34 @@ feature_id 89件のうち、U=0と判定されたもの(2026-08-07改訂版)。
 
 ---
 
-## 6. CANDIDATE機能ごとの詳細(2026-08-07改訂: 3件)
+## 6. CANDIDATE機能ごとの詳細(2026-08-07改訂: review-audit-r1・r2反映で2件)
 
 各項目: 影響範囲(referenced_byから辿れる呼び出し元)/ 削除手順の概要 / 復元容易性 / 削除しない場合のコスト。全機能はgit管理下にあり、削除してもコミット履歴に残るため、復元容易性は原則「高い」(該当コミットをgit revertまたは該当ファイル/関数をgit checkout <commit> -- <path>で復元可能)。個別に注意点がある場合のみ明記する。
 
-**2026-08-07改訂の注記**: 初版(2026-08-06)では本セクションに19件のCANDIDATEが並んでいたが、レビュー指摘(review-audit-r1)によりU=0の無条件CANDIDATE化ルールの誤りが指摘され、16件がKEEP/WATCHへ再判定された。再判定の詳細な理由・移動元は「6b. このレビューで判定が変更された機能」を参照。以下は再判定後も真にCANDIDATE(削除候補として人間の判断を仰ぐべき)のまま残った3件のみを扱う。
+**2026-08-07改訂の注記**: 初版(2026-08-06)では本セクションに19件のCANDIDATEが並んでいたが、レビュー指摘(review-audit-r1)によりU=0の無条件CANDIDATE化ルールの誤りが指摘され、17件がKEEP/WATCHへ再判定された(セクション6b参照)。さらにレビュー指摘(review-audit-r2)により`orgh/watcher.py::_maybe_gc`のルール0適用漏れが指摘され、1件がKEEPへ再判定された(セクション6c参照)。以下は再判定後も真にCANDIDATE(削除候補として人間の判断を仰ぐべき)のまま残った2件のみを扱う。
 
 ### `config.example.yaml::workers.shell` / `orgh/adapters/base.py::ShellAdapter`(UC-23専用、事実上未使用)
 - **影響範囲**: `orgh/adapters/base.py`のREGISTRYからのみ参照。`orgh/orchestrator.py`はworker名文字列経由でしか触れないため、config.example.yamlからworkers.shellの例示を消してもClaudeCode/Codexアダプタには影響しない。ただしShellAdapterクラス自体を消すと、`get_adapter("shell")`を指定したタスクは即座にKeyError相当で失敗する。
-- **削除手順の概要**: (1) ShellAdapterクラスとREGISTRY登録をorgh/adapters/base.pyから削除、(2) config.example.yamlのworkers.shellセクションを削除、(3) doctorの疎通確認対象からも除外。
+- **後方互換性への注意(2026-08-07 review-audit-r2で追記)**: config.example.yamlはあくまで例示テンプレートだが、これを元にしたユーザーの実運用`config.yaml`(本リポジトリの`config.yaml`自体は`workers.enabled`に`shell`を含めていないため無関係だが、他ユーザー・他環境が`workers.shell`を実際に設定している可能性は排除できない)が`worker: shell`をタスクに指定している場合、ShellAdapterクラスを削除すると`get_adapter("shell")`がKeyError相当で失敗し、既存の外部configが起動不能になる。これは**後方互換性を破る変更**であり、削除前に(i)配布済みのconfig.example.yamlを参照したユーザー環境の有無を確認する、または(ii)非推奨(deprecation)警告を1リリース挟んでから削除する、といった移行手順の要否を人間が判断する必要がある。
+- **削除時に整理すべき文書一覧(2026-08-07 review-audit-r2で追記)**: ShellAdapter/workers.shellを削除する場合、コード本体だけでなく「任意LLM対応」を表明している以下の文書も合わせて整理しないと、削除後もorghが他CLI LLMに対応しているという誤った印象が残る。
+  1. `README.md:30` — アーキテクチャ図の`(+shell枠で任意LLM)`表記
+  2. `docs/deep-dive.md:50`(構成図の`CodexAdapter/ShellAdapter`表記)・`docs/deep-dive.md:129`(ShellAdapterの説明段落)・`docs/deep-dive.md:261`(config表の`shell`列挙)
+  3. `docs/audit/usecases.json`のUC-23(ShellAdapter経由の任意CLI LLM利用)を`obsolete`化するか、削除後の状態に合わせて記述を更新
+  4. `docs/audit/usecase-inventory.md`のUC-23関連記述、および本監査文書群(`docs/audit/features.json`・`docs/audit/usage-evidence.json`・`docs/audit/feature-inventory.md`・本ファイル)からのShellAdapter/workers.shell行の削除または「削除済み」注記
+- **削除手順の概要**: (1) 上記の後方互換性影響を人間が判断・許容、(2) ShellAdapterクラスとREGISTRY登録をorgh/adapters/base.pyから削除、(3) config.example.yamlのworkers.shellセクションを削除、(4) doctorの疎通確認対象からも除外、(5) 上記の文書一覧を更新。
 - **復元容易性**: 高い(単一ファイル内の1クラス、直近コミット `dde8aa2` 2026-08-03)。
-- **削除しない場合のコスト**: 低〜中。config.example.yamlに例示が残り続けると「gemini等の他LLMを使える」という誤解を新規ユーザーに与える保守負担がある一方、コード自体はREGISTRY登録の数行なので放置コストは小さい。UC-23自体は「assumed」(設計上の拡張点)であり実運用実績が0件のため、消しても既存ミッションへの影響はない。今回のレビューではこの2件について指摘が無かったため判定は変更していない。
-
-### `orgh/watcher.py::_maybe_gc`(UC-13、T=2)
-- **影響範囲**: `orgh/watcher.py::watch`のループ末尾から毎周呼ばれる。削除するとwatchデーモンの自動gc起動が消え、`orgh gc`を人間が手動実行しない限りplaybook代謝とruns/アーカイブが永久に走らなくなる。
-- **削除手順の概要**: watch()内の呼び出し行と_maybe_gc関数本体を削除。config.watch.gc_interval_daysも合わせて整理が必要。
-- **復元容易性**: 高い(直近コミット `7076ae7` 2026-08-05)。
-- **削除しない場合のコスト**: 低い。usecases.json UC-13自身が「実際の統合・アーカイブ処理が走った痕跡は確認できない」と記録しており、初回パスがベースライン書き込みのみで済む設計のため、証跡が薄いのは想定通りの挙動。14日間隔の初回発火がまだ到来していないだけの可能性が高く、時期尚早な削除判断は避けるべき。**注記**: 構造的には`orgh/gc.py`の内部ヘルパー3件と同様に「1呼び出し元(`watch()`)からしか参照されない」パターンに見えるが、今回のレビュー指摘はこの機能を対象に含めていなかったため、スコープ外として判定は変更していない(根拠のない判定変更を避けるため)。次回監査で親子統合ルール(1章ルール0)の適用要否を再検討することを推奨する。
+- **削除しない場合のコスト**: 低〜中。config.example.yamlに例示が残り続けると「gemini等の他LLMを使える」という誤解を新規ユーザーに与える保守負担がある一方、コード自体はREGISTRY登録の数行なので放置コストは小さい。UC-23自体は「assumed」(設計上の拡張点)であり実運用実績が0件のため、消しても既存ミッション(本リポジトリの`runs/`・`ops/demo/runs/`配下)への影響はない。ただし上記の外部config互換性リスクは残るため、判定はCANDIDATEのまま維持する。
 
 ---
 
-## 6b. このレビューで判定が変更された機能(review-audit-r1反映、16件)
+## 6b. このレビューで判定が変更された機能(review-audit-r1反映、17件)
 
 | feature_id | 旧判定 | 新判定 | 変更理由(要約) |
 |---|---|---|---|
 | `config.example.yaml::loop.task_timeout` | UNKNOWN | WATCH | UC-01/02/03/06/19への複数usecase帰属に再算定。単一帰属できないことはUNKNOWNの理由にならない |
-| `orgh/cli.py::--config` | CANDIDATE | KEEP | UC-27(明示config起動)追加。HANDOFF.mdのwatch再起動手順に必須と確認 |
+| `orgh/cli.py::--config` | CANDIDATE | KEEP | UC-27(明示config起動)追加。HANDOFF.mdのwatch再起動手順に必須と確認(2026-08-07 review-audit-r2で`ps`による稼働中プロセスの直接確認に根拠を強化。セクション3参照) |
 | `orgh/cli.py::list` | CANDIDATE | KEEP | UC-26(全ミッション一覧確認)追加。旧T=77は「list」一般語水増しと判明、是正後T=4だが記載漏れ由来のため上書きKEEP |
+| `orgh/cli.py::scan` | CANDIDATE | WATCH | usecases.jsonに紐づくusecaseは無く(U=0)追加も見送ったが、T=7は無関係語水増しではない実質参照であり1章ルール1「U=0かつ3≤T≤9→WATCH」に該当。無条件のUNKNOWN/CANDIDATE化はしない(2026-08-07 review-audit-r2で本表への記載漏れを是正。判定自体はr1改訂時点からWATCHで変更なし) |
 | `orgh/cli.py::status` | CANDIDATE | KEEP | UC-25(単一ミッション状態確認)追加。旧T=145は「status」一般語水増しと判明、是正後T=9だが記載漏れ由来のため上書きKEEP |
 | `orgh/doctor.py::run_doctor` | CANDIDATE | KEEP | CLIと実装本体の統合評価ルールにより`orgh/cli.py::doctor`(KEEP)の判定を継承 |
 | `orgh/gc.py::_archive_old_lessons` | CANDIDATE | WATCH | 内部ヘルパー統合評価ルールにより`run_gc`(WATCH)の判定を継承 |
@@ -220,18 +226,28 @@ feature_id 89件のうち、U=0と判定されたもの(2026-08-07改訂版)。
 
 ---
 
-## 7. 人間が次に決めること(2026-08-07改訂)
+## 6c. review-audit-r2で追加で判定が変更された機能(1件)
 
-以下1〜5はレビュー指摘(review-audit-r1)を反映し、本改訂で解釈・判定を確定済み。人間に残る作業は各行の「承認/保留/却下」欄への実際のチェックのみである。
+r1改訂(セクション6b)の後、review-audit-r2で新たに指摘され判定が変わったもの。
+
+| feature_id | 旧判定 | 新判定 | 変更理由(要約) |
+|---|---|---|---|
+| `orgh/watcher.py::_maybe_gc` | CANDIDATE | KEEP | `orgh/watcher.py::watch`のループ末尾からのみ呼ばれる内部関数であるにもかかわらず、r1改訂では「前回指摘の対象外」を理由にルール0(内部ヘルパー関数の統合評価)の適用外としていた。この理由づけは1章ルール0の適用条件(呼び出し元が1つの内部関数か否か)と無関係であり誤りだったため、r2で是正して`watch`(KEEP, T=54, UC-03)の判定を継承させた。判定根拠列には「watch()内部の定期GC実行部」と明記(セクション3参照) |
+
+---
+
+## 7. 人間が次に決めること(2026-08-07改訂: review-audit-r1・r2反映)
+
+以下1〜6はレビュー指摘(review-audit-r1・r2)を反映し、本改訂で解釈・判定を確定済み。人間に残る作業は各行の「承認/保留/却下」欄への実際のチェックのみである。
 
 1. ~~`orgh/gc.py`の内部ヘルパー3件と`orgh/worktree.py::merge_dep_branches`を親機能とまとめて1単位として扱うか~~ → **確定: まとめて1単位として扱う**(1章ルール0として明文化し、セクション3の該当行に反映済み)。
-2. ~~`orgh/cli.py::scan`/`list`/`status`(及び`listing.py::list_missions`/`status_json.py::status_payload`)がusecases.jsonの記載漏れか~~ → **確定: list/status/list_missions/status_payloadは記載漏れと認め、UC-25・UC-26を追加してKEEPへ変更した。scanのみ運用文書上の裏付けが本改訂では確認できず、追加は見送りWATCHに留めた**(次回監査での再確認を推奨)。
+2. ~~`orgh/cli.py::scan`/`list`/`status`(及び`listing.py::list_missions`/`status_json.py::status_payload`)がusecases.jsonの記載漏れか~~ → **確定: list/status/list_missions/status_payloadは記載漏れと認め、UC-25・UC-26を追加してKEEPへ変更した。scanのみ運用文書上の裏付けが確認できず、追加は見送りWATCHに留めた**(1章ルール1の明文化区分「U=0かつ3≤T≤9→WATCH」に基づく。セクション6b参照)。
 3. ~~`_is_infra_error`と`LoopCfg.infra_max_retries`もusecases.jsonへの記載漏れと認めてよいか~~ → **確定: 記載漏れと認め、UC-28を追加してKEEPへ変更した**。
-4. ~~`--config`グローバルフラグと`validate_config`は構造的必須機能として扱ってよいか~~ → **確定: --configはUC-27追加のうえKEEP、validate_configは横断的前提機能として上書きKEEPとした**。
+4. ~~`--config`グローバルフラグと`validate_config`は構造的必須機能として扱ってよいか~~ → **確定: --configはUC-27追加のうえKEEP、validate_configは横断的前提機能として上書きKEEPとした。2026-08-07 review-audit-r2で--configはさらに`ps`による稼働中プロセスの直接確認で裏付けを強化した(usecase-inventory.md参照)**。
 5. ~~`_initiate_budget_stop`(及びUC-11)は凍結保持か即時削除か~~ → **確定: 凍結保持。UC-11のstatusをobsolete→dormant(休止・復活条件あり)に訂正し、実装本体もWATCHへ変更した**。
+6. ~~`orgh/watcher.py::_maybe_gc`は構造的に`orgh/gc.py`の内部ヘルパーと同様のパターン(単一呼び出し元)に見えるが、1章ルール0の適用要否を再検討してよいか~~(2026-08-07 review-audit-r2で指摘) → **確定: 適用する。`orgh/watcher.py::watch`(KEEP)の判定を継承しCANDIDATE→KEEPへ変更した**(セクション6c参照)。
 
 以下は本改訂でも未確定(引き続き人間の判断が必要)。
 
-6. `orgh/worktree.py::cleanup_mission_worktrees`(`orgh cleanup`)について、放置されている`.orgh-worktrees`配下の掃除を今後は`orgh cleanup`コマンドを使う運用に切り替えるか。(Yes: 運用に組み込む / No: コマンドごと削除し手動`git worktree remove`に戻す)
-7. `config.example.yaml::workers.shell`と`orgh/adapters/base.py::ShellAdapter`(gemini等の任意CLI LLM拡張枠)は、実運用実績が0件のまま今後も設計上の拡張点として維持するか、それとも実際に使う計画が無いなら削除してよいか。(Yes: 維持する / No: 削除する)
-8. `orgh/watcher.py::_maybe_gc`は構造的に`orgh/gc.py`の内部ヘルパーと同様のパターン(単一呼び出し元)に見えるが、今回のレビュー指摘の対象外だったため判定を維持した。次回監査で1章ルール0の適用要否を再検討してよいか。(Yes/No)
+7. `orgh/worktree.py::cleanup_mission_worktrees`(`orgh cleanup`)について、放置されている`.orgh-worktrees`配下の掃除を今後は`orgh cleanup`コマンドを使う運用に切り替えるか。(Yes: 運用に組み込む / No: コマンドごと削除し手動`git worktree remove`に戻す)
+8. `config.example.yaml::workers.shell`と`orgh/adapters/base.py::ShellAdapter`(gemini等の任意CLI LLM拡張枠)は、実運用実績が0件のまま今後も設計上の拡張点として維持するか、それとも実際に使う計画が無いなら削除してよいか。維持しないと決めた場合、セクション6の後方互換性の注意・削除時に整理すべき文書一覧(2026-08-07 review-audit-r2で追記)に従って進めること。(Yes: 維持する / No: 削除する)

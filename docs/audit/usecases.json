@@ -320,14 +320,15 @@
       "title": "単一ミッションの状態確認(orgh status)",
       "actor": "human",
       "trigger": "CLI: orgh status <mission_id> [--json] — 指定ミッションの現在状態(タスク進捗・コスト・budget)をテキストまたは機械可読JSONで表示する",
-      "status": "active",
+      "status": "assumed",
       "evidence": [
         "orgh/cli.py:141-143",
         "orgh/status_json.py:7",
-        "/Users/uesugirei/projects/org-harness/ops/demo/runs/099e281b/mission.json",
-        "README.md:9-18"
+        "/Users/uesugirei/projects/org-harness/ops/demo/runs/099e281b/mission.json(機能追加ミッションであり利用証跡ではない)",
+        "README.md:9-18(コマンドの存在・使い方の案内であり実行記録ではない)",
+        "docs/audit/usage-evidence.json::orgh/status_json.py::status_payload(runtime_hits=0)"
       ],
-      "description": "レビュー指摘(review-audit-r1)により追加。人間または他ツールがミッションの進行状況を随時確認するための閲覧コマンド。ops/demo/runs/099e281bはこの機能自体を追加したミッション(intent「orgh status に --json フラグを追加し...」、コミット01b9f04「orgh status --json 実装」)であり、README.mdのデモ節が実演記録として明記する。usecase台帳作成時の記載漏れであったため、当初は該当機能(orgh/cli.py::status、orgh/status_json.py::status_payload)がU=0でCANDIDATE誤判定されていた。"
+      "description": "レビュー指摘(review-audit-r1)により追加、レビュー指摘(review-audit-r2)によりstatusをactiveからassumedへ訂正。人間または他ツールがミッションの進行状況を随時確認するための閲覧コマンドとして実装済みだが、実行痕跡は確認できていない。ops/demo/runs/099e281bはこの機能「自体を追加した」ミッション(intent「orgh status に --json フラグを追加し...」、コミット01b9f04「orgh status --json 実装」)であり、README.mdのデモ節(7-18行目)も同ミッションの実装記録である旨を明記している(README.md:18「このREADMEに載っているorgh listとstatus --jsonは、この録画のミッションが実装したものである」)。すなわち両者は「機能を作った証跡」であって「機能が(その後の別ミッションで)実際に利用された証跡」ではない。2026-08-07 review-audit-r2でorghリポジトリ本体のruns/・ops/demo/runs/配下全ミッション、~/.zsh_historyを実データで検証したが、`orgh status`の独立した実行記録(ログ・runtime_hits・シェル履歴)は見つからなかった(usage-evidence.jsonのorgh/status_json.py::status_payloadもruntime_hits=0)。実装は存在し設計上のtriggerも明確なため`assumed`とし、`active`への復帰は独立した実行痕跡が確認でき次第とする。"
     },
     {
       "usecase_id": "UC-26",
@@ -351,10 +352,11 @@
       "status": "active",
       "evidence": [
         "orgh/cli.py:32",
-        "HANDOFF.md:47",
-        "tests/test_packaging.py"
+        "HANDOFF.md:47(手順の記載。ただし単独では『後続TODO』であり実施済みの証拠ではない)",
+        "tests/test_packaging.py",
+        "2026-08-07 監査時点の`ps -p 8843`: 実際に稼働中のプロセス `/opt/homebrew/.../Python ../.venv/bin/orgh --config ../config.yaml watch`(開始 2026-08-05T15:51:14+0900、監査時点で経過1日10時間超)を確認"
       ],
-      "description": "レビュー指摘(review-audit-r1)により追加。opsディレクトリなど既定と異なる作業ディレクトリからwatchデーモン等を再起動する際に使う運用手順。HANDOFF.mdの「後続TODO」1番目(watchデーモン再起動確認)は手順として`cd ops && ../.venv/bin/orgh --config ../config.yaml watch`を明記しており、非既定位置のconfig.yamlを読ませる実運用に必須である。usecase台帳作成時の記載漏れであったため、当初はorgh/cli.py::--configがU=0でCANDIDATE誤判定されていた。"
+      "description": "レビュー指摘(review-audit-r1)により追加。opsディレクトリなど既定と異なる作業ディレクトリからwatchデーモン等を再起動する際に使う運用手順。当初はHANDOFF.mdの「後続TODO」1番目(watchデーモン再起動確認、手順として`cd ops && ../.venv/bin/orgh --config ../config.yaml watch`を明記)のみを根拠にactiveとしていたが、レビュー指摘(review-audit-r2)により「TODOの記載」は「実施済みの証拠」ではないと指摘された。2026-08-07 review-audit-r2で実データを再検証した結果、`ps -p 8843`により実際にこのコマンドがプロセスとして稼働中であることを直接確認できた(コマンドライン引数が`orgh --config ../config.yaml watch`と完全一致、プロセス開始時刻2026-08-05T15:51:14はHANDOFF.md更新日と同日)。これは「機能を作ったミッション」ではなく「機能が実際に実行され続けている証跡」そのものであるため、activeのまま維持し根拠を強化した。usecase台帳作成時の記載漏れであったため、当初はorgh/cli.py::--configがU=0でCANDIDATE誤判定されていた。"
     },
     {
       "usecase_id": "UC-28",
