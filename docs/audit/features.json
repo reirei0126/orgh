@@ -1,0 +1,894 @@
+{
+  "features": [
+    {
+      "feature_id": "orgh/cli.py::watch",
+      "path": "orgh/cli.py",
+      "symbol": "watch",
+      "kind": "cli",
+      "entrypoint": "`orgh watch` を実行する",
+      "description": "入力ソース(vault)をポーリングし、着火条件を満たした新規/更新ノートを検知して自動でplan→execute→review→retroの全工程を回すイベント駆動デーモン。orgh/watcher.py:watch()に処理を委譲する。",
+      "loc": 3,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::scan",
+      "path": "orgh/cli.py",
+      "symbol": "scan",
+      "kind": "cli",
+      "entrypoint": "`orgh scan` を実行する",
+      "description": "入力ソースからミッション候補ノートを一覧表示する(着火はしない、閲覧用)。",
+      "loc": 5,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::doctor",
+      "path": "orgh/cli.py",
+      "symbol": "doctor",
+      "kind": "cli",
+      "entrypoint": "`orgh doctor` を実行する",
+      "description": "外部CLI(claude/codex等)の疎通・configスキーマ・prompts_dirのテンプレート有無・vaultとruns_dirの書き込み権限を検査し、不整合があれば非0で終了する。実処理はorgh/doctor.py:run_doctor()。",
+      "loc": 7,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::gc",
+      "path": "orgh/cli.py",
+      "symbol": "gc",
+      "kind": "cli",
+      "entrypoint": "`orgh gc` を実行する",
+      "description": "playbookの代謝(バックアップ・古い教訓の退避・統合Retro)とruns/の保持ポリシー適用を手動起動する。実処理はorgh/gc.py:run_gc()。",
+      "loc": 4,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::list",
+      "path": "orgh/cli.py",
+      "symbol": "list",
+      "kind": "cli",
+      "entrypoint": "`orgh list` を実行する",
+      "description": "runs_dir配下の全ミッションをid/intent/状態/コスト/タスク進捗の一覧で表示する。実処理はorgh/listing.py:list_missions()。",
+      "loc": 10,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::report",
+      "path": "orgh/cli.py",
+      "symbol": "report",
+      "kind": "cli",
+      "entrypoint": "`orgh report [--days N] [--vault]` を実行する",
+      "description": "週次の初回attempt合格率/差し戻し率、ミッション別コスト・所要時間、worker別失敗率を集計したレポートを標準出力に出す。--vault指定時はvault内のorgh/reports/<date>.mdへも書き出す。実処理はorgh/report.py:build_report()。",
+      "loc": 10,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::run",
+      "path": "orgh/cli.py",
+      "symbol": "run",
+      "kind": "cli",
+      "entrypoint": "`orgh run --note \"ノート名\"` または `orgh run --intent \"...\"` [--no-retro] を実行する",
+      "description": "ノート起点または直接指示でplan→execute→review→retroの全工程を1回のプロセス内で完走させる主経路。--no-retroでretroステップを省略できる。",
+      "loc": 30,
+      "referenced_by": ["tests/test_packaging.py"]
+    },
+    {
+      "feature_id": "orgh/cli.py::resume",
+      "path": "orgh/cli.py",
+      "symbol": "resume",
+      "kind": "cli",
+      "entrypoint": "`orgh resume <mission_id> [--retry-failed]` を実行する",
+      "description": "中断・キャンセルされたミッションを再開する。cancelled/skippedをpendingへ巻き戻し、--retry-failedでfailedも含めて再試行する。完走時はRETRO_DONEマーカーで未実施ならretroも実行する(_maybe_retro)。",
+      "loc": 12,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::status",
+      "path": "orgh/cli.py",
+      "symbol": "status",
+      "kind": "cli",
+      "entrypoint": "`orgh status <mission_id> [--json]` を実行する",
+      "description": "ミッションの現在状態をテキストまたは--jsonで機械可読JSON(status_payload)で表示する。",
+      "loc": 6,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::cleanup",
+      "path": "orgh/cli.py",
+      "symbol": "cleanup",
+      "kind": "cli",
+      "entrypoint": "`orgh cleanup <mission_id>` を実行する",
+      "description": "worktree.enabled時に作成されたタスクごとのgit worktreeとブランチを削除する。実処理はorgh/worktree.py:cleanup_mission_worktrees()。",
+      "loc": 3,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::cancel",
+      "path": "orgh/cli.py",
+      "symbol": "cancel",
+      "kind": "cli",
+      "entrypoint": "`orgh cancel <mission_id>` を実行する",
+      "description": "runs/<mission_id>/CANCELフラグファイルを置き、未着手タスクをcancelledに確定する。実行中プロセス側がループごとにフラグを検知してsubprocessをterminateする(唯一の停止信号)。",
+      "loc": 9,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::approve",
+      "path": "orgh/cli.py",
+      "symbol": "approve",
+      "kind": "cli",
+      "entrypoint": "`orgh approve <mission_id>` を実行する",
+      "description": "自己改変ガード(guard.needs_approval)で承認待ちになったミッションを承認し実行を続行する唯一の経路。runs/<mission_id>/APPROVEDマーカーを作成する。",
+      "loc": 9,
+      "referenced_by": []
+    },
+    {
+      "feature_id": "orgh/cli.py::--config",
+      "path": "orgh/cli.py",
+      "symbol": "--config",
+      "kind": "cli",
+      "entrypoint": "`orgh --config <path> <サブコマンド>`(既定 config.yaml)",
+      "description": "全サブコマンド共通のグローバルフラグ。読み込むconfig.yamlのパスを指定する。未指定時は./config.yamlをload_config()経由で読む。",
+      "loc": 2,
+      "referenced_by": ["tests/test_packaging.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::vault",
+      "path": "config.example.yaml",
+      "symbol": "vault",
+      "kind": "config",
+      "entrypoint": "config.yamlのvaultセクション(path/inbox/mission_tag/trigger_tag)",
+      "description": "Obsidian vaultの場所と、ミッション候補の判定(inboxフォルダ・mission_tag)・明示着火条件(trigger_tag)を定義する。ObsidianAdapterとdoctorが参照する。",
+      "loc": 8,
+      "referenced_by": ["orgh/sources/obsidian.py", "orgh/doctor.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::source.type",
+      "path": "config.example.yaml",
+      "symbol": "source.type",
+      "kind": "config",
+      "entrypoint": "config.yamlのsource.type(既定 obsidian)",
+      "description": "入力ソースアダプタの選択キー。将来Notion等を追加する際の拡張点で、現状はobsidianのみREGISTRYに登録済み。",
+      "loc": 3,
+      "referenced_by": ["orgh/sources/base.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::runs_dir",
+      "path": "config.example.yaml",
+      "symbol": "runs_dir",
+      "kind": "config",
+      "entrypoint": "config.yamlのruns_dir(既定 runs)",
+      "description": "ミッション状態(mission.json/ledger.jsonl/artifacts)の永続化先ディレクトリ。RunStore/list/report/gc/watch状態ファイルが参照する。",
+      "loc": 1,
+      "referenced_by": ["orgh/cli.py", "orgh/watcher.py", "orgh/gc.py", "orgh/report.py", "orgh/listing.py", "orgh/sources/obsidian.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::prompts_dir",
+      "path": "config.example.yaml",
+      "symbol": "prompts_dir",
+      "kind": "config",
+      "entrypoint": "config.yamlのprompts_dir(既定 prompts)",
+      "description": "planner/reviewer/retro/worker_preamble/replan/gcの各役割プロンプトテンプレートの置き場。自己改変ガードの保護対象パスの1つでもある。",
+      "loc": 1,
+      "referenced_by": ["orgh/planner.py", "orgh/doctor.py", "orgh/guard.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::playbooks_dir",
+      "path": "config.example.yaml",
+      "symbol": "playbooks_dir",
+      "kind": "config",
+      "entrypoint": "config.yamlのplaybooks_dir(既定 playbooks)",
+      "description": "Retroが蒸留した組織知(教訓)の置き場。自己改変ガードの保護対象パスの1つでもある。gcの代謝対象。",
+      "loc": 1,
+      "referenced_by": ["orgh/planner.py", "orgh/gc.py", "orgh/guard.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::projects_map",
+      "path": "config.example.yaml",
+      "symbol": "projects_map",
+      "kind": "config",
+      "entrypoint": "config.yamlのprojects_map(既定なし・任意)",
+      "description": "対象プロジェクトの絶対パス⇔説明の対応表ファイルのパス。設定するとPlannerのworkdir解決に注入され、曖昧なノートでも正しいリポで実行させる。",
+      "loc": 3,
+      "referenced_by": ["orgh/planner.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::workers.enabled",
+      "path": "config.example.yaml",
+      "symbol": "workers.enabled",
+      "kind": "config",
+      "entrypoint": "config.yamlのworkers.enabled(例 [claude_code, codex])",
+      "description": "利用可能なworkerアダプタの一覧。doctorの疎通確認対象とplannerプロンプトへの利用可能worker列挙に使われる。",
+      "loc": 1,
+      "referenced_by": ["orgh/doctor.py", "orgh/planner.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::workers.claude_code",
+      "path": "config.example.yaml",
+      "symbol": "workers.claude_code",
+      "kind": "config",
+      "entrypoint": "config.yamlのworkers.claude_code(bin/model/max_turns/allowed_tools/permission_mode)",
+      "description": "claude CLIをworkerとして呼び出す際のバイナリパス・モデル・最大ターン数・既定allowedTools・permission-modeを設定する。ClaudeCodeAdapterが読む。",
+      "loc": 5,
+      "referenced_by": ["orgh/adapters/base.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::workers.codex",
+      "path": "config.example.yaml",
+      "symbol": "workers.codex",
+      "kind": "config",
+      "entrypoint": "config.yamlのworkers.codex(bin/extra_args)",
+      "description": "codex CLIをworkerとして呼び出す際のバイナリパスと追加フラグ(--sandbox等)を設定する。CodexAdapterが読む。",
+      "loc": 3,
+      "referenced_by": ["orgh/adapters/base.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::workers.shell",
+      "path": "config.example.yaml",
+      "symbol": "workers.shell",
+      "kind": "config",
+      "entrypoint": "config.yamlのworkers.shell.argv(例 [\"gemini\",\"-p\",\"{prompt}\"])",
+      "description": "任意の他LLM CLI(gemini等)を汎用シェルコマンドテンプレートで呼び出すための設定枠。{prompt}をプレースホルダとして置換する。ShellAdapterが読む。",
+      "loc": 2,
+      "referenced_by": ["orgh/adapters/base.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::roles",
+      "path": "config.example.yaml",
+      "symbol": "roles",
+      "kind": "config",
+      "entrypoint": "config.yamlのroles.{planner,reviewer,retro}(model/max_turns/allowed_tools)",
+      "description": "経営層・ゲート層(Planner/Reviewer/Retro)ごとにモデルとツール許可・最大ターン数を個別設定する。_ask_json()がworkers.claude_codeへ上書き合成して使う。",
+      "loc": 14,
+      "referenced_by": ["orgh/planner.py", "orgh/doctor.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::loop.parallel",
+      "path": "config.example.yaml",
+      "symbol": "loop.parallel",
+      "kind": "config",
+      "entrypoint": "config.yamlのloop.parallel(既定 3)",
+      "description": "run_mission()のThreadPoolExecutorに渡す同時実行タスク数。",
+      "loc": 1,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::loop.max_attempts",
+      "path": "config.example.yaml",
+      "symbol": "loop.max_attempts",
+      "kind": "config",
+      "entrypoint": "config.yamlのloop.max_attempts(既定 3)",
+      "description": "1タスクあたりの実行+差し戻しの上限回数。_attempt_loop()のwhileループ条件。",
+      "loc": 1,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::loop.task_timeout",
+      "path": "config.example.yaml",
+      "symbol": "loop.task_timeout",
+      "kind": "config",
+      "entrypoint": "config.yamlのloop.task_timeout(既定 3600秒)",
+      "description": "worker subprocess 1回の実行タイムアウト秒数。BaseAdapter.run()のsubprocess.communicate(timeout=)に渡す。",
+      "loc": 1,
+      "referenced_by": ["orgh/orchestrator.py", "orgh/adapters/base.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::loop.budget_usd",
+      "path": "config.example.yaml",
+      "symbol": "loop.budget_usd",
+      "kind": "config",
+      "entrypoint": "config.yamlのloop.budget_usd(既定 null=無制限)",
+      "description": "ルートミッション全体のコスト上限USD。超過すると未着手タスクをdispatchせずskippedにする(_initiate_budget_stop)。",
+      "loc": 1,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::loop.task_budget_usd",
+      "path": "config.example.yaml",
+      "symbol": "loop.task_budget_usd",
+      "kind": "config",
+      "entrypoint": "config.yamlのloop.task_budget_usd(既定 null=無制限)",
+      "description": "1タスクあたりのコスト上限USD。超過すると次attempt/レビューに進まずそのタスクをfailedにする。",
+      "loc": 1,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/state.py::LoopCfg.infra_max_retries",
+      "path": "orgh/state.py",
+      "symbol": "LoopCfg.infra_max_retries",
+      "kind": "config",
+      "entrypoint": "config.yamlのloop.infra_max_retries / loop.infra_retry_wait(config.example.yamlには未記載、既定 3回/60秒)",
+      "description": "ネットワーク断等インフラ起因エラーのattempt非消費リトライ上限回数と待機秒。3回消化後は通常failure扱いにする。config.example.yamlには例示されていないがLoopCfgスキーマとorchestratorで実装済み。",
+      "loc": 2,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::worktree",
+      "path": "config.example.yaml",
+      "symbol": "worktree",
+      "kind": "config",
+      "entrypoint": "config.yamlのworktree.{enabled,base_ref,root}(既定 enabled=false)",
+      "description": "タスクごとにgit worktreeを分離し、並列タスクの同一リポ衝突を回避する機能の有効化・分岐元・置き場を設定する。既定は無効(後方互換)。",
+      "loc": 4,
+      "referenced_by": ["orgh/orchestrator.py", "orgh/worktree.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::watch.interval",
+      "path": "config.example.yaml",
+      "symbol": "watch.interval",
+      "kind": "config",
+      "entrypoint": "config.yamlのwatch.interval / watch.stabilize_seconds(既定 5秒 / 20秒)",
+      "description": "orgh watchのポーリング間隔と、書きかけノートを拾わないための安定化猶予秒数。",
+      "loc": 2,
+      "referenced_by": ["orgh/watcher.py", "orgh/sources/obsidian.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::watch.writeback",
+      "path": "config.example.yaml",
+      "symbol": "watch.writeback",
+      "kind": "config",
+      "entrypoint": "config.yamlのwatch.writeback(既定 true)",
+      "description": "着火直後にノート末尾へ結果ノートへのリンクを1行追記するかどうか。falseで元ノートを一切変更しない。",
+      "loc": 1,
+      "referenced_by": ["orgh/sources/obsidian.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::watch.gc_interval_days",
+      "path": "config.example.yaml",
+      "symbol": "watch.gc_interval_days",
+      "kind": "config",
+      "entrypoint": "config.yamlのwatch.gc_interval_days(既定 14、null=無効)",
+      "description": "watchデーモンがこの日数ごとに自動でorgh gc相当を実行する間隔。nullで自動gcを無効化できる。",
+      "loc": 1,
+      "referenced_by": ["orgh/watcher.py"]
+    },
+    {
+      "feature_id": "config.example.yaml::gc.retention_days",
+      "path": "config.example.yaml",
+      "symbol": "gc.retention_days",
+      "kind": "config",
+      "entrypoint": "config.yamlのgc.retention_days(既定 90)",
+      "description": "orgh gc実行時にruns/配下でこの日数より古いミッションディレクトリをruns/_archive/へ退避する保持期間。",
+      "loc": 2,
+      "referenced_by": ["orgh/gc.py"]
+    },
+    {
+      "feature_id": "orgh/state.py::Budget",
+      "path": "orgh/state.py",
+      "symbol": "Budget",
+      "kind": "module",
+      "entrypoint": "planner.plan()/orchestrator._setup_budget()がミッション開始時に生成、split()で子ミッションへ分割",
+      "description": "予算の共有プール。limit_usd/task_budget_usd/spent_usdを保持し、charge()で親へ伝播、exceeded()で親を含め判定する。再帰的なタスクのサブミッション分解を前提に、上限をミッション単位固定値にせず参照渡しで分割できる設計。",
+      "loc": 44,
+      "referenced_by": ["orgh/planner.py", "orgh/orchestrator.py", "tests/test_budget.py"]
+    },
+    {
+      "feature_id": "orgh/state.py::validate_config",
+      "path": "orgh/state.py",
+      "symbol": "validate_config",
+      "kind": "module",
+      "entrypoint": "load_config()がconfig.yaml読み込み直後に自動実行",
+      "description": "config.yamlをdataclassスキーマで検証する。必須キー(workers)欠落はConfigError、未知キーはConfigWarning、型不一致はConfigErrorとして検知する。",
+      "loc": 21,
+      "referenced_by": ["orgh/state.py"]
+    },
+    {
+      "feature_id": "orgh/state.py::RunStore",
+      "path": "orgh/state.py",
+      "symbol": "RunStore",
+      "kind": "module",
+      "entrypoint": "cli/watcherがミッション開始時にRunStore(runs_dir, mission_id)を生成",
+      "description": "runs/<mission_id>/にmission.json(tmp書き込み→os.replaceでアトミック)とledger.jsonl(追記)を永続化する。ロード時に実行中系ステータス(queued/running/review)をpendingへ巻き戻し、クラッシュ後の再開を可能にする。",
+      "loc": 42,
+      "referenced_by": ["orgh/cli.py", "orgh/watcher.py", "tests/test_budget.py"]
+    },
+    {
+      "feature_id": "orgh/orchestrator.py::run_mission",
+      "path": "orgh/orchestrator.py",
+      "symbol": "run_mission",
+      "kind": "module",
+      "entrypoint": "orgh run/resume/approve、watcher.watch()から呼ばれる",
+      "description": "DAGに従いThreadPoolExecutorでworkerタスクを並列ディスパッチするメインループ。キャンセルフラグ・予算超過・自己改変ガードの承認待ちをループ内で毎回チェックし、全タスクが終端状態になるかブロック確定で終了する。",
+      "loc": 62,
+      "referenced_by": ["orgh/cli.py", "orgh/watcher.py", "tests/test_budget.py"]
+    },
+    {
+      "feature_id": "orgh/orchestrator.py::_attempt_loop",
+      "path": "orgh/orchestrator.py",
+      "symbol": "_attempt_loop",
+      "kind": "module",
+      "entrypoint": "run_mission()が準備完了タスクごとにpool.submitで呼ぶ",
+      "description": "1タスクのworker実行→レビュー→合格/差し戻し/REPLAN/予算超過/インフラエラーリトライを管理するattemptループ。合格でtask.doneにしcommit_task_result()でブランチコミット、上限到達でfailedにする。",
+      "loc": 137,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/orchestrator.py::_initiate_cancel",
+      "path": "orgh/orchestrator.py",
+      "symbol": "_initiate_cancel",
+      "kind": "module",
+      "entrypoint": "run_mission()のループがCANCELフラグまたはpoll_cancel()検知時に自動呼び出し",
+      "description": "procreg.terminate()で実行中subprocessへSIGTERMを送り、未着手タスクをcancelledに確定する。",
+      "loc": 13,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/orchestrator.py::_initiate_budget_stop",
+      "path": "orgh/orchestrator.py",
+      "symbol": "_initiate_budget_stop",
+      "kind": "module",
+      "entrypoint": "run_mission()のループがbudget.exceeded()検知時に自動呼び出し",
+      "description": "予算超過時に実行中タスクの完了は待つが、未着手タスクをdispatchせずskippedに変更する。",
+      "loc": 12,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/orchestrator.py::_retry_prompt",
+      "path": "orgh/orchestrator.py",
+      "symbol": "_retry_prompt",
+      "kind": "module",
+      "entrypoint": "_attempt_loop()がエラー/差し戻し再試行時に呼ぶ",
+      "description": "再試行プロンプトの構築。resume対応workerにはフィードバックのみ渡し、非対応worker(codex等)には元タスク一式+追記の自己完結プロンプトを渡す(セッション文脈を失う対策)。",
+      "loc": 8,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/planner.py::plan",
+      "path": "orgh/planner.py",
+      "symbol": "plan",
+      "kind": "module",
+      "entrypoint": "orgh run、watcher.watch()の新規ノート検知時に自動呼び出し",
+      "description": "planner.mdテンプレートにintent/context/playbooks/projects/workersを埋め込み、claude -pへ1発投げてタスクDAG(JSON)を得てMissionを生成する。",
+      "loc": 16,
+      "referenced_by": ["orgh/cli.py", "orgh/watcher.py"]
+    },
+    {
+      "feature_id": "orgh/planner.py::review",
+      "path": "orgh/planner.py",
+      "symbol": "review",
+      "kind": "module",
+      "entrypoint": "_attempt_loop()がworker成果物完成後に自動呼び出し",
+      "description": "reviewer.mdテンプレートでタスクの成果物が受け入れ条件を満たすか判定し、(pass, feedback)を返す品質ゲート。",
+      "loc": 8,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/planner.py::retro",
+      "path": "orgh/planner.py",
+      "symbol": "retro",
+      "kind": "module",
+      "entrypoint": "orgh run(--no-retro未指定時)、resume完走時、watcher.watch()のミッション完了時に自動呼び出し",
+      "description": "完了ミッションから再現性ある教訓を抽出し、playbooks/<name>.mdへメタデータ(mission_id/date)付きで追記する。増幅ループの核。",
+      "loc": 25,
+      "referenced_by": ["orgh/cli.py", "orgh/watcher.py"]
+    },
+    {
+      "feature_id": "orgh/planner.py::replan_task",
+      "path": "orgh/planner.py",
+      "symbol": "replan_task",
+      "kind": "module",
+      "entrypoint": "_attempt_loop()がreviewerからREPLAN:指摘を受けた際に自動呼び出し(1タスク1回まで)",
+      "description": "replan.mdテンプレートでタスクの指示・受け入れ条件そのものをPlannerに再設計させるエスカレーション経路。",
+      "loc": 9,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/planner.py::worker_prompt",
+      "path": "orgh/planner.py",
+      "symbol": "worker_prompt",
+      "kind": "module",
+      "entrypoint": "_attempt_loop()がタスク実行前に自動呼び出し",
+      "description": "worker_preamble.mdテンプレートにタスク内容とplaybook注入を埋め込み、workerへの完全な指示文を組み立てる。",
+      "loc": 5,
+      "referenced_by": ["orgh/orchestrator.py", "tests/test_paths.py"]
+    },
+    {
+      "feature_id": "orgh/planner.py::_playbook_context",
+      "path": "orgh/planner.py",
+      "symbol": "_playbook_context",
+      "kind": "module",
+      "entrypoint": "plan()/worker_prompt()が内部で自動呼び出し",
+      "description": "playbooks/*.mdの全行をメタデータ日付降順でソートし、新しい教訓から順にmax_chars(既定8000/4000)へ詰める。playbookが育つほど古い教訓から溢れ、最新の教訓が常に注入に生き残る設計。",
+      "loc": 27,
+      "referenced_by": ["orgh/planner.py"]
+    },
+    {
+      "feature_id": "orgh/planner.py::_projects_context",
+      "path": "orgh/planner.py",
+      "symbol": "_projects_context",
+      "kind": "module",
+      "entrypoint": "plan()が内部で自動呼び出し(config.projects_map設定時のみ実体を返す)",
+      "description": "config.projects_mapで指定されたファイルの内容をPlannerプロンプトに注入し、workdir解決の曖昧さを減らす。",
+      "loc": 15,
+      "referenced_by": ["orgh/planner.py", "tests/test_projects_map.py"]
+    },
+    {
+      "feature_id": "orgh/doctor.py::run_doctor",
+      "path": "orgh/doctor.py",
+      "symbol": "run_doctor",
+      "kind": "module",
+      "entrypoint": "`orgh doctor`",
+      "description": "worker/roles各バイナリの--version疎通、prompts_dirの必須テンプレート存在、vaultの到達性・書き込み権限、runs_dirの書き込み権限を一括検査する。",
+      "loc": 51,
+      "referenced_by": ["orgh/cli.py"]
+    },
+    {
+      "feature_id": "orgh/gc.py::run_gc",
+      "path": "orgh/gc.py",
+      "symbol": "run_gc",
+      "kind": "module",
+      "entrypoint": "`orgh gc`、watcher._maybe_gc()の定期自動実行",
+      "description": "playbookの代謝(バックアップ→古い教訓退避→統合Retro)とruns/保持ポリシー適用を厳守の順序で実行する。",
+      "loc": 11,
+      "referenced_by": ["orgh/cli.py", "orgh/watcher.py", "tests/test_gc.py"]
+    },
+    {
+      "feature_id": "orgh/gc.py::_backup",
+      "path": "orgh/gc.py",
+      "symbol": "_backup",
+      "kind": "module",
+      "entrypoint": "run_gc()が最初のステップとして自動呼び出し",
+      "description": "playbooks/_backup/<date>/へ全playbookファイルを全量コピーする。失敗したらOSErrorで即中断しplaybooksに一切触れない安全弁。",
+      "loc": 7,
+      "referenced_by": ["orgh/gc.py"]
+    },
+    {
+      "feature_id": "orgh/gc.py::_archive_old_lessons",
+      "path": "orgh/gc.py",
+      "symbol": "_archive_old_lessons",
+      "kind": "module",
+      "entrypoint": "run_gc()がバックアップ後に自動呼び出し",
+      "description": "180日(ARCHIVE_AFTER_DAYS)より古いメタデータ日付の教訓行をplaybooks/_archive/へ退避(削除ではなく移動)する。",
+      "loc": 22,
+      "referenced_by": ["orgh/gc.py"]
+    },
+    {
+      "feature_id": "orgh/gc.py::_consolidate",
+      "path": "orgh/gc.py",
+      "symbol": "_consolidate",
+      "kind": "module",
+      "entrypoint": "run_gc()が退避後に自動呼び出し",
+      "description": "退避後の各playbookファイルをprompts/gc.md経由でLLMに1回投げ、重複統合・矛盾解消(新日付優先)した結果で全置換する。",
+      "loc": 15,
+      "referenced_by": ["orgh/gc.py"]
+    },
+    {
+      "feature_id": "orgh/gc.py::_gc_runs",
+      "path": "orgh/gc.py",
+      "symbol": "_gc_runs",
+      "kind": "module",
+      "entrypoint": "run_gc()が最後のステップとして自動呼び出し",
+      "description": "gc.retention_days(既定90)を超えた古いミッションディレクトリをruns/_archive/へ移動する。",
+      "loc": 22,
+      "referenced_by": ["orgh/gc.py"]
+    },
+    {
+      "feature_id": "orgh/listing.py::list_missions",
+      "path": "orgh/listing.py",
+      "symbol": "list_missions",
+      "kind": "module",
+      "entrypoint": "`orgh list`",
+      "description": "runs_dir配下のmission.jsonを直接読み、id/意図要約(60字丸め)/導出ステータス(failed/done/running)/コスト/タスク進捗を集計する。RunStore.load()の副作用(ステータス巻き戻し)を避けるため素のJSONを読む。",
+      "loc": 29,
+      "referenced_by": ["orgh/cli.py", "tests/test_list.py"]
+    },
+    {
+      "feature_id": "orgh/procreg.py::terminate",
+      "path": "orgh/procreg.py",
+      "symbol": "terminate",
+      "kind": "module",
+      "entrypoint": "orchestrator._initiate_cancel()がキャンセル確定時に自動呼び出し",
+      "description": "mission_id→実行中subprocess(Popen)のプロセス内メモリレジストリ。register/unregisterはadapter.run()が、terminateはキャンセル処理がSIGTERM送信に使う。",
+      "loc": 32,
+      "referenced_by": ["orgh/orchestrator.py", "orgh/adapters/base.py", "tests/test_cancel.py"]
+    },
+    {
+      "feature_id": "orgh/adapters/base.py::BaseAdapter.run",
+      "path": "orgh/adapters/base.py",
+      "symbol": "BaseAdapter.run",
+      "kind": "module",
+      "entrypoint": "_attempt_loop()・_ask_json()がworker実行のたびに呼ぶ",
+      "description": "全workerアダプタ共通のsubprocess実行テンプレート。Popenで起動しprocregへ登録、タイムアウトはWorkerResult(ok=False, output=\"timeout\")に正規化する。",
+      "loc": 22,
+      "referenced_by": ["orgh/orchestrator.py", "orgh/planner.py"]
+    },
+    {
+      "feature_id": "orgh/adapters/base.py::get_adapter",
+      "path": "orgh/adapters/base.py",
+      "symbol": "get_adapter",
+      "kind": "module",
+      "entrypoint": "orchestrator._attempt_loop()がtask.workerで、planner._ask_json()が\"claude_code\"固定で呼ぶ",
+      "description": "worker名文字列からREGISTRY経由でアダプタインスタンスを解決するファクトリ。",
+      "loc": 4,
+      "referenced_by": ["orgh/orchestrator.py", "orgh/planner.py"]
+    },
+    {
+      "feature_id": "orgh/sources/base.py::SourceAdapter",
+      "path": "orgh/sources/base.py",
+      "symbol": "SourceAdapter",
+      "kind": "module",
+      "entrypoint": "get_source()が返す抽象基底。ObsidianAdapterが実装する",
+      "description": "入力ソースの共通インターフェース(list_candidates/should_trigger/find/build_context/writeback/notify_failure/feedback/mark_processed/is_processed)。将来Notion等を追加する拡張点。",
+      "loc": 50,
+      "referenced_by": ["orgh/sources/obsidian.py"]
+    },
+    {
+      "feature_id": "orgh/sources/base.py::get_source",
+      "path": "orgh/sources/base.py",
+      "symbol": "get_source",
+      "kind": "module",
+      "entrypoint": "cli.py(scan/run --note)、watcher.watch()が呼ぶ",
+      "description": "config.source.type(既定obsidian)でSourceAdapter実装を選択するファクトリ。",
+      "loc": 10,
+      "referenced_by": ["orgh/cli.py", "orgh/watcher.py", "tests/test_sources.py"]
+    },
+    {
+      "feature_id": "orgh/sources/obsidian.py::scan_vault",
+      "path": "orgh/sources/obsidian.py",
+      "symbol": "scan_vault",
+      "kind": "module",
+      "entrypoint": "ObsidianAdapter.list_candidates()が内部で自動呼び出し",
+      "description": "vault配下の全*.mdをrglobし、隠しディレクトリを除外しつつミッション候補(inbox配下 or mission_tag)とタイトル索引を構築する。",
+      "loc": 16,
+      "referenced_by": ["orgh/sources/obsidian.py"]
+    },
+    {
+      "feature_id": "orgh/sources/obsidian.py::build_context_digest",
+      "path": "orgh/sources/obsidian.py",
+      "symbol": "build_context_digest",
+      "kind": "module",
+      "entrypoint": "ObsidianAdapter.build_context()が内部で自動呼び出し",
+      "description": "ミッションノート本文とwikilinkで辿れる関連ノート(depth段まで)を連結し、max_chars(既定24000)で切り詰めてPlanner文脈を作る。",
+      "loc": 17,
+      "referenced_by": ["orgh/sources/obsidian.py"]
+    },
+    {
+      "feature_id": "orgh/sources/obsidian.py::WatchState",
+      "path": "orgh/sources/obsidian.py",
+      "symbol": "WatchState",
+      "kind": "module",
+      "entrypoint": "ObsidianAdapter.__init__がruns_dir/_watch_state.jsonとして自動生成",
+      "description": "ノートパス→本文ハッシュの対応をruns/_watch_state.jsonに永続化し、着火済みノートの再着火を防ぐ。",
+      "loc": 14,
+      "referenced_by": ["orgh/sources/obsidian.py"]
+    },
+    {
+      "feature_id": "orgh/watcher.py::watch",
+      "path": "orgh/watcher.py",
+      "symbol": "watch",
+      "kind": "module",
+      "entrypoint": "`orgh watch`",
+      "description": "config.watch.interval秒ごとにsourceをポーリングし、着火条件を満たすノートごとにplan→run_mission→retroを実行、結果を都度フィードバック(ResultsNote)へ反映するイベント駆動デーモンのメインループ。",
+      "loc": 46,
+      "referenced_by": ["orgh/cli.py"]
+    },
+    {
+      "feature_id": "orgh/guard.py::needs_approval",
+      "path": "orgh/guard.py",
+      "symbol": "needs_approval",
+      "kind": "hook",
+      "entrypoint": "run_mission()のディスパッチループが準備完了タスクごとに自動評価(configで無効化不可)",
+      "description": "自己改変ガード。task.workdirがorghパッケージ自身・prompts_dir・playbooks_dirを指す場合、自動実行せずawaiting_approvalで停止させる。解除は`orgh approve`のみ。",
+      "loc": 13,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/sources/obsidian.py::is_triggered",
+      "path": "orgh/sources/obsidian.py",
+      "symbol": "is_triggered",
+      "kind": "hook",
+      "entrypoint": "ノート本文の#<trigger_tag>インラインタグ、またはfrontmatterの`orgh: <trigger_tag>`",
+      "description": "明示着火条件の判定。inbox配置やmission_tagだけでは着火せず、この条件を満たして初めてミッションが自動生成される。",
+      "loc": 13,
+      "referenced_by": ["orgh/sources/obsidian.py"]
+    },
+    {
+      "feature_id": "orgh/watcher.py::_maybe_gc",
+      "path": "orgh/watcher.py",
+      "symbol": "_maybe_gc",
+      "kind": "hook",
+      "entrypoint": "watch()のループ末尾で毎周チェック、watch.gc_interval_days(既定14日)経過で自動発火",
+      "description": "watchデーモンが定期的にorgh gc相当を自動実行する。初回パス(stateファイル無し)は現在時刻を基準に記録するだけでgcは走らせない。",
+      "loc": 23,
+      "referenced_by": ["orgh/watcher.py"]
+    },
+    {
+      "feature_id": "orgh/results.py::ResultsNote.cancel_requested",
+      "path": "orgh/results.py",
+      "symbol": "ResultsNote.cancel_requested",
+      "kind": "hook",
+      "entrypoint": "結果ノート本文への#cancelタグ追記(vault側からの中断指示)",
+      "description": "run_mission()にpoll_cancelとして渡され、ループごとにポーリングされる。Trueを返すとCANCELフラグ経路に合流し、ターミナルを介さずvault編集だけでミッションを中断できる。",
+      "loc": 5,
+      "referenced_by": ["orgh/watcher.py"]
+    },
+    {
+      "feature_id": "orgh/orchestrator.py::_is_infra_error",
+      "path": "orgh/orchestrator.py",
+      "symbol": "_is_infra_error",
+      "kind": "hook",
+      "entrypoint": "worker実行が失敗した際、出力が_INFRA_ERROR_RE(タイムアウト・接続断等の既知署名)にマッチすると自動発火",
+      "description": "ネットワーク断等インフラ起因のエラーをworkerの失敗と区別し、attemptを消費せず待機後リトライする(infra_max_retries上限つき)。実運用での接続断による予算浪費事例への対処。",
+      "loc": 14,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/orchestrator.py::replan_escalation",
+      "path": "orgh/orchestrator.py",
+      "symbol": "replan_escalation",
+      "kind": "hook",
+      "entrypoint": "reviewerのfeedbackが\"REPLAN:\"で始まると_attempt_loop内で自動発火(1タスク1回まで)",
+      "description": "Reviewerが計画自体の欠陥を指摘した場合、Workerを再実行せずplanner.replan_task()でタスクの指示・受け入れ条件を再設計させるエスカレーション経路。2回目のREPLANはfailedに確定する。",
+      "loc": 17,
+      "referenced_by": ["orgh/orchestrator.py", "prompts/reviewer.md", "prompts/replan.md"]
+    },
+    {
+      "feature_id": "orgh/adapters/base.py::ClaudeCodeAdapter",
+      "path": "orgh/adapters/base.py",
+      "symbol": "ClaudeCodeAdapter",
+      "kind": "integration",
+      "entrypoint": "config.workers.claude_code、またはtask.worker=\"claude_code\"(既定)",
+      "description": "claude CLIをheadless(-p --output-format json)で叩き、result/session_id/total_cost_usdを取得する。--resumeでセッション継続によるフィードバック再利用に対応。",
+      "loc": 34,
+      "referenced_by": ["orgh/orchestrator.py", "orgh/planner.py"]
+    },
+    {
+      "feature_id": "orgh/adapters/base.py::CodexAdapter",
+      "path": "orgh/adapters/base.py",
+      "symbol": "CodexAdapter",
+      "kind": "integration",
+      "entrypoint": "config.workers.codex、task.worker=\"codex\"指定時",
+      "description": "codex CLIを`codex exec`非対話モードで叩く。resume非対応のため差し戻し再試行は自己完結プロンプトで渡される。",
+      "loc": 13,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/adapters/base.py::ShellAdapter",
+      "path": "orgh/adapters/base.py",
+      "symbol": "ShellAdapter",
+      "kind": "integration",
+      "entrypoint": "config.workers.shell.argv、task.worker=\"shell\"指定時",
+      "description": "任意のCLI LLM(gemini等)をconfigのargvテンプレート({prompt}を実プロンプトに置換)で呼び出す汎用アダプタ。",
+      "loc": 11,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/sources/obsidian.py::ObsidianAdapter",
+      "path": "orgh/sources/obsidian.py",
+      "symbol": "ObsidianAdapter",
+      "kind": "integration",
+      "entrypoint": "config.source.type=obsidian(既定)",
+      "description": "Obsidian vaultをファイル直読み(MCP不要)で扱うSourceAdapter実装。scan/find/build_context/writeback/feedback(ResultsNote)を提供する。",
+      "loc": 69,
+      "referenced_by": ["orgh/sources/base.py", "tests/test_sources.py"]
+    },
+    {
+      "feature_id": "orgh/worktree.py::ensure_task_worktree",
+      "path": "orgh/worktree.py",
+      "symbol": "ensure_task_worktree",
+      "kind": "integration",
+      "entrypoint": "_attempt_loop()がworktree.enabled時にタスク開始前へ自動呼び出し",
+      "description": "タスクをgit worktree(<root>/<mission_id>-<task_id>)とブランチ(orgh/<mission_id>/<task_id>)に分離する。差し戻し再実行・resumeは既存worktreeを再利用し、依存タスクのブランチをマージしてから開始する。",
+      "loc": 40,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/worktree.py::merge_dep_branches",
+      "path": "orgh/worktree.py",
+      "symbol": "merge_dep_branches",
+      "kind": "integration",
+      "entrypoint": "ensure_task_worktree()が新規worktree作成直後に自動呼び出し",
+      "description": "依存タスクの成果ブランチ(orgh/<mission>/<dep>)を新規worktreeへマージする。衝突時はabortしてスキップし、タスク実行自体は止めない。",
+      "loc": 18,
+      "referenced_by": ["orgh/worktree.py"]
+    },
+    {
+      "feature_id": "orgh/worktree.py::commit_task_result",
+      "path": "orgh/worktree.py",
+      "symbol": "commit_task_result",
+      "kind": "integration",
+      "entrypoint": "_attempt_loop()がレビュー合格直後に自動呼び出し",
+      "description": "合格タスクの成果をタスクブランチへ環境非依存identity(orgh@local)でコミットし、短縮ハッシュを返す。依存タスク・検収への受け渡し経路。",
+      "loc": 16,
+      "referenced_by": ["orgh/orchestrator.py"]
+    },
+    {
+      "feature_id": "orgh/worktree.py::cleanup_mission_worktrees",
+      "path": "orgh/worktree.py",
+      "symbol": "cleanup_mission_worktrees",
+      "kind": "integration",
+      "entrypoint": "`orgh cleanup <mission_id>`",
+      "description": "ミッションの全タスクについてgit worktreeとタスクブランチを削除する。",
+      "loc": 30,
+      "referenced_by": ["orgh/cli.py"]
+    },
+    {
+      "feature_id": "orgh/report.py::build_report",
+      "path": "orgh/report.py",
+      "symbol": "build_report",
+      "kind": "report",
+      "entrypoint": "`orgh report [--days N] [--vault]`",
+      "description": "ledger.jsonlとmission.jsonから週次の初回attempt合格率/差し戻し率、ミッション別コスト・所要時間、worker別失敗率を集計しMarkdownレポートを生成する。",
+      "loc": 35,
+      "referenced_by": ["orgh/cli.py", "tests/test_report.py"]
+    },
+    {
+      "feature_id": "orgh/results.py::ResultsNote",
+      "path": "orgh/results.py",
+      "symbol": "ResultsNote",
+      "kind": "report",
+      "entrypoint": "ObsidianAdapter.feedback(mission_id)が返す。watcherが着火直後・タスク完了ごと・終了時に自動呼び出し",
+      "description": "vault内<vault>/orgh/results/<mission_id>.mdへミッション進行・結果を全文再生成で書き出す。承認待ち警告、検収ポイント、成果物リンク(artifacts/git diff要約)を含む。",
+      "loc": 150,
+      "referenced_by": ["orgh/sources/obsidian.py"]
+    },
+    {
+      "feature_id": "orgh/status_json.py::status_payload",
+      "path": "orgh/status_json.py",
+      "symbol": "status_payload",
+      "kind": "report",
+      "entrypoint": "`orgh status <mission_id> --json`",
+      "description": "Missionオブジェクトから機械可読なJSON(mission_status/tasks/cost_usd/budget_usd)を組み立てる純関数。",
+      "loc": 32,
+      "referenced_by": ["orgh/cli.py", "tests/test_status_json.py"]
+    },
+    {
+      "feature_id": "prompts/planner.md::planner.md",
+      "path": "prompts/planner.md",
+      "symbol": "planner.md",
+      "kind": "prompt",
+      "entrypoint": "planner._read_prompt(cfg, \"planner.md\")がplan()実行時に読み込む",
+      "description": "経営企画責任者(Planner)役プロンプト。intent/context/playbooks/projects/workersを埋め込みタスクDAG(JSON)を出力させる。1〜8タスク・機械検証可能なacceptance必須などの制約を明記する。",
+      "loc": 48,
+      "referenced_by": ["orgh/planner.py"]
+    },
+    {
+      "feature_id": "prompts/reviewer.md::reviewer.md",
+      "path": "prompts/reviewer.md",
+      "symbol": "reviewer.md",
+      "kind": "prompt",
+      "entrypoint": "planner._read_prompt(cfg, \"reviewer.md\")がreview()実行時に読み込む",
+      "description": "品質ゲート責任者(Reviewer)役プロンプト。acceptance自体の検査(主観語のみならREPLAN:)と、機械検証可能な条件の実際の実行確認を指示する。",
+      "loc": 19,
+      "referenced_by": ["orgh/planner.py"]
+    },
+    {
+      "feature_id": "prompts/retro.md::retro.md",
+      "path": "prompts/retro.md",
+      "symbol": "retro.md",
+      "kind": "prompt",
+      "entrypoint": "planner._read_prompt(cfg, \"retro.md\")がretro()実行時に読み込む",
+      "description": "組織学習責任者(Retro)役プロンプト。単発の運用値調整やミッション固有の一過性事情は教訓に書かせず、構造的に再現しうるパターンだけを蒸留させる。",
+      "loc": 24,
+      "referenced_by": ["orgh/planner.py"]
+    },
+    {
+      "feature_id": "prompts/replan.md::replan.md",
+      "path": "prompts/replan.md",
+      "symbol": "replan.md",
+      "kind": "prompt",
+      "entrypoint": "planner._read_prompt(cfg, \"replan.md\")がreplan_task()実行時に読み込む",
+      "description": "REPLANエスカレーション用Plannerプロンプト。現在の指示・受け入れ条件・REPLAN理由から、workerの行動だけで成立可能な受け入れ条件へ再設計させる。",
+      "loc": 24,
+      "referenced_by": ["orgh/planner.py"]
+    },
+    {
+      "feature_id": "prompts/worker_preamble.md::worker_preamble.md",
+      "path": "prompts/worker_preamble.md",
+      "symbol": "worker_preamble.md",
+      "kind": "prompt",
+      "entrypoint": "planner._read_prompt(cfg, \"worker_preamble.md\")がworker_prompt()実行時に読み込む",
+      "description": "実働メンバー(Worker)役プロンプトの雛形。タスク・受け入れ条件・playbook注入を埋め込み、最終報告に変更内容と受け入れ条件充足の説明を要求する。",
+      "loc": 12,
+      "referenced_by": ["orgh/planner.py"]
+    },
+    {
+      "feature_id": "prompts/gc.md::gc.md",
+      "path": "prompts/gc.md",
+      "symbol": "gc.md",
+      "kind": "prompt",
+      "entrypoint": "planner._read_prompt(cfg, \"gc.md\")がgc._consolidate()実行時に読み込む",
+      "description": "組織学習責任者の統合GC担当プロンプト。playbook内の重複教訓の統合、矛盾教訓の新日付優先解消、メタデータ保持を指示する。",
+      "loc": 10,
+      "referenced_by": ["orgh/gc.py"]
+    }
+  ]
+}
