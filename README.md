@@ -190,6 +190,48 @@ pytest tests/
 
 モックバイナリ方式のSTスイート(`tests/mocks/claude`・`tests/mocks/codex`)が走る。~30秒。
 
+## デスクトップアプリ(orgh Desktop)
+
+`orgh`本体は今まで通りCLIとして使える(下記「使い方」節はそのまま有効)。
+`desktop/`には、同じ`orgh`をサブプロセスとして呼び出すTauri v2製のGUIラッパー
+「orgh Desktop」がある — **CLIを置き換えるものではなく、その派生**。ミッション一覧・
+詳細(タスク表・コスト・依存関係DAG)・新規ミッション起動・ライブログ表示をGUIで行える。
+
+CLI(`orgh/`)⇔Rustブリッジ(`desktop/src-tauri/`)⇔React UI(`desktop/src/`)の
+連携契約は [`desktop/API.md`](desktop/API.md) と [`desktop/src/types.ts`](desktop/src/types.ts)
+がSSOT。実データでの結線・実起動検証の記録は [`desktop/docs/VERIFY.md`](desktop/docs/VERIFY.md)。
+
+![orgh Desktop — ミッション詳細画面(実データ)](desktop/docs/screenshots/app-running.png)
+
+### 前提
+
+- Node.js / npm
+- Rust(stable。未導入なら `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- `orgh`本体がPATHで解決できること(`pip install -e .`等)、またはGUIの設定画面で
+  `orgh`バイナリの絶対パスを指定できること
+
+### 開発起動
+
+```bash
+cd desktop
+npm install
+npm run tauri dev
+```
+
+初回起動時は設定画面(左下「設定」)で`orgh --config`に渡すconfig.yamlの絶対パスを
+指定すること(既定値`config.yaml`はGUIプロセスの実行時cwdに依存する相対パスのため)。
+
+### ビルド
+
+```bash
+cd desktop
+npm install
+npm run tauri build          # 配布用(.appのみ。tauri.conf.jsonのtargetsで限定済み — .dmgが要る場合は targets を "all" に戻す)
+npm run tauri build -- --debug  # デバッグビルド(高速・検証用)
+```
+
+生成物は `desktop/src-tauri/target/{debug,release}/bundle/macos/orgh Desktop.app`。
+
 ## 既知の割り切り / 次の拡張候補
 
 - **規模と成熟度**: 単一マシン・個人運用スケールの実装であり、マルチテナントや分散実行は扱わない。テストはモックCLI方式のST含む123件だが、実ミッションの運用実績はまだ少数で、そこで見つかった問題(reviewerのターン上限死、予算ガードの初期値、retroのノイズ増幅傾向)は都度コミットとして修正している — 経緯は`HANDOFF.md`とgit logが正直な記録

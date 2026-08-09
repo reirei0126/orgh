@@ -9,3 +9,8 @@ build/
 dist/
 ops/
 docs/product/*.pdf
+
+# desktop/ (Tauri v2 + React + Vite)
+node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

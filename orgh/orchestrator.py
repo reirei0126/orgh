@@ -10,6 +10,7 @@ Claude Codeタスクは session_id を保持し --resume でフィードバッ�
 """
 from __future__ import annotations
 
+import fcntl
 import re
 import time
 import traceback
@@ -64,12 +65,37 @@ def _cancel_flag(store: RunStore):
     return store.dir / "CANCEL"
 
 
+def _cancellable_sleep(store: RunStore, seconds: float) -> bool:
+    """リトライ待機。CANCEL検知で早期復帰しTrueを返す。
+
+    素のtime.sleepだと待機中のキャンセルが最大でinfra_wait(既定60秒)止まらない
+    (停止対象subprocessが存在しない区間のため、terminateでは中断できない)。"""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if _cancel_flag(store).exists():
+            return True
+        time.sleep(min(1.0, max(0.0, deadline - time.time())))
+    return _cancel_flag(store).exists()
+
+
+class _CancelledDuringRole(Exception):
+    """キャンセルのterminateがreviewer/planner subprocessを落とした際の内部信号。
+    包括エラーハンドラでfailedに化けさせず、cancelledとして確定させる。"""
+
+
 def _run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     """最外周の薄いラッパ: 実処理(_attempt_loop)の全例外を1タスクのfailedに閉じ込め、
     ミッション全体を道連れにしない。"""
     try:
         return _attempt_loop(cfg, store, t, budget)
     except Exception as e:
+        # キャンセルのterminateが引き起こした例外(replan中のplanner死など)は
+        # failedではなくcancelled: failedにすると通常resumeで復元されない
+        if _cancel_flag(store).exists() or isinstance(e, _CancelledDuringRole):
+            with store.lock:
+                t.status = "cancelled"
+            store.log("task.cancelled_during_role", task=t.id, error=repr(e)[:300])
+            return t
         with store.lock:
             t.status = "failed"
             t.review_notes = f"internal error: {e!r}"
@@ -84,14 +110,24 @@ def _review_with_retry(cfg: dict, store: RunStore, t: Task, budget: Budget,
     worker実行はやり直さない(成果とコストを捨てない)。"""
     last: Exception | None = None
     for i in range(retries + 1):
+        if _cancel_flag(store).exists():
+            # terminateされたreviewerの例外を「失敗」と誤認して新しいreviewerを
+            # 起動しない(キャンセル後の再起動はコストと成果確定の両方で有害)
+            raise _CancelledDuringRole("cancelled before/during review")
         try:
-            return review(cfg, t, workdir=t.workdir, budget=budget)
+            # registry_key登録によりcancelのterminate対象にする(未登録だと
+            # レビュー中のキャンセルが効かず、キャンセル後に成果が確定する)
+            return review(cfg, t, workdir=t.workdir, budget=budget,
+                          registry_key=store.dir.name)
         except Exception as e:  # _ask_jsonのRuntimeError/JSON解釈失敗など
+            if _cancel_flag(store).exists():
+                raise _CancelledDuringRole("review terminated by cancel") from e
             last = e
             if i < retries:
                 store.log("role.retry", role="reviewer", task=t.id,
                           retry=i + 1, error=repr(e)[:300])
-                time.sleep(wait)
+                if _cancellable_sleep(store, wait):
+                    raise _CancelledDuringRole("cancelled during retry wait") from e
     raise last  # type: ignore[misc]
 
 
@@ -181,7 +217,10 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                           detail=res.output[:200])
                 with store.lock:
                     t.attempts -= 1  # このattemptは消費しない
-                time.sleep(infra_wait)
+                if _cancellable_sleep(store, infra_wait):
+                    with store.lock:
+                        t.status = "cancelled"
+                    return t
                 continue  # プロンプトは変えずそのまま再試行
             prompt = _retry_prompt(
                 adapter, cfg, t,
@@ -193,6 +232,10 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         try:
             passed, feedback = _review_with_retry(cfg, store, t, budget,
                                                   wait=infra_wait)
+        except _CancelledDuringRole:
+            # キャンセル起因は_run_taskの包括ハンドラでcancelled化する。
+            # ここの包括exceptに食わせるとfailedに化けて通常resume不能になる
+            raise
         except Exception as e:
             # レビューが繰り返し失敗してもworkerの成果(last_output/worktree)は
             # 捨てない。原因の分かる形でfailedにし、resumeでの再挑戦に委ねる
@@ -207,12 +250,28 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             t.review_notes = feedback
         store.log("task.review", task=t.id, passed=passed)
         if passed:
-            with store.lock:
-                t.status = "done"
-            # 合格成果をタスクブランチへコミット(依存タスク・検収への受け渡し)
+            # レビュー中にキャンセルされていたら成果を確定させない
+            # (terminateを逃れて完走したレビューがここへ到達しうる)
+            if cancel_flag.exists():
+                with store.lock:
+                    t.status = "cancelled"
+                store.log("task.cancelled_after_review", task=t.id)
+                return t
+            # 合格成果をタスクブランチへコミット(依存タスク・検収への受け渡し)。
+            # done確定はコミット後の最終CANCEL確認を通ってから行う: 確認→done→
+            # コミットの順だと、その隙間のキャンセルが成果確定に化ける
             commit = commit_task_result(t, store.dir.name)
             if commit:
                 store.log("task.committed", task=t.id, commit=commit)
+            if cancel_flag.exists():
+                # コミット自体はブランチに残るが、タスクはキャンセル扱いにする
+                # (resumeで再実行され、ブランチは次の合格コミットで進む)
+                with store.lock:
+                    t.status = "cancelled"
+                store.log("task.cancelled_after_review", task=t.id)
+                return t
+            with store.lock:
+                t.status = "done"
             return t
 
         if feedback.startswith("REPLAN:"):
@@ -223,7 +282,8 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                     t.review_notes = f"REPLAN上限超過(再設計は1回まで): {feedback[:500]}"
                 store.log("task.replan_exceeded", task=t.id)
                 return t
-            redesigned = replan_task(cfg, t, feedback, budget)
+            redesigned = replan_task(cfg, t, feedback, budget,
+                                     registry_key=store.dir.name)
             with store.lock:
                 t.prompt = redesigned.get("prompt", t.prompt)
                 t.acceptance = redesigned.get("acceptance", t.acceptance)
@@ -287,8 +347,43 @@ def _initiate_budget_stop(mission: Mission, store: RunStore,
           f"({budget.spent_usd:.4f}/{budget.limit_usd} USD) — 未着手をskip")
 
 
+def acquire_mission_lock(store: RunStore):
+    """ミッション実行のプロセス間ロック(flock)を非ブロッキングで取得する。
+
+    取得できなければNone。返したファイルオブジェクトを保持している間ロックが
+    生き、close(またはプロセス終了・クラッシュ)で自動解放される。
+    approveのように「承認の受理宣言と実行開始を同一ロック内で行う」必要がある
+    呼び出し元は、先にこれを取得してから run_mission に渡す。
+    """
+    fp = open(store.dir / ".run.lock", "w")
+    try:
+        fcntl.flock(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fp
+    except OSError:
+        fp.close()
+        return None
+
+
 def run_mission(cfg: dict, mission: Mission, store: RunStore,
-                on_update=None, poll_cancel=None) -> Mission:
+                on_update=None, poll_cancel=None, lock_fp=None) -> Mission:
+    """同一ミッションの二重実行防止(GUI/CLI/watchの経路をまたぐプロセス間ロック)
+    を掛けてから実行本体へ。lock_fpに取得済みロックを渡された場合はそれを引き継ぐ
+    (いずれの場合も終了時にcloseして解放する)。"""
+    if lock_fp is None:
+        lock_fp = acquire_mission_lock(store)
+        if lock_fp is None:
+            store.log("mission.lock_conflict")
+            raise SystemExit(
+                f"mission {mission.id} は別プロセスが実行中(approve/resume/watchの"
+                f"二重発行の可能性)。二重実行を中止する")
+    try:
+        return _run_mission_locked(cfg, mission, store, on_update, poll_cancel)
+    finally:
+        lock_fp.close()  # closeでflockも解放される
+
+
+def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
+                        on_update=None, poll_cancel=None) -> Mission:
     workers = cfg.get("loop", {}).get("parallel", 3)
     budget = _setup_budget(cfg, mission)
     store.save(mission)
@@ -343,6 +438,12 @@ def run_mission(cfg: dict, mission: Mission, store: RunStore,
             if _blocked_forever(mission) and not futures:
                 break
     store.save(mission)
+    # 完了直前(最後のタスクのdone確定後)に届いたCANCELは、もう止める対象が
+    # 無いため完了扱いになる。残存する数ms級の競合窓は仕様として受容し、
+    # 「キャンセルは間に合わなかった」ことをledgerに明示して観測可能にする
+    if _cancel_flag(store).exists() and not cancelling and \
+            all(t.status in TERMINAL for t in mission.tasks):
+        store.log("mission.cancel_too_late")
     store.log("mission.finished",
               done=[t.id for t in mission.tasks if t.status == "done"],
               failed=[t.id for t in mission.tasks if t.status == "failed"],

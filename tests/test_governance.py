@@ -157,3 +157,53 @@ class TestSecurityDefaults:
         argv = call["argv"]
         assert "--allowedTools" in argv
         assert argv[argv.index("--allowedTools") + 1] == "Read,Edit,Bash"
+
+
+class TestApproveGuardrails:
+    """approveの安全弁: 承認対象が無いときの先行承認・二重承認を弾く。"""
+
+    def test_approve_without_awaiting_tasks_is_rejected(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch):
+        # 全タスクpending(ガード未発火)の状態で先行approveするとAPPROVEDが
+        # 置かれ、以後ガードが一度も効かなくなる欠陥の回帰テスト
+        m = _mission([_task("t1", workdir=str(tmp_path))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "approve", m.id])
+        with pytest.raises(SystemExit):
+            cli.main()
+        assert not (store.dir / "APPROVED").exists()
+
+    def test_run_mission_rejects_concurrent_second_process(
+            self, cfg, mock_state_dir, tmp_path):
+        # 同一ミッションの二重実行防止(approve二重発行・watch競合の回帰テスト)。
+        # 別プロセスのflock保持を、先にロックを取った状態のrun_mission呼び出しで模す
+        import fcntl
+        from orgh.orchestrator import run_mission as _rm
+        m = _mission([_task("t1", workdir=str(tmp_path))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+        holder = open(store.dir / ".run.lock", "w")
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            with pytest.raises(SystemExit):
+                _rm(cfg, m, store)
+        finally:
+            holder.close()
+
+    def test_retro_not_run_while_awaiting_approval(
+            self, cfg, mock_state_dir, tmp_path):
+        # 承認待ちで停止したミッションを未完了のままretroするとRETRO_DONEが
+        # 置かれ、承認後の真の結果が教訓に反映されなくなる欠陥の回帰テスト
+        from orgh import planner
+        m = _mission([_task("t1", workdir=str(REPO))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+        assert m.tasks[0].status == "awaiting_approval"
+
+        result = planner.retro_if_finished(cfg, m, store)
+        assert result is None
+        assert not (store.dir / "RETRO_DONE").exists()

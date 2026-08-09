@@ -79,10 +79,14 @@ def _projects_context(cfg: dict) -> str:
 
 
 def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
-              budget: Budget | None = None) -> dict:
+              budget: Budget | None = None,
+              registry_key: str | None = None) -> dict:
     adapter = get_adapter("claude_code", {**cfg["workers"],
                           "claude_code": cfg["roles"][role]})
-    res = adapter.run(prompt, workdir=workdir)
+    # registry_key(mission_id)を渡すとprocregへ登録され、orgh cancelの
+    # terminate対象になる。ミッション実行中に走るrole(reviewer/replan)は
+    # 登録しないとキャンセルが効かず、キャンセル後に成果が確定してしまう
+    res = adapter.run(prompt, workdir=workdir, registry_key=registry_key)
     if not res.ok:
         # resultが空のことがある(max_turns超過等)。rawのsubtypeに理由が残る
         detail = res.output[:500] or res.raw[-500:]
@@ -114,12 +118,14 @@ def plan(cfg: dict, intent: str, context_digest: str,
 
 
 def review(cfg: dict, task: Task, workdir: str,
-          budget: Budget | None = None) -> tuple[bool, str]:
+          budget: Budget | None = None,
+          registry_key: str | None = None) -> tuple[bool, str]:
     tmpl = _read_prompt(cfg, "reviewer.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
                          acceptance="\n".join(f"- {a}" for a in task.acceptance),
                          output=task.last_output[:12000])
-    data = _ask_json(cfg, "reviewer", prompt, workdir=workdir, budget=budget)
+    data = _ask_json(cfg, "reviewer", prompt, workdir=workdir, budget=budget,
+                     registry_key=registry_key)
     return bool(data.get("pass")), data.get("feedback", "")
 
 
@@ -150,15 +156,43 @@ def retro(cfg: dict, mission: Mission) -> str:
     return ""
 
 
+def retro_if_finished(cfg: dict, mission: Mission, store,
+                      only_if_all_done: bool = False) -> str | None:
+    """ミッションが決着した場合のみretroを実行する共通ゲート(run/approve/resume/watch)。
+
+    awaiting_approvalを残したままretroすると、未完了内容から教訓が保存され
+    RETRO_DONEマーカーで承認後の真の結果が反映されなくなる(Codexレビューr2指摘)。
+    失敗・キャンセルで決着したミッションは従来どおり教訓化の対象(失敗の資産化)。
+
+    only_if_all_done=True は resume 経路用: resumeは失敗タスクの再試行経路なので、
+    失敗のまま終わった時点でretroしてしまうと、後に再resumeで完走したときの
+    真の教訓がRETRO_DONEに阻まれる(test_st_scenariosで固定済みの仕様)。
+    """
+    terminal = ("done",) if only_if_all_done else (
+        "done", "failed", "cancelled", "skipped")
+    marker = store.dir / "RETRO_DONE"
+    if marker.exists() or not mission.tasks or \
+            not all(t.status in terminal for t in mission.tasks):
+        return None
+    print("== retro ==")
+    fp = retro(cfg, mission)
+    store.save(mission)
+    marker.touch()
+    print(f"playbook updated: {fp or '(no lessons)'}")
+    return fp
+
+
 def replan_task(cfg: dict, task: Task, reason: str,
-                budget: Budget | None = None) -> dict:
+                budget: Budget | None = None,
+                registry_key: str | None = None) -> dict:
     """REPLANエスカレーション: 計画の欠陥が指摘されたタスクの指示と受け入れ条件を
     Plannerに再設計させる(HANDOFF タスク5)。"""
     tmpl = _read_prompt(cfg, "replan.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
                          acceptance="\n".join(f"- {a}" for a in task.acceptance),
                          reason=reason)
-    return _ask_json(cfg, "planner", prompt, budget=budget)
+    return _ask_json(cfg, "planner", prompt, budget=budget,
+                     registry_key=registry_key)
 
 
 def worker_prompt(cfg: dict, task: Task) -> str:
