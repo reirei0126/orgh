@@ -6,6 +6,8 @@
 
 > **2026-08-07 改訂(レビュー指摘 review-audit-r1 反映)**: 初版(2026-08-06)はU=0を無条件にCANDIDATE化するルールにより、稼働証跡の厚い機能(`orgh status`のT=145等)を「削除候補」と誤誘導していた。本改訂で判定ルールを是正し、usecases.jsonへ欠落していた4ユースケース(UC-25〜UC-28)を追加、内部ヘルパー関数の判定を親機能へ統合し、全該当行を再判定した。変更点の一覧はセクション6bを参照。
 >
+> **2026-08-10 決着**: セクション7の未確定2項目(7: cleanup運用化、8: ShellAdapter維持可否)にオーナー裁定が記入され、本台帳の人間承認は完了した。CANDIDATE 2件はいずれも「却下(=維持)」で決着し、**削除される機能は0件**。
+>
 > **2026-08-07 再改訂(レビュー指摘 review-audit-r2 反映)**: r1改訂に対しさらに6件の指摘を受け、(1)セクション6bに欠落していた`orgh/cli.py::scan`の移動記録を追加し件数を17件に訂正、(2)ルール1にU=0かつ3≤T≤9の扱い(WATCH)を明文化、(3)`orgh/watcher.py::_maybe_gc`をルール0(親判定統合)の対象外としていた誤りを是正し`watch()`と統合評価してKEEPへ変更、(4)UC-25/UC-27の実行痕跡をリポジトリ本体の実データで再検証(詳細はusecases.json・usecase-inventory.md側の改訂を参照)、(5)ShellAdapter削除候補の詳細に後方互換性の注意と関連文書の整理範囲を追記、(6)CANDIDATEサマリーの説明文を実際の判定ルールと一致させた。変更点の一覧はセクション6bおよび6cを参照。
 
 ---
@@ -85,17 +87,17 @@
 | `config.example.yaml::workers.claude_code` | config | UC-01, UC-02 | 93 | **KEEP** | descriptionのClaudeCodeAdapter設定がUC-01/UC-02の既定worker経路 | 承認/保留/却下: |
 | `config.example.yaml::workers.codex` | config | UC-19 | 57 | **KEEP** | descriptionのCodexAdapter設定がUC-19のCodexワーカー経路と一致 | 承認/保留/却下: |
 | `config.example.yaml::workers.enabled` | config | UC-19, UC-01 | 91 | **KEEP** | descriptionの「doctorの疎通確認対象」がUC-14、claude_code/codex混在利用がUC-19/UC-01 | 承認/保留/却下: |
-| `config.example.yaml::workers.shell` | config | UC-23 | 2 | **CANDIDATE** | descriptionが「他LLM CLI用の汎用枠」と明記しUC-23と直接対応 | 承認/保留/却下: |
+| `config.example.yaml::workers.shell` | config | UC-23 | 2 | **CANDIDATE** | descriptionが「他LLM CLI用の汎用枠」と明記しUC-23と直接対応 | 承認/保留/却下: **却下(=削除せず維持)** — オーナー裁定 2026-08-10: orghを特定モデル/ベンダ依存の設計にしないため、任意CLI LLM用の汎用拡張枠として維持する |
 | `config.example.yaml::worktree` | config | UC-09 | 86 | **KEEP** | descriptionの「タスクごとにgit worktreeを分離」がUC-09のtriggerそのもの | 承認/保留/却下: |
 | `orgh/adapters/base.py::BaseAdapter.run` | module | UC-01, UC-02 | 102 | **KEEP** | descriptionの「全workerアダプタ共通のsubprocess実行テンプレート」がUC-01/02の実行基盤 | 承認/保留/却下: |
 | `orgh/adapters/base.py::ClaudeCodeAdapter` | integration | UC-01, UC-02 | 54 | **KEEP** | descriptionの「claude CLIをheadlessで叩く」がUC-01/UC-02の既定worker経路 | 承認/保留/却下: |
 | `orgh/adapters/base.py::CodexAdapter` | integration | UC-19 | 22 | **KEEP** | descriptionの「codex exec非対話モードで叩く」がUC-19のtriggerそのもの | 承認/保留/却下: |
-| `orgh/adapters/base.py::ShellAdapter` | integration | UC-23 | 1 | **CANDIDATE** | descriptionの「任意のCLI LLM(gemini等)」がUC-23のtriggerそのもの | 承認/保留/却下: |
+| `orgh/adapters/base.py::ShellAdapter` | integration | UC-23 | 1 | **CANDIDATE** | descriptionの「任意のCLI LLM(gemini等)」がUC-23のtriggerそのもの | 承認/保留/却下: **却下(=削除せず維持)** — オーナー裁定 2026-08-10: orghを特定モデル/ベンダ依存の設計にしないため、任意CLI LLM用の汎用拡張枠として維持する |
 | `orgh/adapters/base.py::get_adapter` | module | UC-01, UC-19 | 79 | **KEEP** | descriptionの「worker名文字列からアダプタを解決」がUC-01(claude_code既定)とUC-19(codex選択) | 承認/保留/却下: |
 | `orgh/cli.py::--config` | cli | UC-27 | 16 | **KEEP** | UC-27(任意の作業ディレクトリから明示configで起動)を追加。2026-08-07 review-audit-r2でHANDOFF.md:47の手順が実施済みか実データで検証: `ps -p 8843`で`orgh --config ../config.yaml watch`が実際に稼働中のプロセスとして確認できた(開始2026-08-05T15:51:14、監査時点で経過1日10時間超)。HANDOFF.md記載の未着手TODOではなく、実行そのものの直接証跡がある(usecase台帳の記載漏れだったと判明) | 承認/保留/却下: |
 | `orgh/cli.py::approve` | cli | UC-04 | 10 | **KEEP** | entrypointが`orgh approve`でUC-04のtrigger(解除経路)と一致 | 承認/保留/却下: |
 | `orgh/cli.py::cancel` | cli | UC-05 | 25 | **KEEP** | entrypointが`orgh cancel`でUC-05のtriggerと一致 | 承認/保留/却下: |
-| `orgh/cli.py::cleanup` | cli | UC-21 | 4 | **WATCH** | entrypointが`orgh cleanup`でUC-21のtriggerと一致 | 承認/保留/却下: |
+| `orgh/cli.py::cleanup` | cli | UC-21 | 4 | **WATCH** | entrypointが`orgh cleanup`でUC-21のtriggerと一致 | 承認/保留/却下: **承認(条件つき運用化)** — オーナー裁定 2026-08-10: 運用に組み込む。ただし「成果のmainマージまたは退避を確認してから実行」を運用条件とし、マージ確認の安全ガード実装までは検収済みミッション限定(セクション7項目7の推奨条件どおり)。実装本体cleanup_mission_worktreesはルール0によりこの裁定を継承 |
 | `orgh/cli.py::doctor` | cli | UC-14 | 10 | **KEEP** | entrypointが`orgh doctor`でUC-14のtriggerと一致 | 承認/保留/却下: |
 | `orgh/cli.py::gc` | cli | UC-13 | 38 | **KEEP** | entrypointが`orgh gc`でUC-13のtriggerと一致 | 承認/保留/却下: |
 | `orgh/cli.py::list` | cli | UC-26 | 4(旧77は「list」一般語検索による水増し。usage-evidence.md参照) | **KEEP** | UC-26(全ミッション一覧確認)を追加。ops/demo/runs/099e281bはこの機能自体を追加したミッションで、README.mdのデモ節が実演記録として明記。T値は是正後4(WATCH域)だが、記載漏れ由来の過小評価だったことがレビューで確認済みのため機械しきい値を上書きしKEEPとする(機械しきい値を上書き)。**ルール7(a)の所在(r7で追記)**: runs/8e096d63/mission.json に `orgh list --json` の実行記録が8箇所現存(同上の実起動検証が実行) | 承認/保留/却下: |
@@ -252,5 +254,5 @@ r1改訂(セクション6b)の後、review-audit-r2で新たに指摘され判�
 
 以下は本改訂でも未確定(引き続き人間の判断が必要)。
 
-7. `orgh/worktree.py::cleanup_mission_worktrees`(`orgh cleanup`)について、放置されている`.orgh-worktrees`配下の掃除を今後は`orgh cleanup`コマンドを使う運用に切り替えるか。**破壊性の注意(2026-08-07 review-audit-r3で追記)**: 実装は各worktreeを`git worktree remove --force`で除去し、対応するタスクブランチも`git branch -D`で**マージ済みか否かを確認せず無条件削除**する(orgh/worktree.py:129,135)。未マージ・未退避の成果があるミッションに実行すると回復困難な消失を起こし得るため、採用する場合も「成果のmainマージまたは退避を確認してから実行する」を運用条件とすること。マージ確認の安全ガードを実装するまでは、検収済みミッション以外への実行は保留を推奨。(Yes: 運用に組み込む(上記条件つき) / No: コマンドごと削除し手動`git worktree remove`に戻す)
-8. `config.example.yaml::workers.shell`と`orgh/adapters/base.py::ShellAdapter`(gemini等の任意CLI LLM拡張枠)は、実運用実績が0件のまま今後も設計上の拡張点として維持するか、それとも実際に使う計画が無いなら削除してよいか。維持しないと決めた場合、セクション6の後方互換性の注意・削除時に整理すべき文書一覧(2026-08-07 review-audit-r2で追記)に従って進めること。(Yes: 維持する / No: 削除する)
+7. ~~`orgh/worktree.py::cleanup_mission_worktrees`(`orgh cleanup`)について、放置されている`.orgh-worktrees`配下の掃除を今後は`orgh cleanup`コマンドを使う運用に切り替えるか。~~ → **確定(オーナー裁定 2026-08-10): Yes、条件つきで運用に組み込む。**「成果のmainマージまたは退避の確認後にのみ実行」を運用条件とし、マージ確認の安全ガードが実装されるまでは検収済みミッション以外への実行は保留。**破壊性の注意(2026-08-07 review-audit-r3で追記)**: 実装は各worktreeを`git worktree remove --force`で除去し、対応するタスクブランチも`git branch -D`で**マージ済みか否かを確認せず無条件削除**する(orgh/worktree.py:129,135)。未マージ・未退避の成果があるミッションに実行すると回復困難な消失を起こし得るため、採用する場合も「成果のmainマージまたは退避を確認してから実行する」を運用条件とすること。マージ確認の安全ガードを実装するまでは、検収済みミッション以外への実行は保留を推奨。(Yes: 運用に組み込む(上記条件つき) / No: コマンドごと削除し手動`git worktree remove`に戻す)
+8. ~~`config.example.yaml::workers.shell`と`orgh/adapters/base.py::ShellAdapter`(gemini等の任意CLI LLM拡張枠)は、実運用実績が0件のまま今後も設計上の拡張点として維持するか、それとも実際に使う計画が無いなら削除してよいか。~~ → **確定(オーナー裁定 2026-08-10): Yes、維持する。**理由: orghを特定モデル/ベンダ依存の設計にしないため、汎用拡張枠として残す。削除手順・文書整理は不要となり、判定CANDIDATEは「削除候補として提示→人間が却下」で決着。維持しないと決めた場合、セクション6の後方互換性の注意・削除時に整理すべき文書一覧(2026-08-07 review-audit-r2で追記)に従って進めること。(Yes: 維持する / No: 削除する)
