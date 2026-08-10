@@ -224,6 +224,7 @@ pub fn spawn_and_bridge(
         let mission_id = Arc::clone(&mission_id);
         let confirmed = Arc::clone(&confirmed);
         let already_known = known_mission_id.is_some();
+        let confirm_prefix = confirm_prefix.to_string();
         thread::spawn(move || {
             let status = child.wait();
             // reader2本の読み切りを待ってからstderr_tailを参照する
@@ -239,12 +240,15 @@ pub fn spawn_and_bridge(
                     let _ = app.emit("mission-updated", MissionUpdatedEvent { mission_id: mid });
                 }
             } else {
-                // 確定行(ORGH_MISSION_ID / ORGH_APPROVED)を一度も出さずに終了した異常系。
-                // stderr末尾を含めて本来の失敗理由(config不正・承認対象なし等)を返す
-                let what = if already_known {
-                    "orgh approveが承認を確認できずに終了した"
+                // 確定行を一度も出さずに終了した異常系。エラー文は操作種別
+                // (approve/resume)を確認prefixから判別する(誤った操作名で
+                // 表示するとユーザーが別の障害と誤認する)
+                let what = if !already_known {
+                    "orgh runがORGH_MISSION_IDを出力せずに終了した".to_string()
+                } else if confirm_prefix.starts_with("ORGH_RESUMED") {
+                    "orgh resumeが再開受理を確認できずに終了した".to_string()
                 } else {
-                    "orgh runがORGH_MISSION_IDを出力せずに終了した"
+                    "orgh approveが承認を確認できずに終了した".to_string()
                 };
                 let mut msg = match status {
                     Ok(s) => format!("{what} (status={s})"),

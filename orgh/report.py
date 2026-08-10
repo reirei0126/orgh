@@ -35,21 +35,40 @@ def _load_missions(runs_dir: str | Path) -> tuple[list[tuple[dict, list[dict]]],
         if not mp.exists():
             continue
         try:
-            mission = json.loads(mp.read_text())
+            mission = json.loads(mp.read_text(errors="replace"))
+            # 構文上正しいJSONでも形が不正(配列など)だと後段の.get()で
+            # レポート全体が停止するため、ここで形まで検証して隔離する
+            if not isinstance(mission, dict) or \
+                    not isinstance(mission.get("id"), str) or \
+                    not isinstance(mission.get("tasks", []), list):
+                raise ValueError("mission.jsonの形が不正(dict/id/tasksを満たさない)")
+            events = []
+            bad_lines = 0
+            lp = d / "ledger.jsonl"
+            if lp.exists():
+                for line in lp.read_text(errors="replace").splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except json.JSONDecodeError:
+                        bad_lines += 1
+                        continue
+                    # ts欠落・非数値イベントは後段のe["ts"]比較で停止するため除外
+                    ts = ev.get("ts") if isinstance(ev, dict) else None
+                    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+                        bad_lines += 1
+                        continue
+                    events.append(ev)
+            if bad_lines:
+                # 部分採用は黙殺しない: 欠損があった事実をskippedで可視化する
+                skipped.append({"path": str(d / "ledger.jsonl"),
+                                "reason": f"解釈できないledger行を{bad_lines}行除外"
+                                          "(集計は読めた行のみ)"})
         except Exception as e:
             skipped.append({"path": str(mp),
                             "reason": f"{type(e).__name__}: {e}"})
             continue
-        events = []
-        lp = d / "ledger.jsonl"
-        if lp.exists():
-            for line in lp.read_text().splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
         out.append((mission, events))
     return out, skipped
 
