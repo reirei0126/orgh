@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
+from orgh import cli
 from orgh.criteria import (append_entry, criteria_context, criteria_dir,
                            distill_verdict, next_id)
 from orgh.planner import build_review_prompt
-from orgh.state import Task
+from orgh.state import Mission, RunStore, Task
+
+from .conftest import read_ledger, write_config
 
 
 class TestLedger:
@@ -90,3 +94,68 @@ class TestVerdictDistill:
         cfg["criteria_dir"] = str(tmp_path / "criteria")
         monkeypatch.setenv("MOCK_CRITERIA_JSON", '{"proposals": []}')
         assert distill_verdict(cfg, "m1", "x", passed=True, reason="良い") == []
+
+    def test_repeat_verdict_does_not_overwrite_existing_drafts(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch):
+        """同一ミッションへ2回目のverdictを打っても、1回目の未承認下書きを
+        上書きしない(番号を1から振り直さず既存最大+1から続ける)。"""
+        cfg["criteria_dir"] = str(tmp_path / "criteria")
+        monkeypatch.setenv("MOCK_CRITERIA_JSON", json.dumps({
+            "proposals": [{"category": "design", "prefix": "DESIGN",
+                           "strength": "norm", "text": "1回目の原則"}]},
+            ensure_ascii=False))
+        first = distill_verdict(cfg, "m123", "筐体UI刷新",
+                                passed=False, reason="1回目の指摘")
+        assert len(first) == 1
+
+        monkeypatch.setenv("MOCK_CRITERIA_JSON", json.dumps({
+            "proposals": [{"category": "design", "prefix": "DESIGN",
+                           "strength": "norm", "text": "2回目の原則"}]},
+            ensure_ascii=False))
+        second = distill_verdict(cfg, "m123", "筐体UI刷新",
+                                 passed=False, reason="2回目の指摘")
+        assert len(second) == 1
+        assert second[0] != first[0]  # 別ファイルに書かれる
+
+        drafts = sorted((tmp_path / "criteria" / "_drafts").glob("m123-*.json"))
+        assert len(drafts) == 2
+        # 1回目の内容は上書きされず残っている
+        assert json.loads(first[0].read_text())["text"] == "1回目の原則"
+        assert json.loads(second[0].read_text())["text"] == "2回目の原則"
+
+
+class TestVerdictCli:
+    def test_cli_records_verdict_ledger_and_draft(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch):
+        cfg["criteria_dir"] = str(tmp_path / "criteria")
+        m = Mission.new(intent="筐体UI刷新", context_digest="(test)", tasks=[])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+
+        monkeypatch.setenv("MOCK_CRITERIA_JSON", json.dumps({
+            "proposals": [{"category": "design", "prefix": "DESIGN",
+                           "strength": "norm",
+                           "text": "視覚検証なしの合格を信用しない"}]},
+            ensure_ascii=False))
+        long_reason = "レバー不可視・リール真っ黒" * 40  # 500文字超(ledger切り詰め確認用)
+
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "verdict", m.id,
+            "--fail", "--reason", long_reason])
+        cli.main()
+
+        verdicts = [json.loads(l) for l in
+                    (store.dir / "verdicts.jsonl").read_text().splitlines()]
+        assert len(verdicts) == 1
+        assert verdicts[0]["passed"] is False
+        assert verdicts[0]["reason"] == long_reason  # verdicts.jsonlは全文保持
+
+        ledger = read_ledger(cfg["runs_dir"], m.id)
+        ev = next(e for e in ledger if e["event"] == "mission.owner_verdict")
+        assert ev["passed"] is False
+        assert ev["reason"] == long_reason[:500]  # ledgerは500文字に切り詰め
+
+        drafts = list((tmp_path / "criteria" / "_drafts").glob(f"{m.id}-*.json"))
+        assert len(drafts) == 1
+        assert json.loads(drafts[0].read_text())["prefix"] == "DESIGN"
