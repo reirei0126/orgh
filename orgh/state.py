@@ -76,6 +76,13 @@ class GcCfg:
 
 
 @dataclass
+class PersonasCfg:
+    """ペルソナ検収ゲート(消費者・デザイナー等)。enabledが空なら完全無効。"""
+    enabled: list[str] = field(default_factory=list)
+    apply: str = "final_task"    # 現状はfinal_taskのみ(依存されないタスクに適用)
+
+
+@dataclass
 class ConfigSchema:
     """既知のトップレベルキー。workers/rolesは名前が自由なため深掘りしない。"""
     workers: dict | None = None          # 必須
@@ -86,6 +93,7 @@ class ConfigSchema:
     worktree: WorktreeCfg | None = None
     source: SourceCfg | None = None
     gc: GcCfg | None = None
+    personas: PersonasCfg | None = None
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     criteria_dir: str = "criteria"
@@ -95,7 +103,8 @@ class ConfigSchema:
 
 _REQUIRED_KEYS = ("workers",)
 _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
-                    "worktree": WorktreeCfg, "source": SourceCfg, "gc": GcCfg}
+                    "worktree": WorktreeCfg, "source": SourceCfg, "gc": GcCfg,
+                    "personas": PersonasCfg}
 # from __future__ import annotations により field.type は文字列
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,
@@ -215,6 +224,7 @@ class Task:
     cost_usd: float = 0.0                # このタスクの累計コスト(attempt横断)
     tools: str | None = None             # Plannerが明示付与するallowed_tools(worker既定を上書き)
     replans: int = 0                     # REPLAN再設計の回数(1タスク1回まで)
+    personas: list[str] = field(default_factory=list)  # 検収ゲートのペルソナ名(空=通常レビューのみ)
 
 
 @dataclass

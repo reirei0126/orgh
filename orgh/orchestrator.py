@@ -358,6 +358,18 @@ def _initiate_budget_stop(mission: Mission, store: RunStore,
           f"({budget.spent_usd:.4f}/{budget.limit_usd} USD) — 未着手をskip")
 
 
+def _assign_personas(cfg: dict, mission: Mission) -> None:
+    """final_task(誰のdepsにも現れないタスク)へ検収ペルソナを割り当てる。
+    Plannerが明示指定したタスクは尊重して上書きしない。"""
+    enabled = (cfg.get("personas") or {}).get("enabled") or []
+    if not enabled:
+        return
+    dep_ids = {d for t in mission.tasks for d in t.deps}
+    for t in mission.tasks:
+        if t.id not in dep_ids and not t.personas:
+            t.personas = list(enabled)
+
+
 def acquire_mission_lock(store: RunStore):
     """ミッション実行のプロセス間ロック(flock)を非ブロッキングで取得する。
 
@@ -397,6 +409,7 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                         on_update=None, poll_cancel=None) -> Mission:
     workers = cfg.get("loop", {}).get("parallel", 3)
     budget = _setup_budget(cfg, mission)
+    _assign_personas(cfg, mission)
     store.save(mission)
     store.artifact("context_digest.md", mission.context_digest)
     cancelling = False
