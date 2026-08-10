@@ -88,6 +88,7 @@ class ConfigSchema:
     gc: GcCfg | None = None
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
+    criteria_dir: str = "criteria"
     playbooks_dir: str = "playbooks"
     projects_map: str | None = None      # 対象リポの絶対パス⇔説明の対応表(Planner注入)
 
