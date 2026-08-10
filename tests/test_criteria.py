@@ -193,3 +193,35 @@ class TestCriteriaCli:
         import pytest
         with pytest.raises(FileNotFoundError):
             approve_draft(cfg, "nope-1")
+
+    def test_reject_missing_draft_raises(self, tmp_path):
+        cfg = {"criteria_dir": str(tmp_path / "criteria")}
+        import pytest
+        with pytest.raises(FileNotFoundError):
+            reject_draft(cfg, "nope-1")
+
+    def test_reject_collision_disambiguates_filename(self, tmp_path):
+        """同ミッション下書きの再生成→棄却で既存記録を上書きしない。
+        ファイル名衝突時は .2, .3 ... サフィックスを自動付与。"""
+        cfg = {"criteria_dir": str(tmp_path / "criteria")}
+        # 1回目: 下書き作成→棄却
+        _make_draft(Path(cfg["criteria_dir"]), "m123-1")
+        first_rejected = reject_draft(cfg, "m123-1")
+        assert first_rejected.name == "m123-1.json"
+        first_content = first_rejected.read_text()
+
+        # 2回目: 同じファイル名で別内容の下書き再作成→棄却
+        cdir = Path(cfg["criteria_dir"])
+        d = cdir / "_drafts"
+        fp = d / "m123-1.json"
+        fp.write_text(json.dumps({"category": "design", "prefix": "DESIGN",
+                                  "strength": "norm", "text": "原則Y"},
+                                 ensure_ascii=False))
+        second_rejected = reject_draft(cfg, "m123-1")
+
+        # 両方が存在し、内容が異なる
+        assert first_rejected.exists()
+        assert second_rejected.exists()
+        assert second_rejected.name == "m123-1.2.json"  # サフィックス追加
+        assert first_rejected.read_text() == first_content  # 1回目のまま
+        assert "原則Y" in second_rejected.read_text()  # 2回目の内容

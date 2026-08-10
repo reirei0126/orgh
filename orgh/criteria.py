@@ -104,11 +104,25 @@ def approve_draft(cfg: dict, name: str) -> str:
 
 
 def reject_draft(cfg: dict, name: str) -> Path:
-    """棄却は削除ではなく退避(棄却理由の見直し・復活を可能にする)。"""
+    """棄却は削除ではなく退避(棄却理由の見直し・復活を可能にする)。
+
+    ファイル名衝突時(同ミッションへの再度の下書き生成)は数字サフィックスで
+    既存を保護する(上書き防止)。"""
     fp = _draft_path(cfg, name)
     dst_dir = criteria_dir(cfg) / "_drafts" / "rejected"
     dst_dir.mkdir(parents=True, exist_ok=True)
     dst = dst_dir / fp.name
+
+    # 衝突回避: 既存ファイルがあれば .2, .3, ... のサフィックスを追加
+    if dst.exists():
+        base = dst.stem  # "m123-1" from "m123-1.json"
+        suffix = 2
+        while True:
+            dst = dst_dir / f"{base}.{suffix}.json"
+            if not dst.exists():
+                break
+            suffix += 1
+
     fp.rename(dst)
     return dst
 
