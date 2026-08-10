@@ -14,7 +14,12 @@ from pathlib import Path
 
 _ENTRY_RE = re.compile(r"^- ([A-Z]+)-(\d{3}) \[(norm|pref)\]:")
 _META_RE = re.compile(r"<!-- src:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
-_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+# prefixは_ENTRY_REが `[A-Z]+` しか認識しないため、それより緩い正規表現を許すと
+# next_id走査から漏れて同一IDが再発行される(Fix 1が閉じたはずの欠陥クラス)
+_SAFE_PREFIX_RE = re.compile(r"^[A-Z]+$")
+# categoryは先頭が `_` だと _ledger_files() の除外対象(_drafts等)と衝突し、
+# 承認済みのはずの行がcriteria_context/next_idから見えなくなる
+_SAFE_CATEGORY_RE = re.compile(r"^[A-Za-z0-9-][A-Za-z0-9_-]*$")
 _VALID_STRENGTHS = {"norm", "pref"}
 
 
@@ -99,20 +104,32 @@ def _validate_draft_fields(p: dict, fp: Path) -> None:
     """distillLLMが生成したcategory/prefix/strengthは信用しない(検証済み脆弱性対応)。
 
     category/prefixはファイル名(criteria_dir/{category}.md)や台帳ID接頭辞に
-    直接使われるため、パストラバーサル("../../ESCAPED"等)や記号混入を
-    `^[A-Za-z0-9_-]+$` で拒否する。strengthは _ENTRY_RE が `norm|pref` しか
-    認識しないため、それ以外(例: "強制")を許すとledger行が走査から漏れ、
-    next_idが同じ番号を再発行してID引用契約(重複DESIGN-001等)を破壊する。
+    直接使われるため、パストラバーサル("../../ESCAPED"等)や記号混入を拒否する。
+    単なる「安全な文字集合」では不十分で、台帳自身の走査契約に合わせて絞る:
+    - prefixは _ENTRY_RE が `[A-Z]+` の接頭辞しか認識しないため、小文字混じり
+      (例: "design")を許すとledger行がnext_idの走査から漏れ、同じ番号が
+      再発行されてID引用契約を破壊する(Fix 1が閉じたはずの欠陥クラス)
+    - categoryは先頭 `_` を許すと _ledger_files() の除外対象(_drafts等)と
+      衝突し、承認済みのはずの行がcriteria_context/next_idから見えなくなる
+    strengthは _ENTRY_RE が `norm|pref` しか認識しないため、それ以外
+    (例: "強制")を許すとledger行が走査から漏れ、next_idが同じ番号を
+    再発行してID引用契約(重複DESIGN-001等)を破壊する。
     違反時は下書きファイルの場所を示すValueErrorとし、オーナーが手で
     直して再承認できるようにする。
     """
-    for field in ("category", "prefix"):
-        v = p.get(field)
-        if not isinstance(v, str) or not _SAFE_TOKEN_RE.match(v):
-            raise ValueError(
-                f"draft {fp}: {field} が不正な値です ({v!r})。"
-                f"英数字・アンダースコア・ハイフンのみ許可。"
-                f"下書きファイルを直接編集してから再承認せよ: {fp}")
+    prefix = p.get("prefix")
+    if not isinstance(prefix, str) or not _SAFE_PREFIX_RE.match(prefix):
+        raise ValueError(
+            f"draft {fp}: prefix が不正な値です ({prefix!r})。"
+            f"英大文字のみ許可(台帳IDの接頭辞規約 [A-Z]+ に合わせる)。"
+            f"下書きファイルを直接編集してから再承認せよ: {fp}")
+    category = p.get("category")
+    if not isinstance(category, str) or not _SAFE_CATEGORY_RE.match(category):
+        raise ValueError(
+            f"draft {fp}: category が不正な値です ({category!r})。"
+            f"英数字・アンダースコア・ハイフンのみ許可(先頭に`_`は不可、"
+            f"_drafts等の除外規約と衝突するため)。"
+            f"下書きファイルを直接編集してから再承認せよ: {fp}")
     strength = p.get("strength", "pref")
     if strength not in _VALID_STRENGTHS:
         raise ValueError(

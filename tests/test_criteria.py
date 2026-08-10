@@ -272,3 +272,25 @@ class TestApproveDraftValidation:
         cfg = {"criteria_dir": str(cdir)}
         with pytest.raises(ValueError, match="prefix"):
             approve_draft(cfg, "m123-1")
+
+    def test_lowercase_prefix_raises(self, tmp_path):
+        """_ENTRY_REは[A-Z]+の接頭辞しか認識しないため、小文字混じりの
+        prefixを許すとledger行がnext_idの走査から漏れID重複を招く
+        (Fix 1が閉じたはずの欠陥クラスの再発防止)。"""
+        cdir = tmp_path / "criteria"
+        _make_draft_with(cdir, "m123-1", prefix="design")
+        cfg = {"criteria_dir": str(cdir)}
+        with pytest.raises(ValueError, match="prefix"):
+            approve_draft(cfg, "m123-1")
+        assert list_drafts(cfg) == [cdir / "_drafts" / "m123-1.json"]
+
+    def test_category_leading_underscore_raises(self, tmp_path):
+        """_ledger_files()は`_`始まりのファイルを台帳走査から除外するため、
+        category="_hidden"を許すと承認済みのはずの行がcriteria_context/
+        next_idから不可視になる。"""
+        cdir = tmp_path / "criteria"
+        _make_draft_with(cdir, "m123-1", category="_hidden")
+        cfg = {"criteria_dir": str(cdir)}
+        with pytest.raises(ValueError, match="category"):
+            approve_draft(cfg, "m123-1")
+        assert list_drafts(cfg) == [cdir / "_drafts" / "m123-1.json"]
