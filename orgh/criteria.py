@@ -7,6 +7,7 @@ playbooks(作業のやり方の教訓)と対をなす「判断の一般原則」
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
 from pathlib import Path
@@ -64,3 +65,24 @@ def append_entry(cdir: Path, category: str, prefix: str, strength: str,
     with open(cdir / f"{category}.md", "a") as f:
         f.write(line + "\n")
     return line
+
+
+def distill_verdict(cfg: dict, mission_id: str, intent: str,
+                    passed: bool, reason: str) -> list[Path]:
+    """オーナー裁定から台帳差分の下書きを生成する(本台帳には書かない)。"""
+    from .planner import _ask_json, _read_prompt, role_with_default
+    cfg = role_with_default(cfg, "criteria_distill", {
+        "model": "sonnet", "max_turns": 5, "allowed_tools": "Read"})
+    tmpl = _read_prompt(cfg, "criteria_distill.md")
+    prompt = tmpl.format(intent=intent,
+                         verdict="合格" if passed else "不合格",
+                         reason=reason, criteria=criteria_context(cfg))
+    data = _ask_json(cfg, "criteria_distill", prompt)
+    drafts_dir = criteria_dir(cfg) / "_drafts"
+    out: list[Path] = []
+    for i, p in enumerate(data.get("proposals") or [], 1):
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        fp = drafts_dir / f"{mission_id}-{i}.json"
+        fp.write_text(json.dumps(p, ensure_ascii=False, indent=1))
+        out.append(fp)
+    return out

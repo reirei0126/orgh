@@ -13,6 +13,7 @@
   MOCK_REPLAN_JSON        Planner再設計応答の上書き(inline JSON)
   MOCK_RETRO_JSON         Retro応答の上書き(inline JSON)
   MOCK_GC_JSON            統合Retro(GC)応答の上書き(inline JSON)
+  MOCK_CRITERIA_JSON      CriteriaDistill応答の上書き(inline JSON)
   MOCK_WORKER_FAIL        カンマ区切りマーカー: worker実行が常にエラー
   MOCK_PLAN_JSON          Planner応答の上書き(inline JSON か ファイルパス)
   MOCK_PLANNER_FAIL       "1" ならPlannerがis_errorを返す(着火前失敗試験用)
@@ -154,6 +155,13 @@ def main() -> int:
                           "resume": resume, "passed": verdict["pass"]})
         print(_envelope(json.dumps(verdict, ensure_ascii=False),
                         session_id="sess-reviewer"))
+        return 0
+
+    if "(CriteriaDistill)" in prompt:
+        _log_call(state, {"role": "criteria_distill", "marker": marker})
+        out = os.environ.get("MOCK_CRITERIA_JSON") or json.dumps(
+            {"proposals": []}, ensure_ascii=False)
+        print(_envelope(out, session_id="sess-distill"))
         return 0
 
     if "(GC)" in prompt:

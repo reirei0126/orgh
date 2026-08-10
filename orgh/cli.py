@@ -12,6 +12,8 @@
   orgh gc                         # playbookの統合・退避とruns/のアーカイブ
   orgh list                       # runs配下の全ミッションをid/intent/状態/コストで一覧
   orgh events <mission_id>        # ミッションのledger.jsonlをイベントとして表示
+  orgh verdict <mission_id> --pass|--fail --reason <text>  # オーナー裁定の記録と基準蒸留
+  orgh criteria                   # 判断基準台帳の下書き確認・承認・却下
   # 上記の list/doctor/events/status は --json で機械可読出力(GUI連携用)
 """
 from __future__ import annotations
@@ -19,10 +21,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 from . import doctor, gc, listing, planner, report, watcher
+from .criteria import distill_verdict
 from .events_json import events_payload
 from .orchestrator import run_mission
 from .sources.base import get_source
@@ -65,6 +69,13 @@ def main() -> None:
             sp.add_argument("--retry-failed", action="store_true")
         if name == "status":
             sp.add_argument("--json", action="store_true")
+
+    vp = sub.add_parser("verdict")   # オーナー検収裁定の記録と基準蒸留
+    vp.add_argument("mission_id")
+    g = vp.add_mutually_exclusive_group(required=True)
+    g.add_argument("--pass", dest="passed", action="store_true")
+    g.add_argument("--fail", dest="passed", action="store_false")
+    vp.add_argument("--reason", required=True)
 
     args = ap.parse_args()
     try:
@@ -188,6 +199,22 @@ def main() -> None:
         for ev in payload["events"]:
             rest = {k: v for k, v in ev.items() if k not in ("ts", "event")}
             print(f"{ev.get('ts')}  {ev.get('event')}  {rest}")
+        return
+
+    if args.cmd == "verdict":
+        store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)
+        mission = store.load(reset_inflight=False)  # 読むだけ。実行状態は触らない
+        with open(store.dir / "verdicts.jsonl", "a") as f:
+            f.write(json.dumps({"ts": time.time(), "passed": args.passed,
+                                "reason": args.reason}, ensure_ascii=False) + "\n")
+        store.log("mission.owner_verdict", passed=args.passed,
+                  reason=args.reason[:500])
+        drafts = distill_verdict(cfg, args.mission_id, mission.intent,
+                                 args.passed, args.reason)
+        for fp in drafts:
+            print(f"draft: {fp}")
+        print(f"下書き{len(drafts)}件。orgh criteria list で確認、"
+              f"orgh criteria approve <name> で本台帳へ反映")
         return
 
     store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)

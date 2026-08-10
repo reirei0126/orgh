@@ -1,9 +1,11 @@
 """基準台帳(criteria)の読み書きと文脈注入。戦略設計書 柱2の最小版。"""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from orgh.criteria import append_entry, criteria_context, criteria_dir, next_id
+from orgh.criteria import (append_entry, criteria_context, criteria_dir,
+                           distill_verdict, next_id)
 from orgh.planner import build_review_prompt
 from orgh.state import Task
 
@@ -64,3 +66,27 @@ class TestReviewerInjection:
         cfg["criteria_dir"] = str(tmp_path / "none")
         t = Task(id="t1", title="x", prompt="y", acceptance=["z"])
         assert "(no criteria yet)" in build_review_prompt(cfg, t)
+
+
+class TestVerdictDistill:
+    def test_fail_verdict_generates_draft(self, cfg, mock_state_dir,
+                                          tmp_path, monkeypatch):
+        cfg["criteria_dir"] = str(tmp_path / "criteria")
+        monkeypatch.setenv("MOCK_CRITERIA_JSON", json.dumps({
+            "proposals": [{"category": "design", "prefix": "DESIGN",
+                           "strength": "norm",
+                           "text": "視覚検証なしの合格を信用しない"}]},
+            ensure_ascii=False))
+        drafts = distill_verdict(cfg, "m123", "筐体UI刷新",
+                                 passed=False, reason="レバー不可視・リール真っ黒")
+        assert len(drafts) == 1
+        body = json.loads(drafts[0].read_text())
+        assert body["prefix"] == "DESIGN"
+        # 本台帳にはまだ載らない(下書き+承認ガバナンス)
+        assert criteria_context(cfg) == "(no criteria yet)"
+
+    def test_empty_proposals_writes_nothing(self, cfg, mock_state_dir,
+                                            tmp_path, monkeypatch):
+        cfg["criteria_dir"] = str(tmp_path / "criteria")
+        monkeypatch.setenv("MOCK_CRITERIA_JSON", '{"proposals": []}')
+        assert distill_verdict(cfg, "m1", "x", passed=True, reason="良い") == []

@@ -79,6 +79,17 @@ def _projects_context(cfg: dict) -> str:
     return text or "(no project map)"
 
 
+def role_with_default(cfg: dict, role: str, default: dict) -> dict:
+    """rolesに未定義のロールへデフォルト設定を注入したcfgコピーを返す。
+    binはreviewerロールを継承する(モック・カスタムバイナリ環境の互換)。"""
+    roles = {**cfg.get("roles", {})}
+    if role not in roles:
+        base = {k: v for k, v in roles.get("reviewer", {}).items()
+                if k == "bin"}
+        roles[role] = {**base, **default}
+    return {**cfg, "roles": roles}
+
+
 def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
               budget: Budget | None = None,
               registry_key: str | None = None) -> dict:
