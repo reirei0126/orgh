@@ -6,6 +6,8 @@ workerが全条件をクリアしていてもタスクがinternal errorで即fai
 上限超過時もinternal errorではなく原因の分かるreview_notesで失敗させる。"""
 from __future__ import annotations
 
+import json
+
 from orgh.orchestrator import run_mission
 from orgh.state import Mission, RunStore
 
@@ -59,3 +61,22 @@ class TestReviewRetry:
         assert "internal error" not in t.review_notes
         # worker成果(last_output)は保存されている
         assert "WORKER_DONE" in t.last_output
+
+    def test_reviewer_failure_cost_is_charged_to_budget(self, cfg,
+                                                         mock_state_dir,
+                                                         monkeypatch):
+        """フォローアップ4a: _ask_jsonはif not res.ok: raiseがbudget.chargeより
+        先に走っていたため、失敗したreviewer呼び出しのコストがどこにも計上
+        されていなかった(モックはis_errorでもtotal_cost_usd=0.01を返す=LLM側は
+        課金済み)。budget.chargeをraiseより前に移すことで計上させる。"""
+        monkeypatch.setenv("MOCK_REVIEWER_FAIL_TIMES", "1")
+        cfg["loop"]["infra_retry_wait"] = 0
+        m = _mission([_task("rc")])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        t = m.tasks[0]
+        assert t.status == "done"
+        data = json.loads((store.dir / "mission.json").read_text())
+        # worker(0.01) + reviewer失敗1回(0.01、修正前は非計上) + reviewer成功(0.01)
+        assert abs(data["budget"]["spent_usd"] - 0.03) < 1e-9

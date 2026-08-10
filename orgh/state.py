@@ -44,8 +44,9 @@ class LoopCfg:
     task_timeout: int = 3600
     budget_usd: float | None = None       # ルートミッション全体の上限(null=無制限)
     task_budget_usd: float | None = None  # 1タスク上限(null=無制限)。
-    # worker実行コストのみを対象とする(reviewer/ペルソナのロールコストは
-    # ミッション予算にのみ計上され、この上限には含まれない)
+    # worker+レビュー/ペルソナのロールコストを含むタスク総コスト(失敗呼び出し
+    # 含む)が対象(フォローアップ4で変更。旧: worker実行コストのみが対象で
+    # ロールコストはミッション予算にのみ計上されていた)
     infra_max_retries: int = 3            # ネットワーク等インフラエラーのattempt非消費リトライ上限
     infra_retry_wait: float = 60          # 同リトライ前の待機秒
 

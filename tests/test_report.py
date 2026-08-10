@@ -297,3 +297,45 @@ class TestReportBrokenDataIsolation:
             _json.dumps({"ts": 1.0, "event": "task.review", "passed": True}))
         payload = report.report_payload(cfg)
         assert any(m["mission_id"] == "m1" for m in payload["missions"])
+
+
+class TestWeeklyStatsFoldsPersonaReview:
+    """フォローアップ1: task.review のみの集計だとペルソナ差し戻しが
+    「初回合格」として計上されてしまう(HANDOFF改修候補)。
+    task.persona_review も同じ週次バケツに折り込み、全イベント合格判定にする。
+    """
+
+    def test_persona_rework_is_not_first_pass(self, cfg, mock_state_dir):
+        # review(pass)→persona_review(fail)→review(pass)→persona_review(pass)
+        # 合成ledger。旧実装(first.get("passed")のみ見る)だとfirst_pass=1に
+        # 誤集計されてしまうケース
+        store = _mk_mission(cfg, "mp1", [_task("t1", "claude_code", "done")],
+                            created_at=_W28, spent=0.0)
+        _write_ledger(store, [
+            {"ts": _W28, "event": "task.review", "task": "t1", "passed": True},
+            {"ts": _W28 + 1, "event": "task.persona_review", "task": "t1",
+             "passed": False},
+            {"ts": _W28 + 2, "event": "task.review", "task": "t1", "passed": True},
+            {"ts": _W28 + 3, "event": "task.persona_review", "task": "t1",
+             "passed": True},
+        ])
+        payload = report.report_payload(cfg, days=None)
+        w28 = next(w for w in payload["weekly"] if w["week"] == "2026-W28")
+        assert w28["total"] == 1
+        assert w28["first_pass"] == 0
+        assert w28["rework"] == 1
+
+    def test_persona_pass_only_is_first_pass(self, cfg, mock_state_dir):
+        # review(pass)→persona_review(pass)のみなら初回合格・差し戻しなし
+        store = _mk_mission(cfg, "mp2", [_task("t1", "claude_code", "done")],
+                            created_at=_W28, spent=0.0)
+        _write_ledger(store, [
+            {"ts": _W28, "event": "task.review", "task": "t1", "passed": True},
+            {"ts": _W28 + 1, "event": "task.persona_review", "task": "t1",
+             "passed": True},
+        ])
+        payload = report.report_payload(cfg, days=None)
+        w28 = next(w for w in payload["weekly"] if w["week"] == "2026-W28")
+        assert w28["total"] == 1
+        assert w28["first_pass"] == 1
+        assert w28["rework"] == 0

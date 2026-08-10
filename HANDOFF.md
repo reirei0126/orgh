@@ -1,6 +1,33 @@
-# orgh ハンドオフ(2026-08-10 更新)
+# orgh ハンドオフ(2026-08-11 更新)
 
-## 2026-08-10 GUI第2期マージ済み(このセクションが最新)
+## 2026-08-11 フォローアップ対応(このセクションが最新)
+
+2026-08-10スプリントの検収ゲートに対するオーナー承認済み改修候補4件を
+`feat/persona-followups`(worktree)で実装。
+
+- **report指標へのペルソナ折り込み**: `_weekly_stats` が `task.review` に加え
+  `task.persona_review` も集計対象にし、初回合格判定を「全イベント合格」に
+  変更(直列ゲート構造上reviewer-only履歴とは数値が完全一致=遡及変化なし)。
+  ペルソナ差し戻しが初回合格として計上されていた問題を解消
+- **evidenceのledger記録**: `persona_review` の戻り値を `tuple[bool, str]` →
+  `tuple[bool, str, list[str]]` に変更し、`task.persona_review` イベントへ
+  `evidence`(最大10件・各300文字丸め)を記録。監査可能性を確保
+- **無効化後resume挙動の明記**: `config.example.yaml`/README に、実行開始
+  済みミッションは `personas.enabled` を空に戻しても resume 時はゲートが
+  走り続ける旨(ミッション単位の一貫性)を明記。コード変更なし
+- **ロールコスト会計**: (a) `_ask_json` で失敗したロール呼び出しのコストも
+  `budget.charge`/`cost_sink` へ計上するよう順序を修正(従来は例外raiseが
+  先で失敗コールのコストが計上漏れ)。(b) reviewer/ペルソナのコストを
+  `t.cost_usd` に合算するようにし、タスク単価とタスク予算チェックが
+  worker実行コストのみだった過小評価を解消
+- テスト: 263→267件(全緑)。詳細は
+  [.superpowers/sdd/followups/report.md](.superpowers/sdd/followups/report.md)
+
+以下「改修候補(申し送り)」4件は本対応で解消(→ 2026-08-11 対応済み。詳細は上記)。
+
+---
+
+## 2026-08-10 GUI第2期マージ済み
 
 - **GUI第2期(mission 4d048081)をmainへマージ**(2df2619)。P0全6件+レポート/Playbook画面。
   Codexレビュー3R(9指摘)+オーナー実機目視済み。同時に実機で発覚した2バグを修正:
@@ -46,20 +73,24 @@
 - **既知の会計上の割り切り**: `task_budget_usd`はworker実行コストのみを
   キャップし、ロール(persona_*/criteria_distill含む)のコストはミッション
   全体の`budget_usd`でのみ制約される。ペルソナ検収コストがタスク単位の
-  予算上限に反映されない点は改修候補
+  予算上限に反映されない点は改修候補 → **2026-08-11 対応済み**(下記フォローアップ参照。
+  `t.cost_usd`にreviewer/ペルソナのロールコストも合算されるようになった)
 - テスト: 195→222件(全緑)
 - 戦略設計書: [docs/strategy/2026-08-10-value-strategy-design.md](docs/strategy/2026-08-10-value-strategy-design.md) /
   実装計画: [docs/plans/2026-08-10-criteria-personas-plan.md](docs/plans/2026-08-10-criteria-personas-plan.md)
 - **改修候補(申し送り)**:
   - orgh report の first-pass/rework 指標が task.persona_review を見ない
     (ペルソナ差し戻しが初回合格として計上される)→ 柱1の成立条件検証の前に
-    _weekly_stats へ折り込み要
+    _weekly_stats へ折り込み要 → **2026-08-11 対応済み**
   - task.persona_review イベントに evidence を記録していない
     (ゲートの監査可能性のため store.log に evidence を追加)
+    → **2026-08-11 対応済み**
   - personas無効化後もmission.jsonのpersonasが残りresumeでゲートが走る
     (ミッションレベル一貫性としては妥当、仕様として明記)
+    → **2026-08-11 対応済み**(config.example.yaml/READMEに明記)
   - 失敗ロール呼び出しコストの未計上とペルソナ再実行のコスト増幅
     (task_budget_usdはworker専用キャップ)
+    → **2026-08-11 対応済み**
 
 ---
 

@@ -74,12 +74,19 @@ def _load_missions(runs_dir: str | Path) -> tuple[list[tuple[dict, list[dict]]],
 
 
 def _weekly_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, dict]:
-    """タスク単位で最初のtask.reviewから週次の初回合格・差し戻しを集計する。"""
+    """タスク単位で最初のレビュー系イベントから週次の初回合格・差し戻しを集計する。
+
+    task.review(通常レビュー)とtask.persona_review(ペルソナ検収)の両方を
+    集計対象にする。どちらも task/passed を持つ同形イベントで、直列ゲート
+    (reviewer合格後にペルソナが裁定し、いずれかがfailすれば即差し戻し→再attempt
+    という構造)の下では「ペルソナ差し戻し」も「初回attemptの不合格」に他ならない
+    (フォローアップ1: ペルソナ差し戻しがreviewerだけ見ると初回合格に見えていた)。
+    """
     weekly: dict[str, dict] = {}
     for mission, events in missions:
         by_task: dict[str, list[dict]] = {}
         for e in events:
-            if e.get("event") == "task.review":
+            if e.get("event") in ("task.review", "task.persona_review"):
                 task_id = e.get("task")
                 if not isinstance(task_id, str):
                     # ts/eventが妥当でもtask欠落の破損行はありうる。
@@ -92,7 +99,14 @@ def _weekly_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, dict]:
             bucket = weekly.setdefault(
                 week, {"total": 0, "first_pass": 0, "rework": 0})
             bucket["total"] += 1
-            if first.get("passed"):
+            # 「全イベント合格」で判定する: 直列ゲートの構造上
+            # 「初回attempt完全合格 ⟺ 失敗イベントが1件も存在しない」なので、
+            # reviewer-onlyの過去履歴(ペルソナ未使用)では
+            # 旧判定(first.get("passed"))と完全に一致する(数値の遡及変化なし)。
+            # 直感: 最初のイベントがfailならこの時点でfirst.get("passed")もFalse。
+            # 最初のイベントがpassなら、その時点でタスクはdone確定するため
+            # reviewer-onlyの履歴に後続イベントは存在せず、結局1件のpassのみ。
+            if all(e.get("passed") for e in revs):
                 bucket["first_pass"] += 1
             if any(not r.get("passed") for r in revs):
                 bucket["rework"] += 1

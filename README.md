@@ -94,6 +94,12 @@ orgh criteria approve <mission_id>-1
 
 実行結果は `runs/<mission_id>/` に永続化(mission.json / ledger.jsonl / artifacts/)。
 
+`config.yaml` の `personas.enabled` にペルソナ名を設定すると、依存されない
+最終タスクに証拠つきの検収ペルソナ裁定が追加される。実行開始済みの
+ミッションはタスクに割り当てが保存済みのため、`enabled` を空に戻しても
+そのミッションを `orgh resume` する際はゲートが走り続ける
+(ミッション単位の一貫性。無効化は次に新規着火するミッションから効く)。
+
 ### vault完結のフィードバック(orgh watch)
 
 `orgh watch` はinbox配下や `#mission` タグだけでは着火しない。ノート本文に

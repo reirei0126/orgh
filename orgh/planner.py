@@ -98,19 +98,26 @@ def role_with_default(cfg: dict, role: str, default: dict) -> dict:
 
 def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
               budget: Budget | None = None,
-              registry_key: str | None = None) -> dict:
+              registry_key: str | None = None,
+              cost_sink: list | None = None) -> dict:
     adapter = get_adapter("claude_code", {**cfg["workers"],
                           "claude_code": cfg["roles"][role]})
     # registry_key(mission_id)を渡すとprocregへ登録され、orgh cancelの
     # terminate対象になる。ミッション実行中に走るrole(reviewer/replan)は
     # 登録しないとキャンセルが効かず、キャンセル後に成果が確定してしまう
     res = adapter.run(prompt, workdir=workdir, registry_key=registry_key)
+    # budget.chargeとcost_sinkへの計上は「if not res.ok: raise」より前に置く
+    # (フォローアップ4a): 失敗したロール呼び出しでもLLM側は課金済みのため、
+    # raiseを先にするとそのコストがどこにも計上されず消える。
+    # Budget.charge は amount が None/0 でも安全(内部でif not amount: returnする)
+    if budget is not None:
+        budget.charge(res.cost_usd)
+    if cost_sink is not None:
+        cost_sink.append(res.cost_usd or 0.0)
     if not res.ok:
         # resultが空のことがある(max_turns超過等)。rawのsubtypeに理由が残る
         detail = res.output[:500] or res.raw[-500:]
         raise RuntimeError(f"{role} failed: {detail}")
-    if budget is not None:
-        budget.charge(res.cost_usd)
     m = re.search(r"\{.*\}", res.output, re.S)
     if not m:
         raise ValueError(f"{role} returned no JSON:\n{res.output[:800]}")
@@ -146,9 +153,11 @@ def build_review_prompt(cfg: dict, task: Task) -> str:
 
 def review(cfg: dict, task: Task, workdir: str,
           budget: Budget | None = None,
-          registry_key: str | None = None) -> tuple[bool, str]:
+          registry_key: str | None = None,
+          cost_sink: list | None = None) -> tuple[bool, str]:
     data = _ask_json(cfg, "reviewer", build_review_prompt(cfg, task),
-                     workdir=workdir, budget=budget, registry_key=registry_key)
+                     workdir=workdir, budget=budget, registry_key=registry_key,
+                     cost_sink=cost_sink)
     return bool(data.get("pass")), data.get("feedback", "")
 
 
@@ -158,10 +167,16 @@ _PERSONA_ROLE_DEFAULT = {"model": "sonnet", "max_turns": 30,
 
 def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
                    budget: Budget | None = None,
-                   registry_key: str | None = None) -> tuple[bool, str]:
+                   registry_key: str | None = None,
+                   cost_sink: list | None = None) -> tuple[bool, str, list[str]]:
     """ペルソナ検収(戦略設計書 柱1)。証拠なしの合格裁定はValueErrorで無効化する
     (同じLLMが自分に頷くだけのハンコ裁定の禁止)。呼び出し側のロールリトライで
-    再裁定され、リトライ枯渇時はworker成果を保持したままfailedになる。"""
+    再裁定され、リトライ枯渇時はworker成果を保持したままfailedになる。
+
+    戻り値は (pass, feedback, evidence) の3要素。evidenceは呼び出し側が
+    ledger(task.persona_review)に記録し、ゲートの監査可能性を担保する
+    (フォローアップ2: これまでは検証にしか使わずledgerへ残していなかった)。
+    """
     role = f"persona_{persona}"
     cfg = role_with_default(cfg, role, _PERSONA_ROLE_DEFAULT)
     tmpl = _read_prompt(cfg, f"{role}.md")
@@ -170,12 +185,12 @@ def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
                          output=task.last_output[:12000],
                          criteria=criteria_context(cfg))
     data = _ask_json(cfg, role, prompt, workdir=workdir, budget=budget,
-                     registry_key=registry_key)
+                     registry_key=registry_key, cost_sink=cost_sink)
     evidence = data.get("evidence") or []
     if data.get("pass") and not evidence:
         raise ValueError(
             f"persona {persona} が証拠なしで合格裁定を返した(証拠チャネル原則違反)")
-    return bool(data.get("pass")), data.get("feedback", "")
+    return bool(data.get("pass")), data.get("feedback", ""), evidence
 
 
 def retro(cfg: dict, mission: Mission) -> str:

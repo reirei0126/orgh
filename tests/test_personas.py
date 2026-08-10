@@ -44,8 +44,11 @@ def _t(id="p1") -> Task:
 
 class TestPersonaReview:
     def test_pass_with_evidence(self, cfg, mock_state_dir):
-        ok, fb = persona_review(cfg, "consumer", _t(), workdir=".")
+        # フォローアップ2: persona_reviewの戻り値は3タプル(pass, feedback,
+        # evidence)。evidenceは呼び出し側がledgerへ記録できるよう返す
+        ok, fb, evidence = persona_review(cfg, "consumer", _t(), workdir=".")
         assert ok and fb == ""
+        assert evidence == ["shot.png"]
 
     def test_no_evidence_pass_is_invalid(self, cfg, mock_state_dir,
                                          monkeypatch):
@@ -56,8 +59,9 @@ class TestPersonaReview:
     def test_fail_without_evidence_is_valid(self, cfg, mock_state_dir,
                                             monkeypatch):
         monkeypatch.setenv("MOCK_PERSONA_ALWAYS_FAIL", "p1")
-        ok, fb = persona_review(cfg, "designer", _t(), workdir=".")
+        ok, fb, evidence = persona_review(cfg, "designer", _t(), workdir=".")
         assert not ok and "MARK" in fb
+        assert evidence == ["shot.png"]  # 差し戻しでもモックはevidenceを返す
 
 
 class TestPersonaGateST:
@@ -79,6 +83,8 @@ class TestPersonaGateST:
                   if e["event"] == "task.persona_review"]
         assert any(not e["passed"] for e in events)
         assert events[-1]["passed"]
+        # フォローアップ2: evidenceがledgerに記録され、監査に使える(非空)
+        assert all(e.get("evidence") for e in events)
 
     def test_persona_always_fail_exhausts_attempts(self, cfg, mock_state_dir,
                                                    monkeypatch):
@@ -101,6 +107,19 @@ class TestPersonaGateST:
                    if e["event"] == "role.retry"
                    and e["role"] == "persona_consumer"]
         assert len(retries) == 2
+
+    def test_task_cost_usd_includes_reviewer_and_persona_costs(
+            self, cfg, mock_state_dir):
+        """フォローアップ4b: t.cost_usdはworker実行コストのみだったため、
+        reviewer/ペルソナのロールコストがタスク単価に反映されず過小表示に
+        なっていた(次attempt冒頭のタスク予算チェックも同様に過小評価)。
+        worker(0.01)+reviewer(0.01)+persona consumer(0.01)+persona designer(0.01)
+        の合計がt.cost_usdに載ることを確認する。"""
+        m = Mission.new(intent="x", context_digest="", tasks=[_task("g6")])
+        run_mission(self._cfg(cfg), m, RunStore(cfg["runs_dir"], m.id))
+        t = m.tasks[0]
+        assert t.status == "done"
+        assert abs(t.cost_usd - 0.04) < 1e-9
 
     def test_disabled_personas_no_calls(self, cfg, mock_state_dir):
         """personas未設定なら従来動作(ペルソナ呼び出しゼロ)。"""

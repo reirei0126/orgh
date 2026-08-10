@@ -20,6 +20,8 @@ criteria_dir: criteria       # オーナー判断基準台帳。Reviewer/ペル�
 personas:                    # ペルソナ検収ゲート(戦略設計書 柱1)
   enabled: []                # 例: [consumer, designer]。空なら完全無効(従来動作)
   apply: final_task          # 依存されない最終タスクに適用(現状これのみ)
+  # 注: 実行開始済みミッションはタスクにpersonas割り当てが保存済みのため、
+  # enabledを空に戻してもresume時はゲートが走る(ミッション単位の一貫性)
 
 # roles にペルソナ・蒸留ロールを追加できる(未指定時のデフォルトは以下と同値)
 #   persona_consumer: {model: sonnet, max_turns: 30, allowed_tools: "Read,Bash,Glob,Grep"}

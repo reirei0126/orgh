@@ -153,11 +153,12 @@ def _role_call_with_retry(cfg: dict, store: RunStore, t: Task, role: str,
 
 
 def _review_with_retry(cfg: dict, store: RunStore, t: Task, budget: Budget,
-                       retries: int = 2, wait: float = 60):
+                       retries: int = 2, wait: float = 60,
+                       cost_sink: list | None = None):
     return _role_call_with_retry(
         cfg, store, t, "reviewer",
         lambda: review(cfg, t, workdir=t.workdir, budget=budget,
-                       registry_key=store.dir.name),
+                       registry_key=store.dir.name, cost_sink=cost_sink),
         retries=retries, wait=wait)
 
 
@@ -246,9 +247,10 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         store.log("task.output", task=t.id, ok=res.ok, cost=res.cost_usd)
 
         # タスク上限超過: 次のattemptにもレビューにも進まない。
-        # t.cost_usdはworker実行コストのみを積む(reviewer/ペルソナのロール
-        # コストはミッション予算(budget.spent_usd)にのみ計上され、この
-        # タスク単価上限の対象外 — 会計を変える変更ではなく契約の明文化)
+        # t.cost_usdはworker+レビュー/ペルソナのロールコストを含むタスク総コスト
+        # (失敗呼び出し含む)。フォローアップ4以降、reviewer/ペルソナ呼び出し後に
+        # t.cost_usdへ加算されるため、この直後(次attempt冒頭)のチェックは
+        # 前attemptのロールコストも見た上で判定する
         if (budget.task_budget_usd is not None
                 and t.cost_usd >= budget.task_budget_usd):
             with store.lock:
@@ -295,9 +297,15 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
 
         with store.lock:
             t.status = "review"
+        # reviewerのコスト(成功・失敗いずれの呼び出しも含む)を貯め、呼び出しが
+        # 例外で終わってもfinallyでt.cost_usdへ合算する(フォローアップ4b:
+        # 従来t.cost_usdはworker実行コストのみで、レビューコストがタスク単価に
+        # 反映されず、次attempt冒頭のタスク予算チェックも過小評価していた)
+        review_cost_sink: list[float] = []
         try:
             passed, feedback = _review_with_retry(cfg, store, t, budget,
-                                                  wait=infra_wait)
+                                                  wait=infra_wait,
+                                                  cost_sink=review_cost_sink)
         except _CancelledDuringRole:
             # キャンセル起因は_run_taskの包括ハンドラでcancelled化する。
             # ここの包括exceptに食わせるとfailedに化けて通常resume不能になる
@@ -312,17 +320,22 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                                   f"worker成果は保持済み: {e!s:.300}")
             store.log("task.review_exhausted", task=t.id, error=repr(e)[:500])
             return t
+        finally:
+            with store.lock:
+                t.cost_usd += sum(review_cost_sink)
         with store.lock:
             t.review_notes = feedback
         store.log("task.review", task=t.id, passed=passed)
         if passed and t.personas:
             for persona in t.personas:
+                persona_cost_sink: list[float] = []
                 try:
-                    p_ok, p_fb = _role_call_with_retry(
+                    p_ok, p_fb, p_ev = _role_call_with_retry(
                         cfg, store, t, f"persona_{persona}",
                         lambda p=persona: persona_review(
                             cfg, p, t, workdir=t.workdir, budget=budget,
-                            registry_key=store.dir.name),
+                            registry_key=store.dir.name,
+                            cost_sink=persona_cost_sink),
                         wait=infra_wait)
                 except _CancelledDuringRole:
                     raise
@@ -336,8 +349,14 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                     store.log("task.persona_exhausted", task=t.id,
                               persona=persona, error=repr(e)[:500])
                     return t
+                finally:
+                    with store.lock:
+                        t.cost_usd += sum(persona_cost_sink)
+                # evidenceはledger肥大防止のため10件で打ち切り、各要素も
+                # str化して300文字に丸める(監査に必要な最小限のみ残す)
                 store.log("task.persona_review", task=t.id, persona=persona,
-                          passed=p_ok)
+                          passed=p_ok,
+                          evidence=[str(x)[:300] for x in p_ev[:10]])
                 if not p_ok:
                     passed = False
                     feedback = f"[{persona}ペルソナ検収] {p_fb}"
