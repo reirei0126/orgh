@@ -87,7 +87,8 @@ pub fn save_settings(app: &tauri::AppHandle, settings: &Settings) -> Result<(), 
     validate_settings(&settings)?;
     let path = settings_file_path(app)?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("設定ディレクトリの作成に失敗: {e}"))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("設定ディレクトリの作成に失敗: {e}"))?;
     }
     let data = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("設定のシリアライズに失敗: {e}"))?;
@@ -118,7 +119,10 @@ mod tests {
                 config_path: cfg.to_string(),
                 runs_dir: runs.to_string(),
             };
-            assert!(validate_settings(&s).is_err(), "should reject {bin:?}/{cfg:?}/{runs:?}");
+            assert!(
+                validate_settings(&s).is_err(),
+                "should reject {bin:?}/{cfg:?}/{runs:?}"
+            );
         }
     }
 
