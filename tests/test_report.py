@@ -13,6 +13,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import pytest
 import yaml
 
 from orgh import cli, report
@@ -170,3 +171,95 @@ class TestDurationWithGuardStop:
         out = _report.build_report(cfg)
         line = next(l for l in out.splitlines() if "mg1" in l)
         assert "duration=3600s" in line
+
+
+class TestReportJson:
+    """P1-2(desktop/API.md §1.6): orgh report --days N --json。
+
+    テキスト版と同じ集計関数(_load_missions/_weekly_stats/_worker_stats)を
+    再利用し、数値が食い違わないことを担保する。
+    """
+
+    def test_report_payload_is_json_dumpable_with_days_echoed(self, cfg,
+                                                               mock_state_dir):
+        _seed_runs(cfg)
+        payload = report.report_payload(cfg, days=30)
+        json.dumps(payload, ensure_ascii=False)  # 例外を出さない
+        assert payload["days"] == 30
+
+    def test_weekly_matches_text_report_values(self, cfg, mock_state_dir):
+        _seed_runs(cfg)
+        payload = report.report_payload(cfg, days=None)
+        w28 = next(w for w in payload["weekly"] if w["week"] == "2026-W28")
+        assert w28["total"] == 2
+        assert w28["first_pass"] == 1 and w28["first_pass_pct"] == 50
+        assert w28["rework"] == 1 and w28["rework_pct"] == 50
+        w29 = next(w for w in payload["weekly"] if w["week"] == "2026-W29")
+        assert w29["first_pass_pct"] == 100
+        # テキスト版と同じ昇順
+        assert [w["week"] for w in payload["weekly"]] == sorted(
+            w["week"] for w in payload["weekly"])
+
+    def test_missions_full_intent_not_truncated(self, cfg, mock_state_dir):
+        _seed_runs(cfg)
+        payload = report.report_payload(cfg, days=None)
+        m1 = next(m for m in payload["missions"] if m["mission_id"] == "m1")
+        assert m1["intent"] == "試験ミッションm1"
+        assert m1["cost_usd"] == 0.04
+        assert m1["duration_sec"] == 60
+        assert m1["tasks_done"] == 2 and m1["tasks_total"] == 2
+
+    def test_workers_sorted_and_pct_matches_text(self, cfg, mock_state_dir):
+        _seed_runs(cfg)
+        payload = report.report_payload(cfg, days=None)
+        assert [w["worker"] for w in payload["workers"]] == ["claude_code", "codex"]
+        codex = next(w for w in payload["workers"] if w["worker"] == "codex")
+        assert codex["failed"] == 1 and codex["total"] == 1
+        assert codex["failed_pct"] == 100
+
+    def test_worker_none_excluded_and_no_typeerror(self, cfg, mock_state_dir):
+        """テキスト版 _worker_stats はworker未割当(None)も辞書に入れるため
+        sorted()がNoneと文字列の比較でTypeErrorになりうる既知の潜在バグが
+        あるが、JSON版はこれを踏襲せず除外して正しく動作する。"""
+        d = Path(cfg["runs_dir"]) / "m3"
+        d.mkdir(parents=True)
+        (d / "mission.json").write_text(json.dumps({
+            "id": "m3", "intent": "worker未割当タスクを含む", "context_digest": "",
+            "tasks": [{"id": "t1", "title": "x", "prompt": "p", "worker": None,
+                      "deps": [], "status": "pending", "attempts": 0}],
+            "budget": {"limit_usd": None, "spent_usd": 0.0}}))
+        (d / "ledger.jsonl").write_text(json.dumps(
+            {"ts": 1000.0, "event": "watch.triggered"}) + "\n")
+
+        payload = report.report_payload(cfg, days=None)  # 例外を出さない
+        assert None not in [w["worker"] for w in payload["workers"]]
+
+    def test_empty_when_no_missions_in_range(self, cfg, mock_state_dir):
+        _seed_runs(cfg)
+        payload = report.report_payload(cfg, days=1)
+        assert payload == {"days": 1, "weekly": [], "missions": [], "workers": []}
+
+    def test_cli_report_json_outputs_single_json_object(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        _seed_runs(cfg)
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "report", "--days", "365",
+            "--json"])
+        cli.main()
+        out = capsys.readouterr().out
+        payload = json.loads(out)  # stdoutは単一JSONオブジェクトのみ
+        assert payload["days"] == 365
+        assert any(m["mission_id"] == "m1" for m in payload["missions"])
+
+    def test_cli_report_without_json_flag_unchanged(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        _seed_runs(cfg)
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "report"])
+        cli.main()
+        out = capsys.readouterr().out
+        assert "# orgh report" in out
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(out)

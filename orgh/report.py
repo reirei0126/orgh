@@ -60,22 +60,29 @@ def _weekly_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, dict]:
     return weekly
 
 
+def _mission_cost(mission: dict) -> float:
+    budget = mission.get("budget")
+    return budget["spent_usd"] if budget else 0.0
+
+
+def _mission_duration(events: list[dict]) -> int:
+    if not events:
+        return 0
+    first_ts = events[0]["ts"]
+    # mission.finishedは複数回残りうる(自己改変ガード停止時にも記録される)。
+    # 最初のものを拾うとapprove経由の実行時間が0sになるため、最後を採用する
+    finished = next(
+        (e for e in reversed(events)
+         if e.get("event") == "mission.finished"), None)
+    last_ts = finished["ts"] if finished else events[-1]["ts"]
+    return int(last_ts - first_ts)
+
+
 def _mission_line(mission: dict, events: list[dict]) -> str:
     mission_id = mission["id"]
     intent = mission.get("intent", "")[:30]
-    budget = mission.get("budget")
-    cost = budget["spent_usd"] if budget else 0.0
-    if events:
-        first_ts = events[0]["ts"]
-        # mission.finishedは複数回残りうる(自己改変ガード停止時にも記録される)。
-        # 最初のものを拾うとapprove経由の実行時間が0sになるため、最後を採用する
-        finished = next(
-            (e for e in reversed(events)
-             if e.get("event") == "mission.finished"), None)
-        last_ts = finished["ts"] if finished else events[-1]["ts"]
-        duration = int(last_ts - first_ts)
-    else:
-        duration = 0
+    cost = _mission_cost(mission)
+    duration = _mission_duration(events)
     tasks = mission.get("tasks", [])
     done = sum(1 for t in tasks if t.get("status") == "done")
     return (f"- {mission_id}: {intent} cost={cost:.2f} USD "
@@ -130,3 +137,61 @@ def build_report(cfg: dict, days: int | None = None) -> str:
         lines.append(f"- {worker}: {failed}/{n} failed ({pct}%)")
 
     return "\n".join(lines)
+
+
+def report_payload(cfg: dict, days: int | None = None) -> dict:
+    """orgh report --json 用のペイロード(desktop/API.md §1.6)。
+
+    build_report と同じ集計関数(_load_missions/_weekly_stats/_worker_stats/
+    _mission_cost/_mission_duration)を再利用し、テキスト版と数値が食い違わない
+    ようにする。パーセンテージも同じ計算式(round(x/total*100) if total else 0)
+    を使う。
+    """
+    missions = _load_missions(cfg.get("runs_dir", "runs"))
+    if days is not None:
+        cutoff = time.time() - days * 86400
+        missions = [(m, e) for m, e in missions if e and e[0]["ts"] >= cutoff]
+
+    weekly = _weekly_stats(missions)
+    weekly_json = []
+    for week in sorted(weekly):
+        s = weekly[week]
+        total = s["total"]
+        weekly_json.append({
+            "week": week,
+            "total": total,
+            "first_pass": s["first_pass"],
+            "first_pass_pct": round(s["first_pass"] / total * 100) if total else 0,
+            "rework": s["rework"],
+            "rework_pct": round(s["rework"] / total * 100) if total else 0,
+        })
+
+    missions_json = []
+    for mission, events in missions:
+        tasks = mission.get("tasks", [])
+        missions_json.append({
+            "mission_id": mission["id"],
+            "intent": mission.get("intent", ""),
+            "cost_usd": _mission_cost(mission),
+            "duration_sec": _mission_duration(events),
+            "tasks_done": sum(1 for t in tasks if t.get("status") == "done"),
+            "tasks_total": len(tasks),
+        })
+
+    # テキスト版の _worker_stats はworker未割当(None)も辞書に含めてしまい
+    # sorted()がNoneと文字列の比較でTypeErrorになりうる潜在バグがあるが、
+    # JSON版はこれを踏襲せず除外する(新規追加分のみのバグ修正。テキスト版
+    # の出力・sorted(worker_stats)の挙動は変更しない)。
+    worker_stats = _worker_stats(missions)
+    workers_json = []
+    for worker in sorted(w for w in worker_stats if w is not None):
+        failed, n = worker_stats[worker]
+        workers_json.append({
+            "worker": worker,
+            "failed": failed,
+            "total": n,
+            "failed_pct": round(failed / n * 100) if n else 0,
+        })
+
+    return {"days": days, "weekly": weekly_json, "missions": missions_json,
+            "workers": workers_json}

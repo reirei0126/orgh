@@ -12,7 +12,10 @@
   orgh gc                         # playbookの統合・退避とruns/のアーカイブ
   orgh list                       # runs配下の全ミッションをid/intent/状態/コストで一覧
   orgh events <mission_id>        # ミッションのledger.jsonlをイベントとして表示
-  # 上記の list/doctor/events/status は --json で機械可読出力(GUI連携用)
+  orgh report --days N            # 週次合格率・ミッション別コスト・worker別失敗率
+  orgh playbooks                  # playbooks/配下の教訓(Retro追記分)を表示
+  # 上記の list/doctor/events/status/report/playbooks は --json で機械可読出力
+  # (GUI連携用)
 """
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ from pathlib import Path
 from . import doctor, gc, listing, planner, report, watcher
 from .events_json import events_payload
 from .orchestrator import run_mission
+from .playbooks_json import playbooks_payload
 from .sources.base import get_source
 from .state import RunStore, load_config
 from .status_json import status_payload
@@ -52,6 +56,10 @@ def main() -> None:
     rp = sub.add_parser("report")
     rp.add_argument("--days", type=int)
     rp.add_argument("--vault", action="store_true")
+    rp.add_argument("--json", action="store_true")
+
+    pp = sub.add_parser("playbooks")
+    pp.add_argument("--json", action="store_true")
 
     runp = sub.add_parser("run")
     runp.add_argument("--note")
@@ -75,7 +83,8 @@ def main() -> None:
             # configチェックNGのDoctorReportとして返す(GUIのSettings画面もこれに依存)
             payload = {"ok": False, "checks": [{
                 "name": "config", "ok": False,
-                "detail": f"{type(e).__name__}: {e}"}]}
+                "detail": f"{type(e).__name__}: {e}",
+                "kind": "connectivity", "auth_state": "n/a"}]}
             if getattr(args, "json", False):
                 print(json.dumps(payload, ensure_ascii=False))
             else:
@@ -113,6 +122,10 @@ def main() -> None:
         return
 
     if args.cmd == "report":
+        if args.json:
+            payload = report.report_payload(cfg, days=args.days)
+            print(json.dumps(payload, ensure_ascii=False))
+            return
         out = report.build_report(cfg, days=args.days)
         print(out)
         if args.vault:
@@ -188,6 +201,22 @@ def main() -> None:
         for ev in payload["events"]:
             rest = {k: v for k, v in ev.items() if k not in ("ts", "event")}
             print(f"{ev.get('ts')}  {ev.get('event')}  {rest}")
+        return
+
+    if args.cmd == "playbooks":
+        payload = playbooks_payload(cfg)
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False))
+            return
+        if not payload["playbooks"]:
+            print("no playbooks")
+        else:
+            for pb in payload["playbooks"]:
+                print(f"## {pb['name']}  ({pb['path']})")
+                for e in pb["entries"]:
+                    tag = f"  [m:{e['mission_id']} d:{e['date']}]" \
+                        if e["mission_id"] else ""
+                    print(f"- {e['text']}{tag}")
         return
 
     store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)

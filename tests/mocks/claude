@@ -19,6 +19,8 @@
   MOCK_NO_SLEEP           "1" なら sleep 系を全て無視(resume試験用)
   MOCK_SLEEP_ALL          秒数: workerロールの呼び出しを常にsleep
                           (リトライプロンプトでマーカーが失われても眠らせ続ける)
+  MOCK_CLAUDE_AUTH        "ok"(既定)/"failed": `auth status --json` 呼び出し
+                          (orgh doctor の非対話認証確認)への応答を切り替える
 
 プロンプト中の [[SLEEP:<秒>]] で応答前に sleep(タイムアウト/kill試験用)。
 [[WRITE:<相対パス>:<内容>]] でworkerがcwdにファイルを書く(worktree分離試験用)。
@@ -63,6 +65,15 @@ def _envelope(result: str, session_id: str | None = None,
 
 def main() -> int:
     args = sys.argv[1:]
+
+    if args == ["auth", "status", "--json"]:
+        # doctor の非対話認証確認(orgh/doctor.py _check_worker_auth)。
+        # 実プロンプト処理には入らず、ここで即応答する
+        logged_in = os.environ.get("MOCK_CLAUDE_AUTH", "ok") != "failed"
+        print(json.dumps({"loggedIn": logged_in, "authMethod": "claude.ai"},
+                         ensure_ascii=False))
+        return 0
+
     resume = None
     if "--resume" in args:
         resume = args[args.index("--resume") + 1]
