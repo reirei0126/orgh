@@ -16,27 +16,61 @@ from datetime import datetime
 from pathlib import Path
 
 
-def _load_missions(runs_dir: str | Path) -> list[tuple[dict, list[dict]]]:
-    """mission.json を持つ各ミッションディレクトリから (mission, events) を集める。"""
+def _load_missions(runs_dir: str | Path) -> tuple[list[tuple[dict, list[dict]]], list[dict]]:
+    """mission.json を持つ各ミッションディレクトリから (mission, events) を集める。
+
+    壊れたmission.json/ledger行はミッション単位で隔離してskippedへ回す
+    (1件の破損でレポート全体が閲覧不能になるのを防ぐ。listのskipped方式と同じ)。
+    ledgerの壊れた行は読める行だけ採用する。
+    """
     root = Path(runs_dir)
     if not root.exists():
-        return []
+        return [], []
     out = []
+    skipped: list[dict] = []
     for d in sorted(root.iterdir()):
         if not d.is_dir():
             continue
         mp = d / "mission.json"
         if not mp.exists():
             continue
-        mission = json.loads(mp.read_text())
-        events = []
-        lp = d / "ledger.jsonl"
-        if lp.exists():
-            for line in lp.read_text().splitlines():
-                if line.strip():
-                    events.append(json.loads(line))
+        try:
+            mission = json.loads(mp.read_text(errors="replace"))
+            # 構文上正しいJSONでも形が不正(配列など)だと後段の.get()で
+            # レポート全体が停止するため、ここで形まで検証して隔離する
+            if not isinstance(mission, dict) or \
+                    not isinstance(mission.get("id"), str) or \
+                    not isinstance(mission.get("tasks", []), list):
+                raise ValueError("mission.jsonの形が不正(dict/id/tasksを満たさない)")
+            events = []
+            bad_lines = 0
+            lp = d / "ledger.jsonl"
+            if lp.exists():
+                for line in lp.read_text(errors="replace").splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except json.JSONDecodeError:
+                        bad_lines += 1
+                        continue
+                    # ts欠落・非数値イベントは後段のe["ts"]比較で停止するため除外
+                    ts = ev.get("ts") if isinstance(ev, dict) else None
+                    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+                        bad_lines += 1
+                        continue
+                    events.append(ev)
+            if bad_lines:
+                # 部分採用は黙殺しない: 欠損があった事実をskippedで可視化する
+                skipped.append({"path": str(d / "ledger.jsonl"),
+                                "reason": f"解釈できないledger行を{bad_lines}行除外"
+                                          "(集計は読めた行のみ)"})
+        except Exception as e:
+            skipped.append({"path": str(mp),
+                            "reason": f"{type(e).__name__}: {e}"})
+            continue
         out.append((mission, events))
-    return out
+    return out, skipped
 
 
 def _weekly_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, dict]:
@@ -46,7 +80,12 @@ def _weekly_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, dict]:
         by_task: dict[str, list[dict]] = {}
         for e in events:
             if e.get("event") == "task.review":
-                by_task.setdefault(e["task"], []).append(e)
+                task_id = e.get("task")
+                if not isinstance(task_id, str):
+                    # ts/eventが妥当でもtask欠落の破損行はありうる。
+                    # 直接参照で全レポートを落とさずスキップする(p2r3指摘)
+                    continue
+                by_task.setdefault(task_id, []).append(e)
         for revs in by_task.values():
             first = revs[0]
             week = datetime.fromtimestamp(first["ts"]).strftime("%G-W%V")
@@ -60,22 +99,29 @@ def _weekly_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, dict]:
     return weekly
 
 
+def _mission_cost(mission: dict) -> float:
+    budget = mission.get("budget")
+    return budget["spent_usd"] if budget else 0.0
+
+
+def _mission_duration(events: list[dict]) -> int:
+    if not events:
+        return 0
+    first_ts = events[0]["ts"]
+    # mission.finishedは複数回残りうる(自己改変ガード停止時にも記録される)。
+    # 最初のものを拾うとapprove経由の実行時間が0sになるため、最後を採用する
+    finished = next(
+        (e for e in reversed(events)
+         if e.get("event") == "mission.finished"), None)
+    last_ts = finished["ts"] if finished else events[-1]["ts"]
+    return int(last_ts - first_ts)
+
+
 def _mission_line(mission: dict, events: list[dict]) -> str:
     mission_id = mission["id"]
     intent = mission.get("intent", "")[:30]
-    budget = mission.get("budget")
-    cost = budget["spent_usd"] if budget else 0.0
-    if events:
-        first_ts = events[0]["ts"]
-        # mission.finishedは複数回残りうる(自己改変ガード停止時にも記録される)。
-        # 最初のものを拾うとapprove経由の実行時間が0sになるため、最後を採用する
-        finished = next(
-            (e for e in reversed(events)
-             if e.get("event") == "mission.finished"), None)
-        last_ts = finished["ts"] if finished else events[-1]["ts"]
-        duration = int(last_ts - first_ts)
-    else:
-        duration = 0
+    cost = _mission_cost(mission)
+    duration = _mission_duration(events)
     tasks = mission.get("tasks", [])
     done = sum(1 for t in tasks if t.get("status") == "done")
     return (f"- {mission_id}: {intent} cost={cost:.2f} USD "
@@ -96,7 +142,7 @@ def _worker_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, tuple[in
 
 
 def build_report(cfg: dict, days: int | None = None) -> str:
-    missions = _load_missions(cfg.get("runs_dir", "runs"))
+    missions, skipped = _load_missions(cfg.get("runs_dir", "runs"))
 
     if days is not None:
         cutoff = time.time() - days * 86400
@@ -129,4 +175,68 @@ def build_report(cfg: dict, days: int | None = None) -> str:
         pct = round(failed / n * 100) if n else 0
         lines.append(f"- {worker}: {failed}/{n} failed ({pct}%)")
 
+    if skipped:
+        lines.append("")
+        lines.append("## 集計から除外した壊れたデータ")
+        for sk in skipped:
+            lines.append(f"- {sk['path']} ({sk['reason']})")
+
     return "\n".join(lines)
+
+
+def report_payload(cfg: dict, days: int | None = None) -> dict:
+    """orgh report --json 用のペイロード(desktop/API.md §1.6)。
+
+    build_report と同じ集計関数(_load_missions/_weekly_stats/_worker_stats/
+    _mission_cost/_mission_duration)を再利用し、テキスト版と数値が食い違わない
+    ようにする。パーセンテージも同じ計算式(round(x/total*100) if total else 0)
+    を使う。
+    """
+    missions, skipped = _load_missions(cfg.get("runs_dir", "runs"))
+    if days is not None:
+        cutoff = time.time() - days * 86400
+        missions = [(m, e) for m, e in missions if e and e[0]["ts"] >= cutoff]
+
+    weekly = _weekly_stats(missions)
+    weekly_json = []
+    for week in sorted(weekly):
+        s = weekly[week]
+        total = s["total"]
+        weekly_json.append({
+            "week": week,
+            "total": total,
+            "first_pass": s["first_pass"],
+            "first_pass_pct": round(s["first_pass"] / total * 100) if total else 0,
+            "rework": s["rework"],
+            "rework_pct": round(s["rework"] / total * 100) if total else 0,
+        })
+
+    missions_json = []
+    for mission, events in missions:
+        tasks = mission.get("tasks", [])
+        missions_json.append({
+            "mission_id": mission["id"],
+            "intent": mission.get("intent", ""),
+            "cost_usd": _mission_cost(mission),
+            "duration_sec": _mission_duration(events),
+            "tasks_done": sum(1 for t in tasks if t.get("status") == "done"),
+            "tasks_total": len(tasks),
+        })
+
+    # テキスト版の _worker_stats はworker未割当(None)も辞書に含めてしまい
+    # sorted()がNoneと文字列の比較でTypeErrorになりうる潜在バグがあるが、
+    # JSON版はこれを踏襲せず除外する(新規追加分のみのバグ修正。テキスト版
+    # の出力・sorted(worker_stats)の挙動は変更しない)。
+    worker_stats = _worker_stats(missions)
+    workers_json = []
+    for worker in sorted(w for w in worker_stats if w is not None):
+        failed, n = worker_stats[worker]
+        workers_json.append({
+            "worker": worker,
+            "failed": failed,
+            "total": n,
+            "failed_pct": round(failed / n * 100) if n else 0,
+        })
+
+    return {"days": days, "weekly": weekly_json, "missions": missions_json,
+            "workers": workers_json, "skipped": skipped}

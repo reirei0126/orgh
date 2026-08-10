@@ -97,11 +97,37 @@ export interface DoctorReport {
   checks: DoctorCheck[];
 }
 
+/** DoctorCheckが何を検査しているかの分類(第2期 P0-1で追加)。
+ * 現行の全チェックは"connectivity"(バイナリ疎通・パス到達性・書き込み権限等)。
+ * "auth"は将来、疎通を介さない純粋な認証専用チェック行を追加する場合の
+ * 予約値で、第2期時点ではCLIはこの値を出力しない(認証状態はworker行に
+ * 付与するauthStateフィールドで表現する)。 */
+export type DoctorCheckKind = "connectivity" | "auth";
+
+/** 認証確認の結果(第2期 P0-1で追加)。worker:<name>行にのみ意味のある値が
+ * 入り、それ以外の行(role:<name>, config, prompts_dir, vault, runs_dir等)は
+ * 常に "n/a"。 */
+export type DoctorCheckAuthState =
+  | "ok"
+  | "unverified"
+  | "failed"
+  | "n/a";
+
 export interface DoctorCheck {
   /** 例: "worker:claude_code" "role:planner" "config" "prompts_dir" "vault" "runs_dir" */
   name: string;
+  /** この行の総合可否。authStateが"failed"のときは必ずfalse(認証切れを
+   * 「OK」と嘘表示しないため)。authStateが"unverified"/"n/a"のときは
+   * 疎通確認のみの結果を反映する(true/falseどちらもありうる)。 */
   ok: boolean;
   detail: string;
+  kind: DoctorCheckKind;
+  /** "ok"=認証確認に成功。"unverified"=このワーカー種別は認証状態を確認
+   * する手段が無い、または未実装(疎通自体はok/detailで別途判定済みで
+   * あり、これは失敗ではない)。"failed"=認証切れ・認証エラーを検出
+   * (疎通=okでも起こりうる)。"n/a"=このチェック行に認証という概念が
+   * 適用されない。 */
+  authState: DoctorCheckAuthState;
 }
 
 /** get_settings() / set_settings() で読み書きするGUI設定。
@@ -111,7 +137,12 @@ export interface Settings {
   orghBin: string;
   /** orgh --config に渡す config.yaml の絶対パス。 */
   configPath: string;
-  /** runs_dir の絶対パス。 */
+  /** runs_dir の絶対パス。**表示用キャッシュであり、実際のCLI呼び出しには
+   * 一切使用しない**(第2期PRD P0-2で「表示区分のみ」を採用。既存CLI
+   * 利用者への非破壊を優先するための方針。理由の詳細はdesktop/API.md参照)。
+   * 実際に効くruns_dirはconfigPathが指すconfig.yamlのruns_dirキーが正。
+   * SettingsPage実装では、実際にCLI呼び出しへ反映されるorghBin/configPath
+   * とは異なる視覚的区分(セクション分け・注記アイコン等)で表示すること。 */
   runsDir: string;
 }
 
@@ -129,4 +160,99 @@ export interface MissionLogEvent {
  * (missionId判明直後、および対象プロセス終了時に最低1回ずつ)。 */
 export interface MissionUpdatedEvent {
   missionId: string;
+}
+
+// ---------------------------------------------------------------------------
+// 第2期(GUI Phase 2)で追加した契約。以下は resume_mission / report() /
+// playbooks() に関する型。resume_mission 自体は戻り値なし(void)なので
+// 専用の型は無い(desktop/API.md §2, §3.1.1参照)。
+// ---------------------------------------------------------------------------
+
+/** report(days) の戻り値。orgh report --days <days> --json 由来。
+ * 各集計値はテキスト版(orgh report、orgh/report.py)と完全に同じ計算式
+ * (丸め処理含む)で算出済みの値をそのまま渡す契約。GUI側で独自に
+ * 再計算・再丸めしないこと(フロントとCLI出力の数値が食い違うことを
+ * 防ぐため。P1-2受け入れ基準: 同一期間・同一データでCLI出力と一致)。 */
+export interface ReportPayload {
+  /** 呼び出し時に指定した集計期間(日数)。そのままエコーバックする。 */
+  days: number;
+  weekly: WeeklyReportStat[];
+  missions: MissionReportLine[];
+  workers: WorkerFailureStat[];
+  /** 集計から隔離した壊れたミッションデータ(1件の破損で全体を落とさない)。 */
+  skipped: SkippedMission[];
+}
+
+/** 週次の初回attempt合格率・差し戻し率。orgh/report.py _weekly_stats 由来。 */
+export interface WeeklyReportStat {
+  /** ISO週表記。例: "2026-W32"(Python datetime.strftime("%G-W%V")由来)。 */
+  week: string;
+  /** その週に初回task.reviewが記録されたタスク数。 */
+  total: number;
+  firstPass: number;
+  /** round(firstPass / total * 100)。total=0のとき0。 */
+  firstPassPct: number;
+  rework: number;
+  /** round(rework / total * 100)。total=0のとき0。 */
+  reworkPct: number;
+}
+
+/** ミッション別のコスト・所要時間サマリ。orgh/report.py _mission_line 由来。 */
+export interface MissionReportLine {
+  missionId: string;
+  /** ListPayload側の60文字切り詰めとは異なり、ここは切り詰めない全文。 */
+  intent: string;
+  costUsd: number;
+  /** 最初のイベント〜mission.finished(無ければ最後のイベント)の秒数。
+   * イベントが1件も無いミッションは0。 */
+  durationSec: number;
+  tasksDone: number;
+  tasksTotal: number;
+}
+
+/** worker別の失敗率。orgh/report.py _worker_stats 由来。worker未割当
+ * (null)のタスクは集計から除外する(テキスト版の未整理な挙動を
+ * JSON版では踏襲しない、という明示的な仕様)。 */
+export interface WorkerFailureStat {
+  worker: string;
+  failed: number;
+  total: number;
+  /** round(failed / total * 100)。total=0のとき0(理論上発生しない)。 */
+  failedPct: number;
+}
+
+/** playbooks() の戻り値。orgh playbooks --json 由来。
+ * playbooksディレクトリが存在しない、または *.md が1件も無い場合も
+ * エラーにはせず { playbooks: [] } を返す契約(P1-3受け入れ基準: 空状態
+ * はエラーではなく「まだ記録がありません」等の表示にする)。 */
+export interface PlaybookPayload {
+  playbooks: PlaybookFile[];
+}
+
+/** 1つのplaybookファイル(例: playbooks/coding.md)。_backup/_archive配下
+ * (orgh/gc.pyがバックアップ・退避に使うサブディレクトリ)は含まない
+ * (playbooks_dir直下の *.md のみを対象とする)。 */
+export interface PlaybookFile {
+  /** 拡張子を除いたファイル名。例: "coding" "planning" "st-test" "README"。 */
+  name: string;
+  /** 絶対パス。 */
+  path: string;
+  /** ファイル全文(見出し・地の文含む)。entriesに分解できない内容の
+   * フォールバック表示用。 */
+  body: string;
+  /** "-"で始まる行のみを抽出したエントリ一覧(見出し等の行は含まない)。 */
+  entries: PlaybookEntry[];
+}
+
+/** playbookファイル中の1エントリ(1つの"-"始まり行)。retroが自動追記
+ * した行は末尾に `<!-- m:<mission_id> d:<date> -->` が付与される
+ * (orgh/planner.py retro())。手動追記された行にはこれが無く、
+ * missionId/dateはnullになる。P1-3受け入れ基準の「どのミッションが
+ * どのplaybookエントリを追記したか」はmissionIdで判別する。 */
+export interface PlaybookEntry {
+  /** 行頭の"- "と末尾のHTMLコメントタグを除いた本文。 */
+  text: string;
+  missionId: string | null;
+  /** ISO日付文字列(例: "2026-08-05")。 */
+  date: string | null;
 }

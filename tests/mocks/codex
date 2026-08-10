@@ -5,6 +5,8 @@
   MOCK_STATE_DIR   呼び出し履歴の置き場
   MOCK_WORKER_FAIL カンマ区切りマーカー: 常にrc 1
   MOCK_NO_SLEEP    "1" なら [[SLEEP:n]] を無視
+  MOCK_CODEX_AUTH  "ok"(既定)/"failed": `login status` 呼び出し
+                   (orgh doctor の非対話認証確認)への応答を切り替える
 """
 import json
 import os
@@ -15,6 +17,14 @@ from pathlib import Path
 
 
 def main() -> int:
+    if sys.argv[1:] == ["login", "status"]:
+        # doctor の非対話認証確認(orgh/doctor.py _check_worker_auth)。
+        if os.environ.get("MOCK_CODEX_AUTH", "ok") == "failed":
+            print("Not logged in", file=sys.stderr)
+            return 1
+        print("Logged in using ChatGPT")
+        return 0
+
     prompt = sys.argv[-1] if len(sys.argv) > 1 else ""
     m = re.search(r"\[\[MARK:([\w-]+)\]\]", prompt)
     marker = m.group(1) if m else "none"

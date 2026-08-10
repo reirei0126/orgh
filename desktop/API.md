@@ -73,12 +73,13 @@
 {
   "ok": true,
   "checks": [
-    {"name": "worker:claude_code", "ok": true, "detail": "1.2.3"},
-    {"name": "role:planner", "ok": true, "detail": "(= claude)"},
-    {"name": "config", "ok": true, "detail": "検証済み"},
-    {"name": "prompts_dir", "ok": true, "detail": "/path/to/prompts"},
-    {"name": "vault", "ok": true, "detail": "未設定(watch/scanを使わないなら問題なし)"},
-    {"name": "runs_dir", "ok": true, "detail": "/path/to/runs"}
+    {"name": "worker:claude_code", "ok": true, "detail": "1.2.3 / 認証: 確認済み", "kind": "connectivity", "auth_state": "ok"},
+    {"name": "worker:codex", "ok": true, "detail": "0.9.0 / 認証: 未確認(このワーカー種別は認証確認に非対応)", "kind": "connectivity", "auth_state": "unverified"},
+    {"name": "role:planner", "ok": true, "detail": "(= claude)", "kind": "connectivity", "auth_state": "n/a"},
+    {"name": "config", "ok": true, "detail": "検証済み", "kind": "connectivity", "auth_state": "n/a"},
+    {"name": "prompts_dir", "ok": true, "detail": "/path/to/prompts", "kind": "connectivity", "auth_state": "n/a"},
+    {"name": "vault", "ok": true, "detail": "未設定(watch/scanを使わないなら問題なし)", "kind": "connectivity", "auth_state": "n/a"},
+    {"name": "runs_dir", "ok": true, "detail": "/path/to/runs", "kind": "connectivity", "auth_state": "n/a"}
   ]
 }
 ```
@@ -88,6 +89,32 @@
   `worker:<name>` / `role:<name>` が増減する)。`config` / `prompts_dir` / `vault` / `runs_dir`
   の4つは常に1件ずつ出る。
 - `ok`(トップレベル)が`false`のとき、CLIの終了コードは非0。
+- **`kind` / `auth_state`(第2期 P0-1で追加。G-07対応)**:
+  - `kind` はこの行が何を検査しているかの分類。現行の全チェックは疎通確認
+    (バイナリ`--version`起動可否・パス到達性・書き込み権限等)なので常に
+    `"connectivity"`。`"auth"` は将来、疎通を介さない純粋な認証専用チェック行を
+    追加する場合の予約値で、第2期時点では出力しない
+    (認証状態は`worker:<name>`行に付与する`auth_state`で表現するため)。
+  - `auth_state` は `worker:<name>` 行にのみ意味のある値が入る。それ以外
+    (`role:<name>` / `config` / `prompts_dir` / `vault` / `runs_dir`)は常に `"n/a"`。
+    値は4種:
+    - `"ok"`: 実際にAPI呼び出し等で認証が有効であることを確認できた。
+    - `"unverified"`: このワーカー種別では対話ログイン不要な認証確認手段が
+      技術的に存在しない、または未実装(疎通確認自体は`ok`/`detail`で別途
+      判定済み — G-07が問題視した「疎通のみで無条件にOK」を避けるため、
+      未確認であることを明示する値であり、失敗ではない)。
+    - `"failed"`: 認証切れ・認証エラーを検出した(疎通=`ok:true`でも起こりうる
+      — バイナリは起動するがログインセッションが切れている等)。
+    - `"n/a"`: このチェック行に認証という概念自体が適用されない。
+  - **ルール(実装必須)**: `auth_state == "failed"` のとき、その行の `ok` は
+    必ず `false`(認証切れを「OK」と嘘表示しないため — トップレベルの`ok`も
+    連動して`false`になる)。`auth_state` が `"unverified"` / `"n/a"` のときは
+    `ok` は疎通確認のみの結果を素直に反映してよい(`true`でも`false`でもよい)。
+  - ワーカーCLIごとの具体的な認証確認手段(例: `claude`/`codex`それぞれの
+    非対話的な認証状態確認コマンドの有無)はCLI拡張タスクが個別調査する
+    (PRD第5章「リスクと未確定事項」に明記の未調査事項)。技術的に不可能と
+    判明したワーカー種別は無条件に`auth_state: "unverified"`とすること
+    (それ自体をエラーや`doctor`全体の失敗にしない)。
 
 ### 1.4 `orgh status <mission_id> --json`
 
@@ -123,6 +150,102 @@ ORGH_MISSION_ID=<mission_id>
 ブロックする(ただし `ORGH_MISSION_ID` 行は出さない — 既にmission_idが引数として
 分かっているため不要)。
 
+`orgh resume <mission_id> [--retry-failed]`(既に実装済み、`orgh/cli.py`)も同様に
+`run_mission()` を呼んでミッション完走までブロックする長時間プロセスである。
+`approve` と同じく mission_id は引数として既知だが、**`approve` の `ORGH_APPROVED=<id>`
+に相当する確認行を一切出力しない**(実行ロック競合時は `sys.exit()` で即座に
+非0終了し、成功時は最後まで実行してサマリ行を出すのみ)。この非対称性を
+Rustブリッジがどう扱うかは §3.1.1 で規定する。
+
+### 1.6 `orgh report --days <N> --json`(第2期新設・CLI拡張タスクが実装)
+
+```json
+{
+  "days": 7,
+  "weekly": [
+    {"week": "2026-W32", "total": 12, "first_pass": 9, "first_pass_pct": 75, "rework": 3, "rework_pct": 25}
+  ],
+  "missions": [
+    {"mission_id": "a1b2c3d4", "intent": "要約なしの全文intent", "cost_usd": 1.23, "duration_sec": 340, "tasks_done": 4, "tasks_total": 5}
+  ],
+  "workers": [
+    {"worker": "claude_code", "failed": 1, "total": 10, "failed_pct": 10}
+  ]
+}
+```
+- 実装方針: `orgh/report.py` の既存ロジック(`_load_missions` / `_weekly_stats` /
+  `_mission_line` / `_worker_stats`)が保持する集計値をテキスト化せずJSON化する。
+  テキスト版(`orgh report`)の出力を変更してはならない(既存CLI利用者への非破壊)。
+  `--json` 指定時のみこのJSONを吐く新しい分岐を追加すること。
+- `days` はCLI引数 `--days N` の値をそのままエコーバックする(GUI側の
+  `report(days)` Tauriコマンドは常に具体的な日数を渡す設計のため、
+  `--days` 省略時=全期間のケースは第2期のGUI経路からは呼ばれない)。
+- 各パーセンテージ(`first_pass_pct` / `rework_pct` / `failed_pct`)は、テキスト版と
+  **完全に同じ計算式**(`round(x / total * 100) if total else 0`、Python組み込み`round()`)
+  で算出すること。GUI側では再計算・再丸めしない契約(P1-2受け入れ基準「GUI表示の
+  数値がCLI出力と一致する」を担保するため、丸め処理の実装が2箇所に分散すると
+  Python `round()`(銀行丸め)とJS側の丸めで結果がずれうる)。
+- `weekly` は `week` の昇順(テキスト版の `sorted(weekly)` と同一順序)。
+- `missions` はミッションディレクトリ名(`mission_id`)の昇順(`_load_missions` が
+  `sorted(root.iterdir())` する順序をそのまま踏襲)。`intent` はテキスト版の30文字
+  切り詰め(`_mission_line`)とは異なり、**切り詰めない全文**を返す(構造化データ
+  として消費側に切り詰め要否を委ねるため)。
+- `workers` は worker名の昇順(`sorted(worker_stats)`)。**worker値が`null`
+  (タスクにworkerが未割当)のタスクは集計から除外すること**(テキスト版
+  `_worker_stats` はNoneキーも辞書に入れてしまい `sorted()` がNoneと文字列の
+  比較でTypeErrorになりうる既知の潜在バグがあるが、JSON版ではこれを踏襲せず
+  除外して正しく動作させる — 新規追加分のみのバグ修正であり、テキスト版の
+  出力は変更しない)。
+- 対象期間にミッションが1件も無い場合はエラーではなく
+  `{"days": N, "weekly": [], "missions": [], "workers": []}`。
+
+### 1.7 `orgh playbooks --json`(第2期新設・CLI拡張タスクが実装)
+
+```json
+{
+  "playbooks": [
+    {
+      "name": "coding",
+      "path": "/abs/path/playbooks/coding.md",
+      "body": "# ...\n- 資産生成(SVG/データ/CSS等)を... <!-- m:7307189e d:2026-08-05 -->\n",
+      "entries": [
+        {"text": "資産生成(SVG/データ/CSS等)を複数タスクへ並列分解し...", "mission_id": "7307189e", "date": "2026-08-05"},
+        {"text": "Retroが自動追記する。手で書き足してもいい(むしろ推奨)。", "mission_id": null, "date": null}
+      ]
+    }
+  ]
+}
+```
+- 実装方針: `orgh/planner.py` `_playbooks_dir(cfg)`(= `cfg.get("playbooks_dir", "playbooks")`)
+  を対象ディレクトリとし、その**直下**の `*.md` を対象に列挙する(`sorted(playbooks_dir.glob("*.md"))`
+  と同じ規則。`orgh/gc.py` が使う `_backup/` `_archive/` サブディレクトリは非再帰なので
+  自然に対象外になる)。
+- `name` はファイル名から拡張子`.md`を除いたもの(例: `coding.md` → `"coding"`)。
+- `path` は絶対パス。
+- `body` はファイル全文(改行含めそのまま)。
+- `entries` は各行を走査し、**行頭(前後空白除去後)が `-` で始まる行のみ**を
+  エントリとして抽出する(`orgh/planner.py` `retro()` が `line.startswith("-")` の
+  行にのみ `<!-- m:<mission_id> d:<date> -->` を追記するのと対になる規則。
+  見出し行・空行・地の文はエントリ化しない=`body`側でのみ参照可能)。
+  各エントリについて、行末の `<!-- m:<id> d:<date> -->` 形式のHTMLコメント
+  (正規表現目安: `<!--\s*m:(\S+)\s+d:(\S+)\s*-->\s*$`)を検出できた場合は
+  `mission_id`/`date` に抽出値を入れ、`text` からはこのコメント部分(と直前の
+  空白)を除去する。コメントが無い行(手動追記・retro以外の追記)は
+  `mission_id: null, date: null` とし、`text` は行頭の `"- "` を除いた全文。
+- `playbooks_dir` が存在しない、または `*.md` が1件も無い場合はエラーにせず
+  `{"playbooks": []}` を返す(P1-3受け入れ基準: 空状態は「まだ記録がありません」
+  等のGUI表示にするため、CLI側でエラーにしない)。
+
+**P1-3実現方式の採用決定(PRD第5章の未確定事項に対する裁定)**: PRDは
+「新規CLIコマンド追加」と「Tauriブリッジが`settings.json`と同様にファイルシステムを
+直接読む方式」の二択を未決としていたが、本契約では**前者(CLI側に
+`orgh playbooks --json` を新設し、Rustブリッジはそれを叩くだけ)を採用する**。
+理由: (1) Rustが`config.yaml`(`playbooks_dir`キー等)を独自にパースする必要が無くなり、
+`configPath`を渡してCLIに問い合わせるだけで済む既存の全コマンド(`list_missions`/
+`mission_status`/`doctor`等)と同じ構造に揃えられる。(2) `-` 始まり行の抽出や
+`<!-- m:... d:... -->` タグの解析ロジックを、追記側(`orgh/planner.py` retro())と
+同じPython側に置くことで、フォーマット変更時の二重実装・二重メンテを避けられる。
+
 ## 2. Tauriコマンド契約(Rust側 `#[tauri::command]`)
 
 命名規約: **Rust関数名・引数はsnake_case**で書く(例: `mission_id: String`)。
@@ -143,8 +266,11 @@ Tauriの既定動作でJS側の `invoke()` 引数名は自動的にcamelCaseへ�
 | `mission_events` | `mission_id: string`, `tail: number` | `LedgerEvent[]` | `orgh events <id> --json --tail <tail>` の `events` 配列をそのまま返す |
 | `start_mission` | `intent: string \| null`, `note: string \| null` | `string`(mission_id) | `orgh run --intent <intent>` または `orgh run --note <note>` を起動(§3.1) |
 | `approve_mission` | `mission_id: string` | なし(`void`) | `orgh approve <id>` を起動(§3.1) |
+| `resume_mission` | `mission_id: string`, `retry_failed: boolean` | なし(`void`) | `orgh resume <id> [--retry-failed]` を起動(§3.1.1・**§3.1と非同期フローが異なる点に注意**) |
 | `cancel_mission` | `mission_id: string` | なし(`void`) | `orgh cancel <id>` を実行し完了を待つ(短時間で終わる) |
 | `doctor` | なし | `DoctorReport` | `orgh doctor --json` の出力そのもの |
+| `report` | `days: number` | `ReportPayload` | `orgh report --days <days> --json` の出力そのもの(camelCase変換のみ、§1.6) |
+| `playbooks` | なし | `PlaybookPayload` | `orgh playbooks --json` の出力そのもの(camelCase変換のみ、§1.7) |
 | `get_settings` | なし | `Settings` | GUI設定の読み出し(永続化方式はブリッジ実装タスクの裁量) |
 | `set_settings` | `settings: Settings` | なし(`void`) | GUI設定の書き込み |
 
@@ -158,24 +284,44 @@ Tauriの既定動作でJS側の `invoke()` 引数名は自動的にcamelCaseへ�
 - `orghBin`: `orgh` バイナリの絶対パス、またはPATH解決可能なコマンド名。他コマンド
   (`list_missions`等)を実行する際、子プロセス起動コマンドとしてこれを使う。
 - `configPath`: `orgh --config <configPath>` として全コマンドに渡す。
-- `runsDir`: 参考情報として保持(実際の `runs_dir` は `configPath` が指すconfig.yamlの
-  `runs_dir` キーが正だが、GUI表示用にキャッシュする用途を想定)。
+- `runsDir`: **表示用キャッシュ専用フィールド。いかなるCLI呼び出しの引数にも
+  使わない**(下記「P0-2: runsDirの方針」参照)。実際に効く `runs_dir` は
+  `configPath` が指すconfig.yamlの `runs_dir` キーが正。
+
+**P0-2(runsDir)の方針採用決定(PRD第5章の未確定事項に対する裁定)**: PRDは
+「表示区分のみで済ませる」か「実際にCLI呼び出しへ反映させる(CLI側に
+`--runs-dir` 相当の上書き引数を追加する)」かを未決としていたが、本契約では
+**前者(表示区分のみ・CLI呼び出しには一切反映しない)を採用する**。理由:
+既存CLI利用者への非破壊を最優先するため — 後者を選ぶと`orgh/cli.py`の
+複数サブコマンドに新しい上書き引数を追加する必要があり、テキストCLIの
+既存引数体系に手を入れるリスクが生じる。前者なら`desktop/src-tauri/**` /
+`desktop/src/**`(フロントエンド)のみで完結し、CLI側は一切変更不要
+(`types.ts` の `Settings` 型もこの契約更新時点では変更しない)。
+フロントエンドUI実装タスクは、SettingsPage上で `runsDir` を `orghBin`/
+`configPath`(実際にCLI呼び出しに使われる)とは異なる視覚的区分
+(セクション分け・注記アイコン等)で表示し、「この値はCLI呼び出しには
+反映されない表示専用キャッシュである」旨を常時表示のUI要素(ホバー
+ツールチップに限定しない)で明示すること(G-06対応)。
 
 ### 2.1 各コマンドの子プロセス起動パターン
 
-- `list_missions` / `mission_status` / `mission_events` / `doctor`:
+- `list_missions` / `mission_status` / `mission_events` / `doctor` / `report` / `playbooks`:
   `orgh --config <configPath> <cmd> ... --json` を起動し、完了(exit)を待ってstdoutを
   パースして返す短命プロセス。stderrは失敗時にエラーメッセージとして`Err`に含める。
+  (`report` は `orgh --config <configPath> report --days <days> --json`、`playbooks` は
+  `orgh --config <configPath> playbooks --json`。)
 - `cancel_mission`: `orgh --config <configPath> cancel <mission_id>` を起動し完了を待つ
   (フラグファイルを置くだけなので短時間で終わる)。失敗時は非JSON出力だが、
   終了コード非0またはstderrをエラーとして扱う。
 - `start_mission` / `approve_mission`: §3.1 参照(長時間プロセス・非同期)。
+- `resume_mission`: §3.1.1 参照(長時間プロセス・非同期。`ORGH_RESUMED=`
+  確認行の検出まで成功を返さない — §3.1のapproveと同一の仕組み)。
 
 ## 3. Tauriイベント契約
 
 | イベント名 | ペイロード(TS型) | 発火元 |
 |---|---|---|
-| `mission-log` | `MissionLogEvent` = `{ missionId: string \| null, line: string }` | `start_mission`/`approve_mission`が起動した子プロセスのstdout/stderrを1行ずつ |
+| `mission-log` | `MissionLogEvent` = `{ missionId: string \| null, line: string }` | `start_mission`/`approve_mission`/`resume_mission`が起動した子プロセスのstdout/stderrを1行ずつ |
 | `mission-updated` | `MissionUpdatedEvent` = `{ missionId: string }` | ミッション状態が変わった可能性があるタイミング(§3.2) |
 
 ### 3.1 `start_mission` / `approve_mission` の非同期フロー(最重要・曖昧さ排除)
@@ -214,9 +360,37 @@ Tauriの既定動作でJS側の `invoke()` 引数名は自動的にcamelCaseへ�
 `mission_status`/`list_missions`を呼び直して再取得する設計を前提にする — イベント
 ペイロード自体には状態そのものを含めない)。
 
+### 3.1.1 `resume_mission` の非同期フロー(2026-08-10改訂: 確認行方式へ統一)
+
+`resume_mission` も `orgh resume <mission_id> [--retry-failed]` というミッション完走まで
+ブロックする長時間子プロセスを起動する。当初は確認行なしの即時Ok方式だったが、
+**resumeの失敗(実行ロック競合・対象なし等)が成功として画面に見え、再クリックで
+失敗プロセスを量産する欠陥**(Codexレビューp2r1)が確認されたため、
+approveと同じ確認行方式へ統一した:
+
+1. `mission_id` は引数として既に確定しているため、探索フェーズは無い。Rustは
+   `orgh --config <configPath> resume <mission_id> [--retry-failed]` を非同期にspawnする。
+2. CLIは実行ロック取得・状態復元・保存が完了した直後に **`ORGH_RESUMED=<id>`** を
+   出力する(`orgh/cli.py` resume分岐)。Rustはこの確認行を検出するまで成功を
+   返さず、確認行より前に子プロセスが終了した場合はstderr末尾込みの `Err` を返す
+   (§3.1の `ORGH_APPROVED` と同一の仕組み・同一実装 `spawn_and_bridge`)。
+3. 確認行の検出時に `mission-updated { missionId: <mission_id> }` を1回emitする。
+4. 以降、子プロセスのstdout/stderrを1行ずつ `mission-log { missionId: <mission_id>, line }`
+   としてemitし続ける。`mission_id` は最初から確定しているため、
+   `resume_mission` が発火する `mission-log` の `missionId` が `null` になることは無い
+   (§3.1の探索中null期間に相当するものが存在しない)。
+5. 子プロセスが終了したら、**`mission-updated { missionId: <mission_id> }` を
+   最低1回emitする**(成功/失敗どちらの終了でも。§3.1の(5)と同じ規則)。
+
+(旧版にあった「確認行なし・spawn成功のみ保証」という既知の限界の記述は、
+2026-08-10の `ORGH_RESUMED` 確認行導入により解消済み。`resume_mission` の
+`Promise` は再開受理まで到達したことを保証し、ロック競合等の失敗は
+`Err`(stderr末尾込み)としてUIへ返る。)
+
 ### 3.2 `mission-updated` の想定発火元(まとめ)
 
 - `start_mission` / `approve_mission` 実行中(§3.1の(3)(5))。
+- `resume_mission` 実行中(§3.1.1の手順3・5)。
 - 任意(裁量): ブリッジが `runs/<id>/mission.json` の変更をポーリング/監視している場合。
 
 `cancel_mission` は同期的に完了を待つコマンドなので、UIは `cancel_mission` の
@@ -228,3 +402,36 @@ Tauriの既定動作でJS側の `invoke()` 引数名は自動的にcamelCaseへ�
 TypeScript側の正式な型は `desktop/src/types.ts` を参照(このAPI.mdの説明と
 1:1で対応させてある)。Rust側は同じ形の構造体を `#[serde(rename_all = "camelCase")]`
 付きで定義すること。フィールド名・任意性(`| null` の有無)は `types.ts` を正とする。
+
+## 5. ステータス値の日本語表示ラベル対応表(第2期 P0-6・G-13対応)
+
+内部値(API通信・フィルタ条件・イベント判定等)は**英語のまま変更しない**。
+`StatusBadge`(一覧・詳細画面双方、`MissionSummary.status` / `MissionStatus.status` /
+`TaskStatus.status` のいずれにも使う共通コンポーネントを想定)が画面表示する
+ラベル文字列**のみ**を以下の対応表に従って日本語化する。9種類の内部値のうち
+`empty`/`running`/`done`/`failed`/`awaiting_approval`/`cancelled` はミッション単位
+(`MissionListStatus`/`MissionRunStatus`)にも現れ、`pending`/`review`/`skipped` は
+タスク単位(`TaskStatus.status`、`string`型)にのみ現れる。1つの対応表を両方に
+共通で使うこと(ステータス値の名前空間はミッション/タスクで共通のため)。
+
+| 内部値(英語・不変) | 表示ラベル(日本語) |
+|---|---|
+| `pending` | 待機中 |
+| `running` | 実行中 |
+| `review` | レビュー中 |
+| `awaiting_approval` | 承認待ち |
+| `done` | 完了 |
+| `failed` | 失敗 |
+| `cancelled` | キャンセル済み |
+| `skipped` | スキップ |
+| `empty` | タスクなし |
+
+上記9件は本タスクの発行元が指定した既定値をそのまま採用する(PRD第5章が
+「実装時にオーナー確認が望ましい」としていた未確定事項だが、本契約作成時点で
+既定案からの変更理由が無いため、既定通り確定させる)。`TaskStatus.status` は
+`types.ts` 上 `string` 型(将来値の追加に壊れないための設計、既存コメント参照)
+のため、この対応表に無い未知の値が来た場合はフロントエンド側で内部値を
+そのままフォールバック表示すること(未知値でクラッシュさせない)。
+`StatusBadge`の色分け・パルス表示(進行中を示す視覚効果)は本対応表と独立した
+既存ロジックであり、ラベル文言の変更によって変える必要はない(回帰無しの
+受け入れ基準)。

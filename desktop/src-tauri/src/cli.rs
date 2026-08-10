@@ -93,9 +93,10 @@ pub fn run_sync(settings: &Settings, args: &[&str]) -> Result<(), String> {
 /// `ORGH_MISSION_ID=<id>` 行を検出するまでは `mission-log { missionId: null }` を
 /// emitし続け、検出した時点で `mission-updated` を1回emitして戻り値を確定させる。
 /// `Some(id)` (approve_mission) の場合: CLIが承認受理の確認行
-/// `ORGH_APPROVED=<id>` を出すまで成功を返さない。承認待ちなし・二重実行
-/// (flock競合)等でCLIが確認行より前に非0終了した場合はstderr込みのErrになる
-/// (即Okを返すと承認失敗が成功として画面に見える)。
+/// `confirm_prefix`(approve: `ORGH_APPROVED=` / resume: `ORGH_RESUMED=`)の
+/// 確認行を出すまで成功を返さない。対象なし・二重実行(flock競合)等でCLIが
+/// 確認行より前に非0終了した場合はstderr込みのErrになる
+/// (即Okを返すと失敗が成功として画面に見える)。
 ///
 /// 戻り値確定後も子プロセスはバックグラウンドで動き続け、stdout/stderrの残りを
 /// `mission-log` として流し続け、プロセス終了時に `mission-updated` を最低1回
@@ -105,6 +106,7 @@ pub fn spawn_and_bridge(
     program: String,
     args: Vec<String>,
     known_mission_id: Option<String>,
+    confirm_prefix: &str,
 ) -> Result<String, String> {
     let mut child = Command::new(&program)
         .args(&args)
@@ -150,7 +152,10 @@ pub fn spawn_and_bridge(
                         tail.remove(0);
                     }
                 }
-                let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
+                let mid = mission_id
+                    .lock()
+                    .expect("mission_id mutex poisoned")
+                    .clone();
                 let _ = app.emit(
                     "mission-log",
                     MissionLogEvent {
@@ -170,12 +175,13 @@ pub fn spawn_and_bridge(
         let id_tx = id_tx.clone();
         let confirmed = Arc::clone(&confirmed);
         let already_known = known_mission_id.is_some();
+        let confirm_prefix = confirm_prefix.to_string();
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
                 if !confirmed.load(Ordering::SeqCst) {
                     let prefix = if already_known {
-                        "ORGH_APPROVED="
+                        confirm_prefix.as_str()
                     } else {
                         "ORGH_MISSION_ID="
                     };
@@ -194,7 +200,10 @@ pub fn spawn_and_bridge(
                 }
                 // このconfirmation行自体も確定id付きで流す
                 // (desktop/API.md 3.1: 「confirmationの行を含め、以降すべて確定したidを使う」)。
-                let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
+                let mid = mission_id
+                    .lock()
+                    .expect("mission_id mutex poisoned")
+                    .clone();
                 let _ = app.emit(
                     "mission-log",
                     MissionLogEvent {
@@ -215,6 +224,7 @@ pub fn spawn_and_bridge(
         let mission_id = Arc::clone(&mission_id);
         let confirmed = Arc::clone(&confirmed);
         let already_known = known_mission_id.is_some();
+        let confirm_prefix = confirm_prefix.to_string();
         thread::spawn(move || {
             let status = child.wait();
             // reader2本の読み切りを待ってからstderr_tailを参照する
@@ -222,17 +232,23 @@ pub fn spawn_and_bridge(
             let _ = stdout_handle.join();
             let _ = stderr_handle.join();
             if confirmed.load(Ordering::SeqCst) {
-                let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
+                let mid = mission_id
+                    .lock()
+                    .expect("mission_id mutex poisoned")
+                    .clone();
                 if let Some(mid) = mid {
                     let _ = app.emit("mission-updated", MissionUpdatedEvent { mission_id: mid });
                 }
             } else {
-                // 確定行(ORGH_MISSION_ID / ORGH_APPROVED)を一度も出さずに終了した異常系。
-                // stderr末尾を含めて本来の失敗理由(config不正・承認対象なし等)を返す
-                let what = if already_known {
-                    "orgh approveが承認を確認できずに終了した"
+                // 確定行を一度も出さずに終了した異常系。エラー文は操作種別
+                // (approve/resume)を確認prefixから判別する(誤った操作名で
+                // 表示するとユーザーが別の障害と誤認する)
+                let what = if !already_known {
+                    "orgh runがORGH_MISSION_IDを出力せずに終了した".to_string()
+                } else if confirm_prefix.starts_with("ORGH_RESUMED") {
+                    "orgh resumeが再開受理を確認できずに終了した".to_string()
                 } else {
-                    "orgh runがORGH_MISSION_IDを出力せずに終了した"
+                    "orgh approveが承認を確認できずに終了した".to_string()
                 };
                 let mut msg = match status {
                     Ok(s) => format!("{what} (status={s})"),
@@ -254,6 +270,7 @@ pub fn spawn_and_bridge(
         .recv()
         .map_err(|_| "orghプロセスとの通信が切断された".to_string())?
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -279,7 +296,8 @@ mod tests {
     fn doctor_ok_false_still_parses_as_structured_report_despite_nonzero_exit() {
         // desktop/API.md 1.3: ok:falseのときCLIの終了コードは非0だが、
         // stdoutはerrorオブジェクトではなく完全なDoctorReportのまま。
-        let stdout = r#"{"ok": false, "checks": [{"name": "config", "ok": false, "detail": "missing"}]}"#;
+        let stdout =
+            r#"{"ok": false, "checks": [{"name": "config", "ok": false, "detail": "missing"}]}"#;
         let result: Result<DoctorReport, String> = interpret_response(stdout, "", false);
         let report = result.expect("ok:falseでもErrにならずDoctorReportとして返るべき");
         assert!(!report.ok);

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 
-// 軽量ルーティング: URLハッシュベースで #/ #/new #/settings #/mission/:id を扱う。
+// 軽量ルーティング: URLハッシュベースで #/ #/new #/settings #/report #/playbooks #/mission/:id を扱う。
 // react-router等は使わず、外部依存を増やさない。
 
 export type Route =
   | { name: "list" }
   | { name: "new" }
   | { name: "settings" }
+  | { name: "report" }
+  | { name: "playbooks"; missionId?: string }
   | { name: "mission"; missionId: string };
 
 function parseHash(hash: string): Route {
@@ -15,6 +17,10 @@ function parseHash(hash: string): Route {
   if (missionMatch) return { name: "mission", missionId: decodeURIComponent(missionMatch[1]) };
   if (path === "/new") return { name: "new" };
   if (path === "/settings") return { name: "settings" };
+  if (path === "/report") return { name: "report" };
+  const playbooksMatch = path.match(/^\/playbooks\/([^/]+)$/);
+  if (playbooksMatch) return { name: "playbooks", missionId: decodeURIComponent(playbooksMatch[1]) };
+  if (path === "/playbooks") return { name: "playbooks" };
   return { name: "list" };
 }
 
@@ -26,6 +32,10 @@ export function routeToHash(route: Route): string {
       return "#/new";
     case "settings":
       return "#/settings";
+    case "report":
+      return "#/report";
+    case "playbooks":
+      return route.missionId ? `#/playbooks/${encodeURIComponent(route.missionId)}` : "#/playbooks";
     case "mission":
       return `#/mission/${encodeURIComponent(route.missionId)}`;
   }

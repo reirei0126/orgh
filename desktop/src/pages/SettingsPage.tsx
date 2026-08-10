@@ -1,7 +1,35 @@
 import { useEffect, useState } from "react";
 
 import { doctor, getSettings, setSettings } from "../api";
-import type { DoctorReport, Settings } from "../types";
+import type { DoctorCheck, DoctorReport, Settings } from "../types";
+
+// worker:<name>行のauthStateを、疎通確認(OK列)とは別の列として表示するための
+// バッジ。認証未確認/失敗を「OK」と紛れて見せないため(PRD第2期 P0-1・G-07)。
+function authStateBadge(state: DoctorCheck["authState"]) {
+  switch (state) {
+    case "ok":
+      return (
+        <span className="badge" style={{ color: "var(--success)", background: "var(--success-bg)" }}>
+          認証OK
+        </span>
+      );
+    case "unverified":
+      return (
+        <span className="badge" style={{ color: "var(--warn)", background: "var(--warn-bg)" }}>
+          認証未確認
+        </span>
+      );
+    case "failed":
+      return (
+        <span className="badge" style={{ color: "var(--danger)", background: "var(--danger-bg)" }}>
+          認証エラー
+        </span>
+      );
+    case "n/a":
+    default:
+      return <span className="cell-muted">―</span>;
+  }
+}
 
 export function SettingsPage({ onError }: { onError: (message: string) => void }) {
   const [form, setForm] = useState<Settings | null>(null);
@@ -77,6 +105,7 @@ export function SettingsPage({ onError }: { onError: (message: string) => void }
       {form !== null && (
         <>
           <div className="panel" style={{ maxWidth: 640 }}>
+            <div className="panel-title">接続設定 ― CLI呼び出しに実際に使われる</div>
             <div className="field">
               <label className="field-label" htmlFor="orgh-bin">orgh バイナリ</label>
               <input
@@ -97,8 +126,27 @@ export function SettingsPage({ onError }: { onError: (message: string) => void }
               />
               <span className="field-hint">全コマンドに <span className="mono">--config</span> として渡されます。</span>
             </div>
-            <div className="field">
-              <label className="field-label" htmlFor="runs-dir">runs ディレクトリ</label>
+          </div>
+
+          <div className="panel" style={{ maxWidth: 640, borderColor: "var(--warn)" }}>
+            <div
+              className="panel-title"
+              style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--warn)" }}
+            >
+              runs ディレクトリ
+              <span className="badge" style={{ color: "var(--warn)", background: "var(--warn-bg)" }}>
+                表示専用キャッシュ
+              </span>
+            </div>
+            <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--text-dim)", lineHeight: 1.6 }}>
+              この値はGUI表示のためだけに保存されるキャッシュです。保存しても
+              <span className="mono">list</span>/<span className="mono">status</span>/
+              <span className="mono">doctor</span> 等のCLI呼び出しには一切反映されません。
+              実際に参照されるrunsディレクトリは、上記「config.yaml のパス」が指すファイルの
+              <span className="mono">runs_dir</span> キーです。
+            </p>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label className="field-label" htmlFor="runs-dir">runs ディレクトリ(表示用)</label>
               <input
                 id="runs-dir"
                 className="input mono"
@@ -107,13 +155,13 @@ export function SettingsPage({ onError }: { onError: (message: string) => void }
               />
               <span className="field-hint">表示用のキャッシュ。実際の参照元は config.yaml の runs_dir。</span>
             </div>
+          </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? <span className="spinner" /> : "保存する"}
-              </button>
-              {saved && <span className="cell-muted" style={{ fontSize: 12 }}>保存しました</span>}
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4, marginBottom: 16 }}>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+              {saving ? <span className="spinner" /> : "保存する"}
+            </button>
+            {saved && <span className="cell-muted" style={{ fontSize: 12 }}>保存しました</span>}
           </div>
 
           <div className="panel">
@@ -129,6 +177,7 @@ export function SettingsPage({ onError }: { onError: (message: string) => void }
                     <tr>
                       <th>Check</th>
                       <th>OK</th>
+                      <th>認証</th>
                       <th>Detail</th>
                     </tr>
                   </thead>
@@ -144,6 +193,7 @@ export function SettingsPage({ onError }: { onError: (message: string) => void }
                             {c.ok ? "ok" : "ng"}
                           </span>
                         </td>
+                        <td>{authStateBadge(c.authState)}</td>
                         <td className="cell-muted">{c.detail}</td>
                       </tr>
                     ))}

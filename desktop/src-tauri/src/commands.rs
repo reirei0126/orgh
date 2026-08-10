@@ -1,14 +1,17 @@
-//! `#[tauri::command]` 本体。desktop/API.md 2章の9コマンドをすべてここに置く。
+//! `#[tauri::command]` 本体。desktop/API.md 2章のコマンドをここに置く。
 //!
 //! 読み取り系(list_missions/mission_status/mission_events/doctor)は
 //! `cli::run_json` で同期実行してJSONをそのまま返す。
-//! `start_mission`/`approve_mission` は `cli::spawn_and_bridge` で非同期実行し
+//! 長時間コマンドは `cli` の非同期ブリッジで実行し
 //! イベント(mission-log/mission-updated)を発火する(desktop/API.md 3章)。
 
 use tauri::AppHandle;
 
 use crate::cli;
-use crate::models::{DoctorReport, EventsPayload, LedgerEvent, ListPayload, MissionStatus};
+use crate::models::{
+    DoctorReport, EventsPayload, LedgerEvent, ListPayload, MissionStatus, PlaybookPayload,
+    ReportPayload,
+};
 use crate::settings::{self, Settings};
 
 #[tauri::command]
@@ -47,18 +50,43 @@ pub fn doctor(app: AppHandle) -> Result<DoctorReport, String> {
 }
 
 #[tauri::command]
-pub fn start_mission(
+pub fn report(app: AppHandle, days: u32) -> Result<ReportPayload, String> {
+    let settings = settings::load_settings(&app)?;
+    let args = build_report_args(days);
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    cli::run_json(&settings, &refs)
+}
+
+#[tauri::command]
+pub fn playbooks(app: AppHandle) -> Result<PlaybookPayload, String> {
+    let settings = settings::load_settings(&app)?;
+    let args = build_playbooks_args();
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    cli::run_json(&settings, &refs)
+}
+
+// start/approve/resumeは確認行の検出までブロックする長時間処理。Tauriの
+// 同期コマンドはメインスレッドで実行されるため、そのまま書くとplanning完了
+// (数分)までアプリのイベントループごと凍結し、GUIのローディングが永遠に
+// 終わらない(実機で実測)。asyncコマンド+spawn_blockingで退避する
+#[tauri::command]
+pub async fn start_mission(
     app: AppHandle,
     intent: Option<String>,
     note: Option<String>,
 ) -> Result<String, String> {
     let settings = settings::load_settings(&app)?;
     let args = build_run_args(&settings, intent, note)?;
-    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, None)
+    let bin = settings.orgh_bin.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        cli::spawn_and_bridge(app, bin, args, None, "ORGH_MISSION_ID=")
+    })
+    .await
+    .map_err(|e| format!("コマンド実行スレッドの失敗: {e}"))?
 }
 
 #[tauri::command]
-pub fn approve_mission(app: AppHandle, mission_id: String) -> Result<(), String> {
+pub async fn approve_mission(app: AppHandle, mission_id: String) -> Result<(), String> {
     let settings = settings::load_settings(&app)?;
     let args = vec![
         "--config".to_string(),
@@ -66,7 +94,31 @@ pub fn approve_mission(app: AppHandle, mission_id: String) -> Result<(), String>
         "approve".to_string(),
         mission_id.clone(),
     ];
-    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, Some(mission_id)).map(|_| ())
+    let bin = settings.orgh_bin.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        cli::spawn_and_bridge(app, bin, args, Some(mission_id), "ORGH_APPROVED=").map(|_| ())
+    })
+    .await
+    .map_err(|e| format!("コマンド実行スレッドの失敗: {e}"))?
+}
+
+#[tauri::command]
+pub async fn resume_mission(
+    app: AppHandle,
+    mission_id: String,
+    retry_failed: bool,
+) -> Result<(), String> {
+    let settings = settings::load_settings(&app)?;
+    let args = build_resume_args(&settings, &mission_id, retry_failed);
+    // resumeもapproveと同様に確認行(ORGH_RESUMED=)の検出まで成功を返さない。
+    // 即Okだとロック競合等の失敗が成功として画面に見え、再クリックで失敗
+    // プロセスを量産する
+    let bin = settings.orgh_bin.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        cli::spawn_and_bridge(app, bin, args, Some(mission_id), "ORGH_RESUMED=").map(|_| ())
+    })
+    .await
+    .map_err(|e| format!("コマンド実行スレッドの失敗: {e}"))?
 }
 
 #[tauri::command]
@@ -112,6 +164,32 @@ fn build_run_args(
             Ok(args)
         }
     }
+}
+
+pub fn build_resume_args(settings: &Settings, mission_id: &str, retry_failed: bool) -> Vec<String> {
+    let mut args = vec![
+        "--config".to_string(),
+        settings.config_path.clone(),
+        "resume".to_string(),
+        mission_id.to_string(),
+    ];
+    if retry_failed {
+        args.push("--retry-failed".to_string());
+    }
+    args
+}
+
+pub fn build_report_args(days: u32) -> Vec<String> {
+    vec![
+        "report".to_string(),
+        "--days".to_string(),
+        days.to_string(),
+        "--json".to_string(),
+    ]
+}
+
+pub fn build_playbooks_args() -> Vec<String> {
+    vec!["playbooks".to_string(), "--json".to_string()]
 }
 
 #[cfg(test)]

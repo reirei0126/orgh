@@ -289,3 +289,31 @@ class TestWorktreePromptGuard:
         worker_calls = [c for c in calls if c["role"] == "worker"]
         assert worker_calls
         assert "【作業場所の厳守】" not in worker_calls[0]["prompt_head"]
+
+
+class TestNewProjectBootstrap:
+    """Plannerが新規プロジェクト用に計画した未作成workdirの自動ブートストラップ
+    (mission eceb49cb: /Users/.../puku-pals 不存在でFileNotFoundError即死の回帰)。"""
+
+    def test_missing_workdir_is_created_and_task_runs(self, wt_cfg, tmp_path,
+                                                      mock_state_dir):
+        target = tmp_path / "brand-new-project"
+        assert not target.exists()
+        m = _mission([_task("t1", str(target), write="out1.txt")])
+        run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
+        assert m.tasks[0].status == "done"
+        assert target.exists()
+        # worktree運用: gitリポとして初期化され、成果がタスクブランチに載る
+        assert (target / ".git").exists()
+        log = _git(target, "log", "--oneline", f"orgh/{m.id}/t1")
+        assert f"orgh({m.id}/t1)" in log
+
+    def test_missing_workdir_without_worktree_runs_in_place(self, cfg, tmp_path,
+                                                            mock_state_dir):
+        cfg["worktree"] = {"enabled": False}
+        target = tmp_path / "plain-new-project"
+        m = _mission([_task("t1", str(target), write="out1.txt")])
+        run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
+        assert m.tasks[0].status == "done"
+        assert (target / "out1.txt").exists()
+        assert not (target / ".git").exists()  # worktree無効時はgit初期化しない

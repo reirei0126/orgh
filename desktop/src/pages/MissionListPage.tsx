@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { listMissions } from "../api";
 import { StatusBadge } from "../components/StatusBadge";
+import { classifyListError, withDetail } from "../errorClassify";
 import { formatCost } from "../format";
 import type { ListPayload } from "../types";
 import type { Route } from "../router";
@@ -33,10 +34,12 @@ export function MissionListPage({ navigate, onError }: { navigate: (route: Route
           if (cancelled || gen !== generation) return;
           // 失敗状態を保持してスピナーを止める(初回未設定時に永久読み込みに
           // なるのを防ぐ)。バナーの多重表示は避けて失敗継続中は1回だけ通知
-          setLoadError(String(e));
+          const raw = String(e);
+          setLoadError(raw);
           if (!reported) {
             reported = true;
-            onError(`ミッション一覧の取得に失敗しました: ${String(e)}`);
+            const info = classifyListError(raw);
+            onError(withDetail(`ミッション一覧の取得に失敗しました: ${info.title}。${info.guidance}`, raw));
           }
         });
     };
@@ -67,17 +70,27 @@ export function MissionListPage({ navigate, onError }: { navigate: (route: Route
         <div className="loading-row"><span className="spinner" />読み込み中…</div>
       )}
 
-      {missions === null && loadError !== null && (
-        <div className="panel">
-          <div className="empty-state">
-            ミッション一覧を取得できません: {loadError}
-            <br />
-            orghコマンドのパスとconfig.yamlの場所が正しいか
-            <button className="btn" onClick={() => navigate({ name: "settings" })}>設定</button>
-            から確認してください。
+      {missions === null && loadError !== null && (() => {
+        const info = classifyListError(loadError);
+        return (
+          <div className="panel">
+            <div className="empty-state" style={{ textAlign: "left", padding: "8px 4px" }}>
+              <div style={{ fontWeight: 650, color: "var(--text)", marginBottom: 4 }}>{info.title}</div>
+              <div style={{ marginBottom: 10 }}>{info.guidance}</div>
+              <button className="btn" onClick={() => navigate({ name: "settings" })}>設定画面へ</button>
+              <details style={{ marginTop: 10 }}>
+                <summary style={{ cursor: "pointer" }}>詳細(元のエラーメッセージ)</summary>
+                <pre
+                  className="mono"
+                  style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11.5, marginTop: 6 }}
+                >
+                  {loadError}
+                </pre>
+              </details>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {payload !== null && payload.skipped.length > 0 && (
         <div className="panel">

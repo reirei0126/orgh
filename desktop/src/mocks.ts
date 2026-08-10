@@ -124,13 +124,13 @@ export const MOCK_EVENTS: Record<string, LedgerEvent[]> = {
 export const MOCK_DOCTOR: DoctorReport = {
   ok: true,
   checks: [
-    { name: "worker:claude_code", ok: true, detail: "1.2.3" },
-    { name: "worker:codex", ok: true, detail: "0.9.1" },
-    { name: "role:planner", ok: true, detail: "(= claude)" },
-    { name: "config", ok: true, detail: "検証済み" },
-    { name: "prompts_dir", ok: true, detail: "/Users/mock/org-harness/prompts" },
-    { name: "vault", ok: false, detail: "未設定(watch/scanを使わないなら問題なし)" },
-    { name: "runs_dir", ok: true, detail: "/Users/mock/org-harness/runs" },
+    { name: "worker:claude_code", ok: true, detail: "1.2.3 / 認証: 確認済み", kind: "connectivity", authState: "ok" },
+    { name: "worker:codex", ok: true, detail: "0.9.1 / 認証: 未確認(このワーカー種別は認証確認に非対応)", kind: "connectivity", authState: "unverified" },
+    { name: "role:planner", ok: true, detail: "(= claude)", kind: "connectivity", authState: "n/a" },
+    { name: "config", ok: true, detail: "検証済み", kind: "connectivity", authState: "n/a" },
+    { name: "prompts_dir", ok: true, detail: "/Users/mock/org-harness/prompts", kind: "connectivity", authState: "n/a" },
+    { name: "vault", ok: false, detail: "未設定(watch/scanを使わないなら問題なし)", kind: "connectivity", authState: "n/a" },
+    { name: "runs_dir", ok: true, detail: "/Users/mock/org-harness/runs", kind: "connectivity", authState: "n/a" },
   ],
 };
 
