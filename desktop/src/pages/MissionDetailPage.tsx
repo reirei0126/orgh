@@ -28,6 +28,16 @@ function ledgerToLine(e: LedgerEvent, index: number): LogLine {
  * ポーリングでしか追えない。 */
 const DETAIL_POLL_MS = 5_000;
 
+// resume_mission は desktop/API.md §3.1.1 の契約により専用の非同期フロー
+// (spawn成功=Ok即返し、承認確認行は無い)を持つ。既存の approveMission/
+// cancelMission と異なりモックフォールバックを持つ desktop/src/api.ts の
+// ラッパーが無いため(このタスクではapi.tsの編集範囲外)、api.tsのinvokeReal
+// と同じ動的importパターンで直接invokeする。
+async function resumeMission(missionId: string, retryFailed: boolean): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke<void>("resume_mission", { missionId, retryFailed });
+}
+
 export function MissionDetailPage({
   missionId,
   navigate,
@@ -42,7 +52,8 @@ export function MissionDetailPage({
   // ライブ行(logStoreが一元管理・上限つき)を分けて持つ。混ぜると重複する
   const [ledgerLines, setLedgerLines] = useState<LogLine[]>([]);
   const [liveLines, setLiveLines] = useState<string[]>([]);
-  const [busy, setBusy] = useState<"approve" | "cancel" | null>(null);
+  const [busy, setBusy] = useState<"approve" | "cancel" | "resume" | null>(null);
+  const [retryFailed, setRetryFailed] = useState(false);
   const missionIdRef = useRef(missionId);
   missionIdRef.current = missionId;
   // ポーリング応答の逆転対策: 古い世代の応答でstateを上書きしない
@@ -114,6 +125,9 @@ export function MissionDetailPage({
   ];
 
   const hasAwaitingApproval = status?.tasks.some((t) => t.status === "awaiting_approval") ?? false;
+  // 再開可能なのは cancelled / failed のときのみ(running/done/awaiting_approvalでは
+  // 「次にできる操作しかボタンが活性化されない」原則に従い、操作自体を出さない)
+  const canResume = status !== null && (status.status === "cancelled" || status.status === "failed");
 
   const handleApprove = async () => {
     setBusy("approve");
@@ -141,6 +155,21 @@ export function MissionDetailPage({
     }
   };
 
+  const handleResume = async () => {
+    setBusy("resume");
+    try {
+      await resumeMission(missionId, retryFailed);
+      // resume_mission はspawn成功時点でOkを返す(§3.1.1)。実際に再開が
+      // 受理されたかはmission-updated経由の再取得でのみ分かるため、
+      // ここでも明示的に一度取得し直す(mission-updatedのemitを待たず即時反映)
+      refetchStatus();
+    } catch (e) {
+      onError(`再開の実行に失敗しました: ${String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="page">
       <div className="breadcrumb">
@@ -159,7 +188,21 @@ export function MissionDetailPage({
                 <span className="mono cell-muted" style={{ fontSize: 12 }}>{status.missionId}</span>
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {canResume && (
+                <label
+                  style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}
+                  className="cell-muted"
+                >
+                  <input
+                    type="checkbox"
+                    checked={retryFailed}
+                    onChange={(e) => setRetryFailed(e.target.checked)}
+                    disabled={busy !== null}
+                  />
+                  失敗タスクも含めて再試行する
+                </label>
+              )}
               <button
                 className={`btn btn-primary${hasAwaitingApproval ? " btn-emphasis" : ""}`}
                 onClick={handleApprove}
@@ -179,6 +222,16 @@ export function MissionDetailPage({
               >
                 {busy === "cancel" ? <span className="spinner" /> : "✕"} キャンセル
               </button>
+              {canResume && (
+                <button
+                  className="btn btn-primary"
+                  onClick={handleResume}
+                  disabled={busy !== null}
+                  title="キャンセル済み・失敗したミッションを再開します"
+                >
+                  {busy === "resume" ? <span className="spinner" /> : "↻"} 再開する
+                </button>
+              )}
             </div>
           </div>
 

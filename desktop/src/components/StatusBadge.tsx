@@ -5,16 +5,19 @@ interface Tone {
   pulse?: boolean;
 }
 
+// 表示ラベルは desktop/API.md §5 の対応表(第2期 P0-6)に従い日本語化する。
+// キー(内部値)・色分け・パルス表示は変更しない — API通信・フィルタ条件・
+// イベント判定はこの内部値文字列に依存しているため。
 const TONES: Record<string, Tone> = {
-  empty: { label: "empty", color: "var(--muted)", bg: "var(--muted-bg)" },
-  pending: { label: "pending", color: "var(--muted)", bg: "var(--muted-bg)" },
-  running: { label: "running", color: "var(--info)", bg: "var(--info-bg)", pulse: true },
-  review: { label: "review", color: "var(--info)", bg: "var(--info-bg)", pulse: true },
-  awaiting_approval: { label: "awaiting approval", color: "var(--warn)", bg: "var(--warn-bg)", pulse: true },
-  done: { label: "done", color: "var(--success)", bg: "var(--success-bg)" },
-  failed: { label: "failed", color: "var(--danger)", bg: "var(--danger-bg)" },
-  cancelled: { label: "cancelled", color: "var(--muted)", bg: "var(--muted-bg)" },
-  skipped: { label: "skipped", color: "var(--muted)", bg: "var(--muted-bg)" },
+  empty: { label: "タスクなし", color: "var(--muted)", bg: "var(--muted-bg)" },
+  pending: { label: "待機中", color: "var(--muted)", bg: "var(--muted-bg)" },
+  running: { label: "実行中", color: "var(--info)", bg: "var(--info-bg)", pulse: true },
+  review: { label: "レビュー中", color: "var(--info)", bg: "var(--info-bg)", pulse: true },
+  awaiting_approval: { label: "承認待ち", color: "var(--warn)", bg: "var(--warn-bg)", pulse: true },
+  done: { label: "完了", color: "var(--success)", bg: "var(--success-bg)" },
+  failed: { label: "失敗", color: "var(--danger)", bg: "var(--danger-bg)" },
+  cancelled: { label: "キャンセル済み", color: "var(--muted)", bg: "var(--muted-bg)" },
+  skipped: { label: "スキップ", color: "var(--muted)", bg: "var(--muted-bg)" },
 };
 
 function toneFor(status: string): Tone {
