@@ -360,21 +360,21 @@ Tauriの既定動作でJS側の `invoke()` 引数名は自動的にcamelCaseへ�
 `mission_status`/`list_missions`を呼び直して再取得する設計を前提にする — イベント
 ペイロード自体には状態そのものを含めない)。
 
-### 3.1.1 `resume_mission` の非同期フロー(§3.1との違いに注意)
+### 3.1.1 `resume_mission` の非同期フロー(2026-08-10改訂: 確認行方式へ統一)
 
 `resume_mission` も `orgh resume <mission_id> [--retry-failed]` というミッション完走まで
-ブロックする長時間子プロセスを起動する点は `start_mission`/`approve_mission` と同じだが、
-**CLI側に `ORGH_MISSION_ID` / `ORGH_APPROVED` に相当する確認行が存在しない**
-(§1.5末尾を参照。CLI拡張は本タスクのスコープ外・第2期でも変更しない前提)。
-そのため §3.1 とは異なる、以下のフローを採ること:
+ブロックする長時間子プロセスを起動する。当初は確認行なしの即時Ok方式だったが、
+**resumeの失敗(実行ロック競合・対象なし等)が成功として画面に見え、再クリックで
+失敗プロセスを量産する欠陥**(Codexレビューp2r1)が確認されたため、
+approveと同じ確認行方式へ統一した:
 
 1. `mission_id` は引数として既に確定しているため、探索フェーズは無い。Rustは
    `orgh --config <configPath> resume <mission_id> [--retry-failed]` を非同期にspawnする。
-2. **子プロセスのspawnに成功した時点で、`resume_mission` コマンド自体は
-   直ちに `Ok(())` を返して完了する**(§3.1のようにCLI出力側の確認行を待たない)。
-   OS上のプロセス起動自体が失敗した場合(バイナリ未検出等)のみ `Err` を返す。
-3. spawn直後に `mission-updated { missionId: <mission_id> }` を1回emitする
-   (UIが直ちに再取得し、`running`遷移や失敗を早期に反映できるようにするため)。
+2. CLIは実行ロック取得・状態復元・保存が完了した直後に **`ORGH_RESUMED=<id>`** を
+   出力する(`orgh/cli.py` resume分岐)。Rustはこの確認行を検出するまで成功を
+   返さず、確認行より前に子プロセスが終了した場合はstderr末尾込みの `Err` を返す
+   (§3.1の `ORGH_APPROVED` と同一の仕組み・同一実装 `spawn_and_bridge`)。
+3. 確認行の検出時に `mission-updated { missionId: <mission_id> }` を1回emitする。
 4. 以降、子プロセスのstdout/stderrを1行ずつ `mission-log { missionId: <mission_id>, line }`
    としてemitし続ける。`mission_id` は最初から確定しているため、
    `resume_mission` が発火する `mission-log` の `missionId` が `null` になることは無い

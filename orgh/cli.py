@@ -294,6 +294,10 @@ def main() -> None:
             for t in mission.tasks:
                 if t.status == "failed":
                     t.status, t.attempts = "pending", 0
+        store.save(mission)
+        # GUI(spawn_and_bridge)がresume受理を機械的に検知するための確認行。
+        # ロック取得・状態復元より前にsys.exitした場合は「再開されなかった」扱い
+        print(f"ORGH_RESUMED={mission.id}", flush=True)
         mission = run_mission(cfg, mission, store, lock_fp=lock_fp)
         # resume完走時のretro(実運用7307189eで発見したギャップ)。resumeは
         # 再試行経路なので全doneのときだけretroする(失敗時にRETRO_DONEを

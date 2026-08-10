@@ -123,11 +123,21 @@ class TestDoctorAuthState:
             assert REQUIRED_CHECK_KEYS_P2 <= check.keys()
             assert check["kind"] == "connectivity"
 
-    def test_non_worker_checks_have_auth_state_na(self, cfg):
+    def test_non_executable_checks_have_auth_state_na(self, cfg):
+        # role:*はClaudeCodeAdapter経由で実行されるためworkerと同様に認証確認の
+        # 対象(Codexレビューp2r1で是正)。n/aは実行を伴わないチェックのみ
         payload = doctor_payload(cfg)
         for check in payload["checks"]:
-            if not check["name"].startswith("worker:"):
+            if not check["name"].startswith(("worker:", "role:")):
                 assert check["auth_state"] == "n/a", check
+
+    def test_role_checks_have_auth_state(self, cfg):
+        payload = doctor_payload(cfg)
+        role_checks = [c for c in payload["checks"]
+                       if c["name"].startswith("role:")]
+        assert role_checks
+        for c in role_checks:
+            assert c["auth_state"] in ("ok", "unverified", "failed"), c
 
     def test_claude_worker_auth_ok_by_default(self, cfg):
         payload = doctor_payload(cfg)

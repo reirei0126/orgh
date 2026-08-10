@@ -64,7 +64,7 @@ function App() {
         {route.name === "new" && <NewMissionPage navigate={navigate} onError={onError} />}
         {route.name === "settings" && <SettingsPage onError={onError} />}
         {route.name === "report" && <ReportPage onError={onError} />}
-        {route.name === "playbooks" && <PlaybooksPage navigate={navigate} onError={onError} />}
+        {route.name === "playbooks" && <PlaybooksPage navigate={navigate} onError={onError} filterMissionId={route.missionId} />}
         {route.name === "mission" && (
           <MissionDetailPage missionId={route.missionId} navigate={navigate} onError={onError} />
         )}

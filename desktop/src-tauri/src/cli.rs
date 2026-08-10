@@ -93,9 +93,10 @@ pub fn run_sync(settings: &Settings, args: &[&str]) -> Result<(), String> {
 /// `ORGH_MISSION_ID=<id>` 行を検出するまでは `mission-log { missionId: null }` を
 /// emitし続け、検出した時点で `mission-updated` を1回emitして戻り値を確定させる。
 /// `Some(id)` (approve_mission) の場合: CLIが承認受理の確認行
-/// `ORGH_APPROVED=<id>` を出すまで成功を返さない。承認待ちなし・二重実行
-/// (flock競合)等でCLIが確認行より前に非0終了した場合はstderr込みのErrになる
-/// (即Okを返すと承認失敗が成功として画面に見える)。
+/// `confirm_prefix`(approve: `ORGH_APPROVED=` / resume: `ORGH_RESUMED=`)の
+/// 確認行を出すまで成功を返さない。対象なし・二重実行(flock競合)等でCLIが
+/// 確認行より前に非0終了した場合はstderr込みのErrになる
+/// (即Okを返すと失敗が成功として画面に見える)。
 ///
 /// 戻り値確定後も子プロセスはバックグラウンドで動き続け、stdout/stderrの残りを
 /// `mission-log` として流し続け、プロセス終了時に `mission-updated` を最低1回
@@ -105,6 +106,7 @@ pub fn spawn_and_bridge(
     program: String,
     args: Vec<String>,
     known_mission_id: Option<String>,
+    confirm_prefix: &str,
 ) -> Result<String, String> {
     let mut child = Command::new(&program)
         .args(&args)
@@ -173,12 +175,13 @@ pub fn spawn_and_bridge(
         let id_tx = id_tx.clone();
         let confirmed = Arc::clone(&confirmed);
         let already_known = known_mission_id.is_some();
+        let confirm_prefix = confirm_prefix.to_string();
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
                 if !confirmed.load(Ordering::SeqCst) {
                     let prefix = if already_known {
-                        "ORGH_APPROVED="
+                        confirm_prefix.as_str()
                     } else {
                         "ORGH_MISSION_ID="
                     };
@@ -264,68 +267,6 @@ pub fn spawn_and_bridge(
         .map_err(|_| "orghプロセスとの通信が切断された".to_string())?
 }
 
-/// 確認行を出さない`orgh resume`専用の長時間プロセスブリッジ。
-/// spawn成功直後に状態更新を通知して戻り、ログ転送と終了通知は背後で継続する。
-pub fn spawn_and_bridge_immediate(
-    app: AppHandle,
-    program: String,
-    args: Vec<String>,
-    mission_id: String,
-) -> Result<(), String> {
-    let mut child = Command::new(&program)
-        .args(&args)
-        .env("PYTHONUNBUFFERED", "1")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("'{program}' の起動に失敗: {e}"))?;
-    let stdout = child.stdout.take().expect("stdout pipe should exist");
-    let stderr = child.stderr.take().expect("stderr pipe should exist");
-    let _ = app.emit(
-        "mission-updated",
-        MissionUpdatedEvent {
-            mission_id: mission_id.clone(),
-        },
-    );
-
-    let stdout_handle = {
-        let app = app.clone();
-        let mission_id = mission_id.clone();
-        thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                let _ = app.emit(
-                    "mission-log",
-                    MissionLogEvent {
-                        mission_id: Some(mission_id.clone()),
-                        line,
-                    },
-                );
-            }
-        })
-    };
-    let stderr_handle = {
-        let app = app.clone();
-        let mission_id = mission_id.clone();
-        thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                let _ = app.emit(
-                    "mission-log",
-                    MissionLogEvent {
-                        mission_id: Some(mission_id.clone()),
-                        line,
-                    },
-                );
-            }
-        })
-    };
-    thread::spawn(move || {
-        let _ = child.wait();
-        let _ = stdout_handle.join();
-        let _ = stderr_handle.join();
-        let _ = app.emit("mission-updated", MissionUpdatedEvent { mission_id });
-    });
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {

@@ -156,14 +156,19 @@ def _run_checks(cfg: dict) -> list[dict]:
     seen: dict[str, dict] = {}
     for name, bin_path in _binaries(cfg).items():
         is_worker = name.startswith("worker:")
-        worker_kind = name.split(":", 1)[1] if is_worker else None
+        # role(planner/reviewer/retro)はClaudeCodeAdapter経由で実行されるため、
+        # workerと同じ認証チェックを適用する。roleだけ認証切れのCLIを指す構成で
+        # doctorが全OKを返すと、実ミッションのplan/reviewで初めて認証エラーになる
+        is_role = name.startswith("role:")
+        worker_kind = (name.split(":", 1)[1] if is_worker
+                       else "claude_code" if is_role else None)
         # bin: null や数値のような壊れた値をsubprocessへ渡すと、doctor自体が
         # 未捕捉TypeErrorで死んで診断表を返せなくなる。NGチェックに変換する
         if not isinstance(bin_path, str) or not bin_path.strip():
             c = {"name": name, "ok": False,
                  "detail": f"binが不正な値 ({bin_path!r})",
                  "auth_state": "n/a"}
-            if is_worker:
+            if is_worker or is_role:
                 c["auth_state"] = "unverified"
                 c["detail"] += " / 認証未確認(疎通確認自体が失敗しているため確認できない)"
             checks.append(c)
@@ -172,13 +177,13 @@ def _run_checks(cfg: dict) -> list[dict]:
             prev = seen[bin_path]
             c = {"name": name, "ok": prev["ok"], "detail": f"(= {bin_path})",
                  "auth_state": "n/a"}
-            if is_worker:
+            if is_worker or is_role:
                 _augment_worker_auth(c, worker_kind, bin_path)
             checks.append(c)
         else:
             c = _check_binary(name, bin_path)
             c["auth_state"] = "n/a"
-            if is_worker:
+            if is_worker or is_role:
                 _augment_worker_auth(c, worker_kind, bin_path)
             seen[bin_path] = c
             checks.append(c)

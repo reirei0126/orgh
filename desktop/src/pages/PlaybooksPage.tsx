@@ -8,7 +8,12 @@ async function fetchPlaybooks(): Promise<PlaybookPayload> {
   return invoke<PlaybookPayload>("playbooks");
 }
 
-export function PlaybooksPage({ navigate, onError }: { navigate: (route: Route) => void; onError: (message: string) => void }) {
+export function PlaybooksPage({ navigate, onError, filterMissionId }: {
+  navigate: (route: Route) => void;
+  onError: (message: string) => void;
+  /** 指定時、このミッションが追記したエントリだけに絞り込む(詳細画面からの導線)。 */
+  filterMissionId?: string;
+}) {
   const [payload, setPayload] = useState<PlaybookPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -21,7 +26,16 @@ export function PlaybooksPage({ navigate, onError }: { navigate: (route: Route) 
         if (cancelled) return;
         setPayload(result);
         setLoadError(null);
-        setSelected((prev) => prev ?? result.playbooks[0]?.name ?? null);
+        setSelected((prev) => {
+          if (prev) return prev;
+          if (filterMissionId) {
+            const hit = result.playbooks.find((p) =>
+              p.entries.some((e) => e.missionId === filterMissionId),
+            );
+            if (hit) return hit.name;
+          }
+          return result.playbooks[0]?.name ?? null;
+        });
       })
       .catch((e) => {
         if (cancelled) return;
@@ -35,6 +49,19 @@ export function PlaybooksPage({ navigate, onError }: { navigate: (route: Route) 
   }, []);
 
   const active: PlaybookFile | null = payload?.playbooks.find((p) => p.name === selected) ?? null;
+  const visibleEntries =
+    active === null
+      ? []
+      : filterMissionId
+        ? active.entries.filter((e) => e.missionId === filterMissionId)
+        : active.entries;
+  const filterHitTotal =
+    filterMissionId && payload
+      ? payload.playbooks.reduce(
+          (n, p) => n + p.entries.filter((e) => e.missionId === filterMissionId).length,
+          0,
+        )
+      : 0;
 
   return (
     <div className="page">
@@ -63,6 +90,19 @@ export function PlaybooksPage({ navigate, onError }: { navigate: (route: Route) 
       {payload !== null && payload.playbooks.length === 0 && (
         <div className="panel">
           <div className="empty-state">まだ記録がありません。ミッション完了後、Retroが自動的にここへ追記します。</div>
+        </div>
+      )}
+
+      {filterMissionId && payload !== null && (
+        <div className="panel">
+          <div className="empty-state">
+            ミッション <span className="mono">{filterMissionId}</span> が追記したエントリに絞り込み中
+            (全ファイル合計 {filterHitTotal}件)。
+            {filterHitTotal === 0 && " このミッションによる追記は見つかりませんでした(retro未実行、または教訓なし)。"}
+            <button className="btn" style={{ marginLeft: 8 }} onClick={() => navigate({ name: "playbooks" })}>
+              絞り込みを解除
+            </button>
+          </div>
         </div>
       )}
 
@@ -106,11 +146,15 @@ export function PlaybooksPage({ navigate, onError }: { navigate: (route: Route) 
                 <pre className="mono" style={{ fontSize: 12, whiteSpace: "pre-wrap", maxHeight: 500, overflowY: "auto" }}>
                   {active.body}
                 </pre>
-              ) : active.entries.length === 0 ? (
-                <div className="empty-state">この行形式のエントリはまだありません(「元ファイルを表示」で全文を確認できます)。</div>
+              ) : visibleEntries.length === 0 ? (
+                <div className="empty-state">
+                  {filterMissionId
+                    ? "このファイルには該当ミッションのエントリがありません。"
+                    : "この行形式のエントリはまだありません(「元ファイルを表示」で全文を確認できます)。"}
+                </div>
               ) : (
                 <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                  {active.entries.map((entry, i) => (
+                  {visibleEntries.map((entry, i) => (
                     <PlaybookEntryRow key={i} entry={entry} navigate={navigate} />
                   ))}
                 </ul>

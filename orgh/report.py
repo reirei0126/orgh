@@ -16,27 +16,42 @@ from datetime import datetime
 from pathlib import Path
 
 
-def _load_missions(runs_dir: str | Path) -> list[tuple[dict, list[dict]]]:
-    """mission.json を持つ各ミッションディレクトリから (mission, events) を集める。"""
+def _load_missions(runs_dir: str | Path) -> tuple[list[tuple[dict, list[dict]]], list[dict]]:
+    """mission.json を持つ各ミッションディレクトリから (mission, events) を集める。
+
+    壊れたmission.json/ledger行はミッション単位で隔離してskippedへ回す
+    (1件の破損でレポート全体が閲覧不能になるのを防ぐ。listのskipped方式と同じ)。
+    ledgerの壊れた行は読める行だけ採用する。
+    """
     root = Path(runs_dir)
     if not root.exists():
-        return []
+        return [], []
     out = []
+    skipped: list[dict] = []
     for d in sorted(root.iterdir()):
         if not d.is_dir():
             continue
         mp = d / "mission.json"
         if not mp.exists():
             continue
-        mission = json.loads(mp.read_text())
+        try:
+            mission = json.loads(mp.read_text())
+        except Exception as e:
+            skipped.append({"path": str(mp),
+                            "reason": f"{type(e).__name__}: {e}"})
+            continue
         events = []
         lp = d / "ledger.jsonl"
         if lp.exists():
             for line in lp.read_text().splitlines():
-                if line.strip():
+                if not line.strip():
+                    continue
+                try:
                     events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
         out.append((mission, events))
-    return out
+    return out, skipped
 
 
 def _weekly_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, dict]:
@@ -103,7 +118,7 @@ def _worker_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, tuple[in
 
 
 def build_report(cfg: dict, days: int | None = None) -> str:
-    missions = _load_missions(cfg.get("runs_dir", "runs"))
+    missions, skipped = _load_missions(cfg.get("runs_dir", "runs"))
 
     if days is not None:
         cutoff = time.time() - days * 86400
@@ -136,6 +151,12 @@ def build_report(cfg: dict, days: int | None = None) -> str:
         pct = round(failed / n * 100) if n else 0
         lines.append(f"- {worker}: {failed}/{n} failed ({pct}%)")
 
+    if skipped:
+        lines.append("")
+        lines.append("## 集計から除外した壊れたデータ")
+        for sk in skipped:
+            lines.append(f"- {sk['path']} ({sk['reason']})")
+
     return "\n".join(lines)
 
 
@@ -147,7 +168,7 @@ def report_payload(cfg: dict, days: int | None = None) -> dict:
     ようにする。パーセンテージも同じ計算式(round(x/total*100) if total else 0)
     を使う。
     """
-    missions = _load_missions(cfg.get("runs_dir", "runs"))
+    missions, skipped = _load_missions(cfg.get("runs_dir", "runs"))
     if days is not None:
         cutoff = time.time() - days * 86400
         missions = [(m, e) for m, e in missions if e and e[0]["ts"] >= cutoff]
@@ -194,4 +215,4 @@ def report_payload(cfg: dict, days: int | None = None) -> dict:
         })
 
     return {"days": days, "weekly": weekly_json, "missions": missions_json,
-            "workers": workers_json}
+            "workers": workers_json, "skipped": skipped}

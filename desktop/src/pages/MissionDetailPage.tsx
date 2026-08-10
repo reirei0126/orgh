@@ -301,6 +301,18 @@ export function MissionDetailPage({
             <DependencyGraph tasks={status.tasks} />
           </div>
 
+          {(status.status === "done" || status.status === "failed" || status.status === "cancelled") && (
+            <div className="panel">
+              <div className="panel-title">このミッションの学び</div>
+              <p className="field-hint">
+                完了・決着したミッションはRetroがplaybookへ教訓を追記します(教訓なしの場合もあります)。
+              </p>
+              <button className="btn" onClick={() => navigate({ name: "playbooks", missionId })}>
+                Playbookでこのミッションの追記を見る
+              </button>
+            </div>
+          )}
+
           <div className="panel">
             <div className="panel-title">ライブログ</div>
             <LiveLog lines={logLines} />

@@ -170,6 +170,9 @@ pub struct ReportPayload {
     pub weekly: Vec<WeeklyReportStat>,
     pub missions: Vec<MissionReportLine>,
     pub workers: Vec<WorkerFailureStat>,
+    /// 集計から隔離した壊れたミッションデータ(旧CLI互換のため欠落許容)
+    #[serde(default)]
+    pub skipped: Vec<SkippedMission>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -32,6 +32,10 @@ export function ReportPage({ onError }: { onError: (message: string) => void }) 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // 期間変更時に前期間のデータを残すと、取得失敗のとき見出しだけ新期間・
+    // 表は旧期間という不一致表示になる(Codexレビューp2r1)
+    setPayload(null);
+    setLoadError(null);
     fetchReport(days)
       .then((result) => {
         if (cancelled) return;
@@ -98,6 +102,17 @@ export function ReportPage({ onError }: { onError: (message: string) => void }) 
       {loadError !== null && payload === null && (
         <div className="panel">
           <div className="empty-state">レポートを取得できませんでした: {loadError}</div>
+        </div>
+      )}
+
+      {payload !== null && payload.skipped.length > 0 && (
+        <div className="panel">
+          <div className="empty-state">
+            ⚠ 壊れたミッションデータを{payload.skipped.length}件、集計から除外しました:
+            {payload.skipped.map((sk) => (
+              <div key={sk.path} className="mono">{sk.path} — {sk.reason}</div>
+            ))}
+          </div>
         </div>
       )}
 

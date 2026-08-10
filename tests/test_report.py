@@ -237,7 +237,8 @@ class TestReportJson:
     def test_empty_when_no_missions_in_range(self, cfg, mock_state_dir):
         _seed_runs(cfg)
         payload = report.report_payload(cfg, days=1)
-        assert payload == {"days": 1, "weekly": [], "missions": [], "workers": []}
+        assert payload == {"days": 1, "weekly": [], "missions": [],
+                           "workers": [], "skipped": []}
 
     def test_cli_report_json_outputs_single_json_object(
             self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
@@ -263,3 +264,21 @@ class TestReportJson:
         assert "# orgh report" in out
         with pytest.raises(json.JSONDecodeError):
             json.loads(out)
+
+
+
+class TestReportBrokenDataIsolation:
+    def test_broken_mission_isolated_into_skipped(self, cfg, mock_state_dir):
+        # 壊れたmission.json 1件でレポート全体が死なない(Codexレビューp2r1)
+        import json as _json
+        from pathlib import Path as _P
+        _seed_runs(cfg)
+        broken = _P(cfg["runs_dir"]) / "mbroken"
+        broken.mkdir(parents=True)
+        (broken / "mission.json").write_text("{not valid json")
+        payload = report.report_payload(cfg)
+        assert any(m["mission_id"] == "m1" for m in payload["missions"])
+        assert len(payload["skipped"]) == 1
+        assert payload["skipped"][0]["path"].endswith("mbroken/mission.json")
+        out = report.build_report(cfg)
+        assert "除外した壊れたデータ" in out

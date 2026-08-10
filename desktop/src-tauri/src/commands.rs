@@ -73,7 +73,7 @@ pub fn start_mission(
 ) -> Result<String, String> {
     let settings = settings::load_settings(&app)?;
     let args = build_run_args(&settings, intent, note)?;
-    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, None)
+    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, None, "ORGH_MISSION_ID=")
 }
 
 #[tauri::command]
@@ -85,7 +85,8 @@ pub fn approve_mission(app: AppHandle, mission_id: String) -> Result<(), String>
         "approve".to_string(),
         mission_id.clone(),
     ];
-    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, Some(mission_id)).map(|_| ())
+    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, Some(mission_id), "ORGH_APPROVED=")
+        .map(|_| ())
 }
 
 #[tauri::command]
@@ -96,7 +97,11 @@ pub fn resume_mission(
 ) -> Result<(), String> {
     let settings = settings::load_settings(&app)?;
     let args = build_resume_args(&settings, &mission_id, retry_failed);
-    cli::spawn_and_bridge_immediate(app, settings.orgh_bin.clone(), args, mission_id)
+    // resumeもapproveと同様に確認行(ORGH_RESUMED=)の検出まで成功を返さない。
+    // 即Okだとロック競合等の失敗が成功として画面に見え、再クリックで失敗
+    // プロセスを量産する
+    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, Some(mission_id), "ORGH_RESUMED=")
+        .map(|_| ())
 }
 
 #[tauri::command]

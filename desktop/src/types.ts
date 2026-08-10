@@ -179,6 +179,8 @@ export interface ReportPayload {
   weekly: WeeklyReportStat[];
   missions: MissionReportLine[];
   workers: WorkerFailureStat[];
+  /** 集計から隔離した壊れたミッションデータ(1件の破損で全体を落とさない)。 */
+  skipped: SkippedMission[];
 }
 
 /** 週次の初回attempt合格率・差し戻し率。orgh/report.py _weekly_stats 由来。 */
