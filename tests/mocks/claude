@@ -119,7 +119,10 @@ def main() -> int:
         reject_once = marker in _env_set("MOCK_PERSONA_REJECT_ONCE")
         always_fail = marker in _env_set("MOCK_PERSONA_ALWAYS_FAIL")
         no_evidence = marker in _env_set("MOCK_PERSONA_NO_EVIDENCE")
-        once_flag = state / f"persona_once_{persona}_{marker}"
+        # markerのみで共有(persona非依存): 複数ペルソナが直列裁定される
+        # ケースで「最初の1回だけ差し戻し」を再現するため(2人目以降が
+        # 各々の初回で再度差し戻されると恒久ループになってしまう)
+        once_flag = state / f"persona_once_{marker}"
         if no_evidence:
             verdict = {"pass": True, "feedback": "", "evidence": []}
         elif always_fail or (reject_once and not once_flag.exists()):

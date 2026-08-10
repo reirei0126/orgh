@@ -19,7 +19,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from . import procreg
 from .adapters.base import get_adapter
 from .guard import needs_approval
-from .planner import replan_task, review, worker_prompt
+from .planner import persona_review, replan_task, review, worker_prompt
 from .state import Budget, Mission, RunStore, Task
 from .worktree import commit_task_result, ensure_task_worktree
 
@@ -104,31 +104,34 @@ def _run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         return t
 
 
-def _review_with_retry(cfg: dict, store: RunStore, t: Task, budget: Budget,
-                       retries: int = 2, wait: float = 60):
-    """レビュー呼び出しの失敗(max_turns超過・接続断等)はレビューのみリトライする。
+def _role_call_with_retry(cfg: dict, store: RunStore, t: Task, role: str,
+                          fn, retries: int = 2, wait: float = 60):
+    """ロール呼び出し(reviewer/persona)の失敗はロールのみリトライする。
     worker実行はやり直さない(成果とコストを捨てない)。"""
     last: Exception | None = None
     for i in range(retries + 1):
         if _cancel_flag(store).exists():
-            # terminateされたreviewerの例外を「失敗」と誤認して新しいreviewerを
-            # 起動しない(キャンセル後の再起動はコストと成果確定の両方で有害)
-            raise _CancelledDuringRole("cancelled before/during review")
+            raise _CancelledDuringRole(f"cancelled before/during {role}")
         try:
-            # registry_key登録によりcancelのterminate対象にする(未登録だと
-            # レビュー中のキャンセルが効かず、キャンセル後に成果が確定する)
-            return review(cfg, t, workdir=t.workdir, budget=budget,
-                          registry_key=store.dir.name)
-        except Exception as e:  # _ask_jsonのRuntimeError/JSON解釈失敗など
+            return fn()
+        except Exception as e:
             if _cancel_flag(store).exists():
-                raise _CancelledDuringRole("review terminated by cancel") from e
+                raise _CancelledDuringRole(f"{role} terminated by cancel") from e
             last = e
             if i < retries:
-                store.log("role.retry", role="reviewer", task=t.id,
+                store.log("role.retry", role=role, task=t.id,
                           retry=i + 1, error=repr(e)[:300])
                 if _cancellable_sleep(store, wait):
                     raise _CancelledDuringRole("cancelled during retry wait") from e
     raise last  # type: ignore[misc]
+
+
+def _review_with_retry(cfg, store, t, budget, retries=2, wait=60):
+    return _role_call_with_retry(
+        cfg, store, t, "reviewer",
+        lambda: review(cfg, t, workdir=t.workdir, budget=budget,
+                       registry_key=store.dir.name),
+        retries=retries, wait=wait)
 
 
 def _retry_prompt(adapter, cfg: dict, t: Task, followup: str) -> str:
@@ -260,6 +263,35 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         with store.lock:
             t.review_notes = feedback
         store.log("task.review", task=t.id, passed=passed)
+        if passed and t.personas:
+            for persona in t.personas:
+                try:
+                    p_ok, p_fb = _role_call_with_retry(
+                        cfg, store, t, f"persona_{persona}",
+                        lambda p=persona: persona_review(
+                            cfg, p, t, workdir=t.workdir, budget=budget,
+                            registry_key=store.dir.name),
+                        wait=infra_wait)
+                except _CancelledDuringRole:
+                    raise
+                except Exception as e:
+                    # 証拠なし合格の連発等。reviewer枯渇と同様に成果は保持してfailed
+                    with store.lock:
+                        t.status = "failed"
+                        t.review_notes = (f"ペルソナ検収({persona})の呼び出しが失敗"
+                                          f"(リトライ上限超過)。worker成果は保持済み: "
+                                          f"{e!s:.300}")
+                    store.log("task.persona_exhausted", task=t.id,
+                              persona=persona, error=repr(e)[:500])
+                    return t
+                store.log("task.persona_review", task=t.id, persona=persona,
+                          passed=p_ok)
+                if not p_ok:
+                    passed = False
+                    feedback = f"[{persona}ペルソナ検収] {p_fb}"
+                    with store.lock:
+                        t.review_notes = feedback   # attempts枯渇時に原因が残るように
+                    break
         if passed:
             # レビュー中にキャンセルされていたら成果を確定させない
             # (terminateを逃れて完走したレビューがここへ到達しうる)

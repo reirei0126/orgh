@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+from .conftest import read_calls, read_ledger
 from orgh.orchestrator import _assign_personas, run_mission
 from orgh.planner import persona_review
 from orgh.state import Mission, RunStore, Task
@@ -55,3 +56,55 @@ class TestPersonaReview:
         monkeypatch.setenv("MOCK_PERSONA_ALWAYS_FAIL", "p1")
         ok, fb = persona_review(cfg, "designer", _t(), workdir=".")
         assert not ok and "MARK" in fb
+
+
+class TestPersonaGateST:
+    def _cfg(self, cfg):
+        cfg["personas"] = {"enabled": ["consumer", "designer"]}
+        cfg["loop"]["infra_retry_wait"] = 0
+        return cfg
+
+    def test_persona_reject_once_then_pass(self, cfg, mock_state_dir,
+                                           monkeypatch):
+        """consumer差し戻し→worker修正→再レビュー→全ペルソナ合格→done。"""
+        monkeypatch.setenv("MOCK_PERSONA_REJECT_ONCE", "g1")
+        m = Mission.new(intent="x", context_digest="", tasks=[_task("g1")])
+        run_mission(self._cfg(cfg), m, RunStore(cfg["runs_dir"], m.id))
+        t = m.tasks[0]
+        assert t.status == "done"
+        assert t.attempts == 2                    # 差し戻しで1回増える
+        events = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                  if e["event"] == "task.persona_review"]
+        assert any(not e["passed"] for e in events)
+        assert events[-1]["passed"]
+
+    def test_persona_always_fail_exhausts_attempts(self, cfg, mock_state_dir,
+                                                   monkeypatch):
+        monkeypatch.setenv("MOCK_PERSONA_ALWAYS_FAIL", "g2")
+        m = Mission.new(intent="x", context_digest="", tasks=[_task("g2")])
+        run_mission(self._cfg(cfg), m, RunStore(cfg["runs_dir"], m.id))
+        assert m.tasks[0].status == "failed"
+        assert "ペルソナ" in m.tasks[0].review_notes
+
+    def test_no_evidence_pass_retries_then_fails_keeping_output(
+            self, cfg, mock_state_dir, monkeypatch):
+        """証拠なし合格はロールリトライ→枯渇でfailed。worker成果は保持。"""
+        monkeypatch.setenv("MOCK_PERSONA_NO_EVIDENCE", "g3")
+        m = Mission.new(intent="x", context_digest="", tasks=[_task("g3")])
+        run_mission(self._cfg(cfg), m, RunStore(cfg["runs_dir"], m.id))
+        t = m.tasks[0]
+        assert t.status == "failed"
+        assert t.last_output           # 成果は捨てられていない
+        retries = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                   if e["event"] == "role.retry"
+                   and e["role"] == "persona_consumer"]
+        assert len(retries) == 2
+
+    def test_disabled_personas_no_calls(self, cfg, mock_state_dir):
+        """personas未設定なら従来動作(ペルソナ呼び出しゼロ)。"""
+        m = Mission.new(intent="x", context_digest="", tasks=[_task("g4")])
+        run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
+        assert m.tasks[0].status == "done"
+        personas = [c for c in read_calls(mock_state_dir)
+                    if c["role"] == "persona"]
+        assert personas == []
