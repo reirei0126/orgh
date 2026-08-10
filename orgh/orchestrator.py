@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import fcntl
 import re
+import subprocess
 import time
 import traceback
+from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from . import procreg
@@ -141,8 +143,30 @@ def _retry_prompt(adapter, cfg: dict, t: Task, followup: str) -> str:
     return f"{worker_prompt(cfg, t)}\n\n## 再実行の指示\n{followup}"
 
 
+def _ensure_workdir(store: RunStore, t: Task, wt_cfg: dict) -> None:
+    """新規プロジェクト用にPlannerが計画したworkdirが未作成だと、worker subprocess
+    の起動がFileNotFoundErrorで即死する(mission eceb49cbで実測)。ディレクトリを
+    作成し、worktree運用時はgitリポとして初期化する(worktree addは初回コミットが
+    無いと失敗するため空コミットまで行う)。"""
+    wd = Path(t.workdir)
+    if wd.exists():
+        return
+    wd.mkdir(parents=True, exist_ok=True)
+    store.log("task.workdir_created", task=t.id, workdir=str(wd))
+    print(f"  [workdir] {t.workdir} を新規作成した(新規プロジェクト)")
+    if wt_cfg.get("enabled"):
+        subprocess.run(["git", "-C", str(wd), "init", "-q", "-b", "main"],
+                       check=False, capture_output=True)
+        subprocess.run(["git", "-C", str(wd),
+                        "-c", "user.name=orgh", "-c", "user.email=orgh@local",
+                        "commit", "-q", "--allow-empty",
+                        "-m", "orgh: 新規プロジェクト初期化"],
+                       check=False, capture_output=True)
+
+
 def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     wt_cfg = cfg.get("worktree") or {}
+    _ensure_workdir(store, t, wt_cfg)
     if wt_cfg.get("enabled"):
         got = ensure_task_worktree(wt_cfg, store.dir.name, t)
         if got:

@@ -65,19 +65,28 @@ pub fn playbooks(app: AppHandle) -> Result<PlaybookPayload, String> {
     cli::run_json(&settings, &refs)
 }
 
+// start/approve/resumeは確認行の検出までブロックする長時間処理。Tauriの
+// 同期コマンドはメインスレッドで実行されるため、そのまま書くとplanning完了
+// (数分)までアプリのイベントループごと凍結し、GUIのローディングが永遠に
+// 終わらない(実機で実測)。asyncコマンド+spawn_blockingで退避する
 #[tauri::command]
-pub fn start_mission(
+pub async fn start_mission(
     app: AppHandle,
     intent: Option<String>,
     note: Option<String>,
 ) -> Result<String, String> {
     let settings = settings::load_settings(&app)?;
     let args = build_run_args(&settings, intent, note)?;
-    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, None, "ORGH_MISSION_ID=")
+    let bin = settings.orgh_bin.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        cli::spawn_and_bridge(app, bin, args, None, "ORGH_MISSION_ID=")
+    })
+    .await
+    .map_err(|e| format!("コマンド実行スレッドの失敗: {e}"))?
 }
 
 #[tauri::command]
-pub fn approve_mission(app: AppHandle, mission_id: String) -> Result<(), String> {
+pub async fn approve_mission(app: AppHandle, mission_id: String) -> Result<(), String> {
     let settings = settings::load_settings(&app)?;
     let args = vec![
         "--config".to_string(),
@@ -85,12 +94,16 @@ pub fn approve_mission(app: AppHandle, mission_id: String) -> Result<(), String>
         "approve".to_string(),
         mission_id.clone(),
     ];
-    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, Some(mission_id), "ORGH_APPROVED=")
-        .map(|_| ())
+    let bin = settings.orgh_bin.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        cli::spawn_and_bridge(app, bin, args, Some(mission_id), "ORGH_APPROVED=").map(|_| ())
+    })
+    .await
+    .map_err(|e| format!("コマンド実行スレッドの失敗: {e}"))?
 }
 
 #[tauri::command]
-pub fn resume_mission(
+pub async fn resume_mission(
     app: AppHandle,
     mission_id: String,
     retry_failed: bool,
@@ -100,8 +113,12 @@ pub fn resume_mission(
     // resumeもapproveと同様に確認行(ORGH_RESUMED=)の検出まで成功を返さない。
     // 即Okだとロック競合等の失敗が成功として画面に見え、再クリックで失敗
     // プロセスを量産する
-    cli::spawn_and_bridge(app, settings.orgh_bin.clone(), args, Some(mission_id), "ORGH_RESUMED=")
-        .map(|_| ())
+    let bin = settings.orgh_bin.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        cli::spawn_and_bridge(app, bin, args, Some(mission_id), "ORGH_RESUMED=").map(|_| ())
+    })
+    .await
+    .map_err(|e| format!("コマンド実行スレッドの失敗: {e}"))?
 }
 
 #[tauri::command]
