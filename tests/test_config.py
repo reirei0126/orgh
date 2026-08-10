@@ -76,3 +76,21 @@ class TestConfigValidation:
         data = {**VALID, "worktree": {"enabled": True, "base_reff": "HEAD"}}
         with pytest.warns(ConfigWarning, match="base_reff"):
             load_config(_write(tmp_path, data))
+
+    def test_personas_enabled_as_bare_string_is_error(self, tmp_path):
+        """personas.enabled(list[str])に文字列を渡すとバリデーションで弾く。
+        従来は未対応で ['c','o','n','s','u','m','e','r'] に化けて1文字ずつ
+        ペルソナ扱いされ、ワーカー実行後に初めて失敗していた(検証済み設定罠)。"""
+        data = {**VALID, "personas": {"enabled": "consumer"}}
+        with pytest.raises(ConfigError, match="personas.enabled"):
+            load_config(_write(tmp_path, data))
+
+    def test_personas_enabled_list_with_non_str_element_is_error(self, tmp_path):
+        data = {**VALID, "personas": {"enabled": ["consumer", 1]}}
+        with pytest.raises(ConfigError, match="personas.enabled"):
+            load_config(_write(tmp_path, data))
+
+    def test_personas_enabled_valid_list_is_accepted(self, tmp_path, recwarn):
+        data = {**VALID, "personas": {"enabled": ["consumer", "designer"]}}
+        load_config(_write(tmp_path, data))
+        assert [w for w in recwarn if isinstance(w.message, ConfigWarning)] == []

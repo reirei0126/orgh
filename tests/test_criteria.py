@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from orgh import cli
 from orgh.criteria import (append_entry, criteria_context, criteria_dir,
                            distill_verdict, next_id, list_drafts, approve_draft,
@@ -225,3 +227,48 @@ class TestCriteriaCli:
         assert second_rejected.name == "m123-1.2.json"  # サフィックス追加
         assert first_rejected.read_text() == first_content  # 1回目のまま
         assert "原則Y" in second_rejected.read_text()  # 2回目の内容
+
+
+def _make_draft_with(cdir: Path, name: str, **overrides) -> Path:
+    """category/prefix/strengthを差し替え可能な下書き生成(不正値注入テスト用)。"""
+    body = {"category": "design", "prefix": "DESIGN", "strength": "norm",
+            "text": "原則X"}
+    body.update(overrides)
+    d = cdir / "_drafts"
+    d.mkdir(parents=True, exist_ok=True)
+    fp = d / f"{name}.json"
+    fp.write_text(json.dumps(body, ensure_ascii=False))
+    return fp
+
+
+class TestApproveDraftValidation:
+    """approve_draftはdistill LLMが生成したcategory/prefix/strengthを信用しない
+    (検証済み脆弱性: パストラバーサルによるcriteria_dir外への書き込み、
+    _ENTRY_RE非対応strengthによるID重複発行)。"""
+
+    def test_category_path_traversal_raises_and_writes_nothing_outside(
+            self, tmp_path):
+        cdir = tmp_path / "criteria"
+        _make_draft_with(cdir, "m123-1", category="../../ESCAPED")
+        cfg = {"criteria_dir": str(cdir)}
+        with pytest.raises(ValueError, match="category"):
+            approve_draft(cfg, "m123-1")
+        # criteria_dirの外にESCAPED.mdが書かれていないこと
+        assert not (tmp_path / "ESCAPED.md").exists()
+        assert not (tmp_path.parent / "ESCAPED.md").exists()
+        # 下書きも消費されず残る(オーナーが手で直して再承認できるように)
+        assert list_drafts(cfg) == [cdir / "_drafts" / "m123-1.json"]
+
+    def test_invalid_strength_raises(self, tmp_path):
+        cdir = tmp_path / "criteria"
+        _make_draft_with(cdir, "m123-1", strength="強制")
+        cfg = {"criteria_dir": str(cdir)}
+        with pytest.raises(ValueError, match="strength"):
+            approve_draft(cfg, "m123-1")
+
+    def test_prefix_with_space_raises(self, tmp_path):
+        cdir = tmp_path / "criteria"
+        _make_draft_with(cdir, "m123-1", prefix="DESIGN X")
+        cfg = {"criteria_dir": str(cdir)}
+        with pytest.raises(ValueError, match="prefix"):
+            approve_draft(cfg, "m123-1")

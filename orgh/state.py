@@ -111,6 +111,10 @@ _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,
     "float | None": (int, float),
+    "list[str]": list,   # 要素型はisinstanceでは表現できないため_check_sectionで別途検査
+}
+_LIST_ELEM_TYPE_MAP: dict[str, type] = {
+    "list[str]": str,
 }
 
 
@@ -128,6 +132,12 @@ def _check_section(name: str, value: Any, schema_cls: type) -> None:
             raise ConfigError(
                 f"config: {name}.{k} の型が不正 "
                 f"(期待 {known[k].type}, 実際 {type(v).__name__}: {v!r})")
+        elem_type = _LIST_ELEM_TYPE_MAP.get(known[k].type)
+        if elem_type and isinstance(v, list) and not all(
+                isinstance(e, elem_type) for e in v):
+            raise ConfigError(
+                f"config: {name}.{k} の要素型が不正 "
+                f"(期待 {known[k].type}, 実際 {v!r})")
 
 
 def validate_config(data: Any) -> dict:

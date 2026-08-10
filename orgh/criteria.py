@@ -14,6 +14,8 @@ from pathlib import Path
 
 _ENTRY_RE = re.compile(r"^- ([A-Z]+)-(\d{3}) \[(norm|pref)\]:")
 _META_RE = re.compile(r"<!-- src:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
+_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_VALID_STRENGTHS = {"norm", "pref"}
 
 
 def criteria_dir(cfg: dict) -> Path:
@@ -93,10 +95,37 @@ def _draft_path(cfg: dict, name: str) -> Path:
     return fp
 
 
+def _validate_draft_fields(p: dict, fp: Path) -> None:
+    """distillLLMが生成したcategory/prefix/strengthは信用しない(検証済み脆弱性対応)。
+
+    category/prefixはファイル名(criteria_dir/{category}.md)や台帳ID接頭辞に
+    直接使われるため、パストラバーサル("../../ESCAPED"等)や記号混入を
+    `^[A-Za-z0-9_-]+$` で拒否する。strengthは _ENTRY_RE が `norm|pref` しか
+    認識しないため、それ以外(例: "強制")を許すとledger行が走査から漏れ、
+    next_idが同じ番号を再発行してID引用契約(重複DESIGN-001等)を破壊する。
+    違反時は下書きファイルの場所を示すValueErrorとし、オーナーが手で
+    直して再承認できるようにする。
+    """
+    for field in ("category", "prefix"):
+        v = p.get(field)
+        if not isinstance(v, str) or not _SAFE_TOKEN_RE.match(v):
+            raise ValueError(
+                f"draft {fp}: {field} が不正な値です ({v!r})。"
+                f"英数字・アンダースコア・ハイフンのみ許可。"
+                f"下書きファイルを直接編集してから再承認せよ: {fp}")
+    strength = p.get("strength", "pref")
+    if strength not in _VALID_STRENGTHS:
+        raise ValueError(
+            f"draft {fp}: strength が不正な値です ({strength!r})。"
+            f"norm/pref のいずれかのみ許可。"
+            f"下書きファイルを直接編集してから再承認せよ: {fp}")
+
+
 def approve_draft(cfg: dict, name: str) -> str:
     """下書きを本台帳へ反映する(ワンタップ承認の実体)。"""
     fp = _draft_path(cfg, name)
     p = json.loads(fp.read_text())
+    _validate_draft_fields(p, fp)
     line = append_entry(criteria_dir(cfg), p["category"], p["prefix"],
                         p.get("strength", "pref"), p["text"], src=name)
     fp.unlink()
