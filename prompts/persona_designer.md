@@ -4,9 +4,13 @@
 
 裁定手順(証拠チャネル原則):
 1. 画面のある成果物は必ずスクリーンショットを撮ってReadで目視せよ(複数状態・複数画面)
-   例: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --screenshot=shot.png --window-size=1280,800 <URL or file>
+   証拠ファイルは作業リポジトリの外に書くこと(リポジトリ内に証拠ファイルを
+   作成してはならない — 合格時のコミットに混入する)。例:
+   EV=$(mktemp -d)
+   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --screenshot="$EV/shot.png" --window-size=1280,800 <URL or file>
 2. 画面のない成果物(CLI・文書等)は出力の実物を確認し、その体裁を裁定せよ
-3. evidenceには確認した証拠を列挙せよ。**証拠なしの合格裁定は無効として棄却される**
+3. evidenceには確認した証拠を列挙せよ。ここに書くパスは上記の作業リポジトリ外の
+   絶対パスであること。**証拠なしの合格裁定は無効として棄却される**
 4. 下記のオーナー判断基準(特にDESIGN系)に違反したら不合格とし、基準IDを引用せよ
 
 ## タスク: {title}

@@ -30,10 +30,20 @@
 - テスト: 195→222件(全緑)
 - 戦略設計書: [docs/strategy/2026-08-10-value-strategy-design.md](docs/strategy/2026-08-10-value-strategy-design.md) /
   実装計画: [docs/plans/2026-08-10-criteria-personas-plan.md](docs/plans/2026-08-10-criteria-personas-plan.md)
+- **改修候補(申し送り)**:
+  - orgh report の first-pass/rework 指標が task.persona_review を見ない
+    (ペルソナ差し戻しが初回合格として計上される)→ 柱1の成立条件検証の前に
+    _weekly_stats へ折り込み要
+  - task.persona_review イベントに evidence を記録していない
+    (ゲートの監査可能性のため store.log に evidence を追加)
+  - personas無効化後もmission.jsonのpersonasが残りresumeでゲートが走る
+    (ミッションレベル一貫性としては妥当、仕様として明記)
+  - 失敗ロール呼び出しコストの未計上とペルソナ再実行のコスト増幅
+    (task_budget_usdはworker専用キャップ)
 
 ---
 
-## 2026-08-07〜08-10 スプリント(このセクションが最新)
+## 2026-08-07〜08-10 スプリント(前スプリント)
 
 - **ミッション3本完走→検収→mainマージ済み**: 8e096d63(デスクトップGUI第1期+コア堅牢化、23.6USD)/ a385f876(機能精査監査、12.0USD)/ 02a434ad(GUI第2期ギャップ分析+PRD、7.9USD)
 - **Codexレビュー→修正ループ**: GUI 10ラウンド50指摘+監査7ラウンド29指摘、全件検証・修正。orghコアの重大修正多数(approve二重実行のflockロック、ガード先行迂回、ORGH_APPROVED確認行契約、statusの実行中偽装解消、キャンセル系レース群、retro決着ゲート)。pytest 190(+63)
