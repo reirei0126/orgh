@@ -146,6 +146,32 @@ def review(cfg: dict, task: Task, workdir: str,
     return bool(data.get("pass")), data.get("feedback", "")
 
 
+_PERSONA_ROLE_DEFAULT = {"model": "sonnet", "max_turns": 30,
+                         "allowed_tools": "Read,Bash,Glob,Grep"}
+
+
+def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
+                   budget: Budget | None = None,
+                   registry_key: str | None = None) -> tuple[bool, str]:
+    """ペルソナ検収(戦略設計書 柱1)。証拠なしの合格裁定はValueErrorで無効化する
+    (同じLLMが自分に頷くだけのハンコ裁定の禁止)。呼び出し側のロールリトライで
+    再裁定され、リトライ枯渇時はworker成果を保持したままfailedになる。"""
+    role = f"persona_{persona}"
+    cfg = role_with_default(cfg, role, _PERSONA_ROLE_DEFAULT)
+    tmpl = _read_prompt(cfg, f"{role}.md")
+    prompt = tmpl.format(title=task.title, prompt=task.prompt,
+                         acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                         output=task.last_output[:12000],
+                         criteria=criteria_context(cfg))
+    data = _ask_json(cfg, role, prompt, workdir=workdir, budget=budget,
+                     registry_key=registry_key)
+    evidence = data.get("evidence") or []
+    if data.get("pass") and not evidence:
+        raise ValueError(
+            f"persona {persona} が証拠なしで合格裁定を返した(証拠チャネル原則違反)")
+    return bool(data.get("pass")), data.get("feedback", "")
+
+
 def retro(cfg: dict, mission: Mission) -> str:
     """完了ミッションから学びを抽出して playbooks/ に追記 → 次回以降の全員が賢くなる。"""
     tmpl = _read_prompt(cfg, "retro.md")

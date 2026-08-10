@@ -20,6 +20,10 @@
   MOCK_NO_SLEEP           "1" なら sleep 系を全て無視(resume試験用)
   MOCK_SLEEP_ALL          秒数: workerロールの呼び出しを常にsleep
                           (リトライプロンプトでマーカーが失われても眠らせ続ける)
+  MOCK_PERSONA_REJECT_ONCE カンマ区切りマーカー: 初回ペルソナ裁定のみ差し戻し
+  MOCK_PERSONA_ALWAYS_FAIL カンマ区切りマーカー: ペルソナ裁定が常時差し戻し
+  MOCK_PERSONA_NO_EVIDENCE カンマ区切りマーカー: pass=trueをevidence空で返す
+                          (証拠チャネル原則違反ケースの試験用)
 
 プロンプト中の [[SLEEP:<秒>]] で応答前に sleep(タイムアウト/kill試験用)。
 [[WRITE:<相対パス>:<内容>]] でworkerがcwdにファイルを書く(worktree分離試験用)。
@@ -107,6 +111,28 @@ def main() -> int:
                 "acceptance": ["mock acceptance"], "workdir": ".",
             }]}, ensure_ascii=False)
         print(_envelope(plan, session_id="sess-planner"))
+        return 0
+
+    pm = re.search(r"\(Persona:(\w+)\)", prompt)
+    if pm:
+        persona = pm.group(1)
+        reject_once = marker in _env_set("MOCK_PERSONA_REJECT_ONCE")
+        always_fail = marker in _env_set("MOCK_PERSONA_ALWAYS_FAIL")
+        no_evidence = marker in _env_set("MOCK_PERSONA_NO_EVIDENCE")
+        once_flag = state / f"persona_once_{persona}_{marker}"
+        if no_evidence:
+            verdict = {"pass": True, "feedback": "", "evidence": []}
+        elif always_fail or (reject_once and not once_flag.exists()):
+            once_flag.touch()
+            verdict = {"pass": False,
+                       "feedback": f"ペルソナ差し戻し [[MARK:{marker}]]",
+                       "evidence": ["shot.png"]}
+        else:
+            verdict = {"pass": True, "feedback": "", "evidence": ["shot.png"]}
+        _log_call(state, {"role": "persona", "persona": persona,
+                          "marker": marker, "passed": verdict["pass"]})
+        print(_envelope(json.dumps(verdict, ensure_ascii=False),
+                        session_id=f"sess-persona-{persona}"))
         return 0
 
     if "(Reviewer)" in prompt:
