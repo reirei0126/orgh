@@ -10,6 +10,7 @@ from datetime import date
 from pathlib import Path
 
 from .adapters.base import get_adapter
+from .criteria import criteria_context
 from .state import Budget, Mission, Task
 
 _META_RE = re.compile(r"<!-- m:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
@@ -117,15 +118,20 @@ def plan(cfg: dict, intent: str, context_digest: str,
     return mission
 
 
+def build_review_prompt(cfg: dict, task: Task) -> str:
+    """プロンプトテンプレートへ判断基準を注入してReviewerプロンプトを構築する。"""
+    tmpl = _read_prompt(cfg, "reviewer.md")
+    return tmpl.format(title=task.title, prompt=task.prompt,
+                       acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                       output=task.last_output[:12000],
+                       criteria=criteria_context(cfg))
+
+
 def review(cfg: dict, task: Task, workdir: str,
           budget: Budget | None = None,
           registry_key: str | None = None) -> tuple[bool, str]:
-    tmpl = _read_prompt(cfg, "reviewer.md")
-    prompt = tmpl.format(title=task.title, prompt=task.prompt,
-                         acceptance="\n".join(f"- {a}" for a in task.acceptance),
-                         output=task.last_output[:12000])
-    data = _ask_json(cfg, "reviewer", prompt, workdir=workdir, budget=budget,
-                     registry_key=registry_key)
+    data = _ask_json(cfg, "reviewer", build_review_prompt(cfg, task),
+                     workdir=workdir, budget=budget, registry_key=registry_key)
     return bool(data.get("pass")), data.get("feedback", "")
 
 

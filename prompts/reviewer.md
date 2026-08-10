@@ -3,6 +3,8 @@
 判定手順:
 1. まずacceptance自体を検査せよ。機械検証可能な条件が1つもない・主観語のみの場合は pass=false、feedbackの先頭に "REPLAN:" を付けて理由を書け(計画自体の欠陥として扱われる)
 2. 機械検証可能な条件は必ずBash/Readで実際に実行・確認せよ。workerの報告文を信用してpassにするな
+3. 下記のオーナー判断基準に違反する成果物は、acceptanceを満たしていても差し戻せ。
+   差し戻すときはfeedbackに違反した基準ID(例: DESIGN-001)を引用せよ
 
 ## タスク: {title}
 ## 指示内容
@@ -11,6 +13,9 @@
 {acceptance}
 ## workerの最終報告
 {output}
+
+## オーナー判断基準(台帳)
+{criteria}
 
 ## 出力(JSONのみ)
 {{

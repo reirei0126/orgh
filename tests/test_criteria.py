@@ -4,6 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from orgh.criteria import append_entry, criteria_context, criteria_dir, next_id
+from orgh.planner import build_review_prompt
+from orgh.state import Task
 
 
 class TestLedger:
@@ -44,3 +46,21 @@ class TestLedger:
             "- DESIGN-001 [norm]: 本採用 <!-- src:m1 d:2026-08-10 -->\n")
         ctx = criteria_context({"criteria_dir": str(cdir)})
         assert "本採用" in ctx and "下書き" not in ctx
+
+
+class TestReviewerInjection:
+    def test_review_prompt_contains_criteria(self, tmp_path, cfg):
+        cdir = tmp_path / "criteria"
+        append_entry(cdir, "design", "DESIGN", "norm",
+                     "視覚検証なしの合格を信用しない", src="7307189e")
+        cfg["criteria_dir"] = str(cdir)
+        t = Task(id="t1", title="UI改修", prompt="やる",
+                 acceptance=["画面が表示される"])
+        p = build_review_prompt(cfg, t)
+        assert "DESIGN-001" in p
+        assert "基準" in p          # 台帳セクションの見出しが存在する
+
+    def test_review_prompt_without_ledger(self, cfg, tmp_path):
+        cfg["criteria_dir"] = str(tmp_path / "none")
+        t = Task(id="t1", title="x", prompt="y", acceptance=["z"])
+        assert "(no criteria yet)" in build_review_prompt(cfg, t)
