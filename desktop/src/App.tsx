@@ -5,6 +5,8 @@ import { startLogStore } from "./logStore";
 import { MissionDetailPage } from "./pages/MissionDetailPage";
 import { MissionListPage } from "./pages/MissionListPage";
 import { NewMissionPage } from "./pages/NewMissionPage";
+import { PlaybooksPage } from "./pages/PlaybooksPage";
+import { ReportPage } from "./pages/ReportPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { useRoute } from "./router";
 
@@ -37,6 +39,12 @@ function App() {
         <button className={`rail-nav-item${route.name === "new" ? " active" : ""}`} onClick={() => navigate({ name: "new" })}>
           新規ミッション
         </button>
+        <button className={`rail-nav-item${route.name === "report" ? " active" : ""}`} onClick={() => navigate({ name: "report" })}>
+          レポート
+        </button>
+        <button className={`rail-nav-item${route.name === "playbooks" ? " active" : ""}`} onClick={() => navigate({ name: "playbooks" })}>
+          Playbook
+        </button>
         <div className="rail-spacer" />
         <button className={`rail-nav-item${route.name === "settings" ? " active" : ""}`} onClick={() => navigate({ name: "settings" })}>
           設定
@@ -55,6 +63,8 @@ function App() {
         {route.name === "list" && <MissionListPage navigate={navigate} onError={onError} />}
         {route.name === "new" && <NewMissionPage navigate={navigate} onError={onError} />}
         {route.name === "settings" && <SettingsPage onError={onError} />}
+        {route.name === "report" && <ReportPage onError={onError} />}
+        {route.name === "playbooks" && <PlaybooksPage navigate={navigate} onError={onError} />}
         {route.name === "mission" && (
           <MissionDetailPage missionId={route.missionId} navigate={navigate} onError={onError} />
         )}
