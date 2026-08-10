@@ -150,7 +150,10 @@ pub fn spawn_and_bridge(
                         tail.remove(0);
                     }
                 }
-                let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
+                let mid = mission_id
+                    .lock()
+                    .expect("mission_id mutex poisoned")
+                    .clone();
                 let _ = app.emit(
                     "mission-log",
                     MissionLogEvent {
@@ -194,7 +197,10 @@ pub fn spawn_and_bridge(
                 }
                 // このconfirmation行自体も確定id付きで流す
                 // (desktop/API.md 3.1: 「confirmationの行を含め、以降すべて確定したidを使う」)。
-                let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
+                let mid = mission_id
+                    .lock()
+                    .expect("mission_id mutex poisoned")
+                    .clone();
                 let _ = app.emit(
                     "mission-log",
                     MissionLogEvent {
@@ -222,7 +228,10 @@ pub fn spawn_and_bridge(
             let _ = stdout_handle.join();
             let _ = stderr_handle.join();
             if confirmed.load(Ordering::SeqCst) {
-                let mid = mission_id.lock().expect("mission_id mutex poisoned").clone();
+                let mid = mission_id
+                    .lock()
+                    .expect("mission_id mutex poisoned")
+                    .clone();
                 if let Some(mid) = mid {
                     let _ = app.emit("mission-updated", MissionUpdatedEvent { mission_id: mid });
                 }
@@ -255,6 +264,69 @@ pub fn spawn_and_bridge(
         .map_err(|_| "orghプロセスとの通信が切断された".to_string())?
 }
 
+/// 確認行を出さない`orgh resume`専用の長時間プロセスブリッジ。
+/// spawn成功直後に状態更新を通知して戻り、ログ転送と終了通知は背後で継続する。
+pub fn spawn_and_bridge_immediate(
+    app: AppHandle,
+    program: String,
+    args: Vec<String>,
+    mission_id: String,
+) -> Result<(), String> {
+    let mut child = Command::new(&program)
+        .args(&args)
+        .env("PYTHONUNBUFFERED", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("'{program}' の起動に失敗: {e}"))?;
+    let stdout = child.stdout.take().expect("stdout pipe should exist");
+    let stderr = child.stderr.take().expect("stderr pipe should exist");
+    let _ = app.emit(
+        "mission-updated",
+        MissionUpdatedEvent {
+            mission_id: mission_id.clone(),
+        },
+    );
+
+    let stdout_handle = {
+        let app = app.clone();
+        let mission_id = mission_id.clone();
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                let _ = app.emit(
+                    "mission-log",
+                    MissionLogEvent {
+                        mission_id: Some(mission_id.clone()),
+                        line,
+                    },
+                );
+            }
+        })
+    };
+    let stderr_handle = {
+        let app = app.clone();
+        let mission_id = mission_id.clone();
+        thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let _ = app.emit(
+                    "mission-log",
+                    MissionLogEvent {
+                        mission_id: Some(mission_id.clone()),
+                        line,
+                    },
+                );
+            }
+        })
+    };
+    thread::spawn(move || {
+        let _ = child.wait();
+        let _ = stdout_handle.join();
+        let _ = stderr_handle.join();
+        let _ = app.emit("mission-updated", MissionUpdatedEvent { mission_id });
+    });
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,7 +351,8 @@ mod tests {
     fn doctor_ok_false_still_parses_as_structured_report_despite_nonzero_exit() {
         // desktop/API.md 1.3: ok:falseのときCLIの終了コードは非0だが、
         // stdoutはerrorオブジェクトではなく完全なDoctorReportのまま。
-        let stdout = r#"{"ok": false, "checks": [{"name": "config", "ok": false, "detail": "missing"}]}"#;
+        let stdout =
+            r#"{"ok": false, "checks": [{"name": "config", "ok": false, "detail": "missing"}]}"#;
         let result: Result<DoctorReport, String> = interpret_response(stdout, "", false);
         let report = result.expect("ok:falseでもErrにならずDoctorReportとして返るべき");
         assert!(!report.ok);
