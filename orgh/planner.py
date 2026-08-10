@@ -17,6 +17,12 @@ _META_RE = re.compile(r"<!-- m:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
 
 
 def _prompts_dir(cfg: dict) -> Path:
+    # _prompts_read_dir はミッション実行中のスナップショット(runs/<id>/prompts)。
+    # prompts_dir自体を差し替えると自己改変ガードの保護対象判定まで変わって
+    # しまうため、読み取り先だけを別キーで上書きする
+    override = cfg.get("_prompts_read_dir")
+    if override:
+        return Path(override)
     return Path(cfg.get("prompts_dir", "prompts")).expanduser()
 
 
@@ -217,6 +223,11 @@ def retro_if_finished(cfg: dict, mission: Mission, store,
     if marker.exists() or not mission.tasks or \
             not all(t.status in terminal for t in mission.tasks):
         return None
+    # retroもミッションのprompts/スナップショットを読む(実行本体と同じ契約で
+    # 動かす。ライブ版を読むと長時間ミッション後のretroだけ版ずれしうる)
+    snap = store.dir / "prompts"
+    if snap.is_dir():
+        cfg = {**cfg, "_prompts_read_dir": str(snap)}
     print("== retro ==")
     fp = retro(cfg, mission)
     store.save(mission)

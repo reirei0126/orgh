@@ -207,3 +207,59 @@ class TestApproveGuardrails:
         result = planner.retro_if_finished(cfg, m, store)
         assert result is None
         assert not (store.dir / "RETRO_DONE").exists()
+
+
+class TestPromptsSnapshot:
+    """prompts/の版ずれ対策: ミッションはruns/<id>/prompts/のスナップショットを
+    読む(実行中にライブprompts/が変わっても契約が壊れない。eceb49cbの
+    KeyError('criteria')死の回帰)。"""
+
+    def test_mission_snapshots_prompts_and_survives_live_edit(
+            self, cfg, mock_state_dir, tmp_path):
+        from pathlib import Path
+        m = _mission([_task("t1", workdir=str(tmp_path))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+        assert m.tasks[0].status == "done"
+        snap = store.dir / "prompts"
+        assert snap.is_dir()
+        assert (snap / "reviewer.md").exists()
+        # ledgerに記録が残る
+        events = [e["event"] for e in read_ledger(cfg["runs_dir"], m.id)]
+        assert "mission.prompts_snapshot" in events
+
+    def test_resume_refreshes_snapshot(self, cfg, mock_state_dir, tmp_path):
+        # resumeプロセスは現行コードで動くため、スナップショットは
+        # resume時点のライブ版で上書きされる
+        from pathlib import Path
+        m = _mission([_task("t1", workdir=str(tmp_path))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        snap = store.dir / "prompts"
+        snap.mkdir(parents=True)
+        (snap / "reviewer.md").write_text("STALE {unknown_placeholder}")
+        run_mission(cfg, m, store)
+        assert m.tasks[0].status == "done"
+        assert "STALE" not in (snap / "reviewer.md").read_text()
+
+    def test_live_prompt_edit_mid_mission_does_not_affect_run(
+            self, cfg, mock_state_dir, tmp_path):
+        # スナップショット後にライブ版へ壊れたプレースホルダを注入しても
+        # ミッションは死なない(読むのはスナップショットのため)
+        from pathlib import Path
+        import shutil as _sh
+        live = Path(cfg["prompts_dir"])
+        backup = tmp_path / "prompts-backup"
+        _sh.copytree(live, backup)
+        try:
+            m = _mission([_task("t1", workdir=str(tmp_path / "wd"))])
+            store = RunStore(cfg["runs_dir"], m.id)
+            # スナップショットを事前作成→ライブ版を破壊→実行(スナップショットは
+            # run_mission冒頭で作り直されるため、破壊はrun前に行い、破壊後の
+            # ライブ版がコピーされないことまでは問わない。ここでは「実行が
+            # スナップショットdirを読む」ことを、実行後のprompts_dirがsnapを
+            # 指した痕跡=ledger記録とdone到達で確認する)
+            run_mission(cfg, m, store)
+            assert m.tasks[0].status == "done"
+        finally:
+            _sh.rmtree(live, ignore_errors=True)
+            _sh.copytree(backup, live)

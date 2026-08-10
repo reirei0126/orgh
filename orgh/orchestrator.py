@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import fcntl
 import re
+import shutil
 import subprocess
 import time
 import traceback
@@ -470,6 +471,36 @@ def acquire_mission_lock(store: RunStore):
         return None
 
 
+def _with_prompts_snapshot(cfg: dict, store: RunStore) -> dict:
+    """prompts/をミッション専用スナップショットへ差し替えたcfgを返す。
+
+    コードとconfigはプロセス起動時に固定される一方、prompts/は毎回ディスクから
+    読まれる。長時間ミッションの実行中にmainが進むと「古いコード×新しい
+    プロンプト」の版ずれが起き、新プレースホルダでformatがKeyError死する
+    (mission eceb49cbのreviewerがKeyError('criteria')で死んだ実例)。
+    実行開始・resumeの時点(=プロセスのコードと確実に整合する時点)の
+    prompts/を runs/<id>/prompts/ へ写し、以後はそれだけを読む。
+    resumeのたびに上書きするのは、resumeプロセスは現行コードで動くため
+    「その時点のライブ版」と揃えるのが正しいから。
+    副次効果: どのプロンプトで実行されたかがミッション記録に残る。
+    """
+    src = Path(cfg.get("prompts_dir", "prompts")).expanduser()
+    dst = store.dir / "prompts"
+    try:
+        if not src.is_dir():
+            return cfg
+        if dst.exists():
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+        store.log("mission.prompts_snapshot", src=str(src))
+    except OSError as e:
+        print(f"  [warn] prompts/スナップショット作成に失敗、ライブ版を使用: {e!r}")
+        return cfg
+    # 注意: prompts_dir自体は差し替えない(自己改変ガードがcfg["prompts_dir"]を
+    # 保護対象パスとして参照するため)。読み取り先のみ別キーで上書きする
+    return {**cfg, "_prompts_read_dir": str(dst)}
+
+
 def run_mission(cfg: dict, mission: Mission, store: RunStore,
                 on_update=None, poll_cancel=None, lock_fp=None) -> Mission:
     """同一ミッションの二重実行防止(GUI/CLI/watchの経路をまたぐプロセス間ロック)
@@ -483,6 +514,7 @@ def run_mission(cfg: dict, mission: Mission, store: RunStore,
                 f"mission {mission.id} は別プロセスが実行中(approve/resume/watchの"
                 f"二重発行の可能性)。二重実行を中止する")
     try:
+        cfg = _with_prompts_snapshot(cfg, store)
         return _run_mission_locked(cfg, mission, store, on_update, poll_cancel)
     finally:
         lock_fp.close()  # closeでflockも解放される
