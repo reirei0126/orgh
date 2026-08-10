@@ -80,6 +80,39 @@ def _next_draft_start(drafts_dir: Path, mission_id: str) -> int:
     return top + 1
 
 
+def list_drafts(cfg: dict) -> list[Path]:
+    d = criteria_dir(cfg) / "_drafts"
+    return sorted(d.glob("*.json")) if d.is_dir() else []
+
+
+def _draft_path(cfg: dict, name: str) -> Path:
+    fp = criteria_dir(cfg) / "_drafts" / f"{name}.json"
+    if not fp.is_file():
+        raise FileNotFoundError(
+            f"draft not found: {fp}. orgh criteria list で確認せよ")
+    return fp
+
+
+def approve_draft(cfg: dict, name: str) -> str:
+    """下書きを本台帳へ反映する(ワンタップ承認の実体)。"""
+    fp = _draft_path(cfg, name)
+    p = json.loads(fp.read_text())
+    line = append_entry(criteria_dir(cfg), p["category"], p["prefix"],
+                        p.get("strength", "pref"), p["text"], src=name)
+    fp.unlink()
+    return line
+
+
+def reject_draft(cfg: dict, name: str) -> Path:
+    """棄却は削除ではなく退避(棄却理由の見直し・復活を可能にする)。"""
+    fp = _draft_path(cfg, name)
+    dst_dir = criteria_dir(cfg) / "_drafts" / "rejected"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / fp.name
+    fp.rename(dst)
+    return dst
+
+
 def distill_verdict(cfg: dict, mission_id: str, intent: str,
                     passed: bool, reason: str) -> list[Path]:
     """オーナー裁定から台帳差分の下書きを生成する(本台帳には書かない)。"""

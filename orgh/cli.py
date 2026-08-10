@@ -26,7 +26,8 @@ from datetime import datetime
 from pathlib import Path
 
 from . import doctor, gc, listing, planner, report, watcher
-from .criteria import distill_verdict
+from .criteria import (approve_draft, criteria_context, distill_verdict,
+                       list_drafts, reject_draft)
 from .events_json import events_payload
 from .orchestrator import run_mission
 from .sources.base import get_source
@@ -76,6 +77,10 @@ def main() -> None:
     g.add_argument("--pass", dest="passed", action="store_true")
     g.add_argument("--fail", dest="passed", action="store_false")
     vp.add_argument("--reason", required=True)
+
+    cp = sub.add_parser("criteria")
+    cp.add_argument("action", choices=["list", "approve", "reject"])
+    cp.add_argument("name", nargs="?")
 
     args = ap.parse_args()
     try:
@@ -215,6 +220,21 @@ def main() -> None:
             print(f"draft: {fp}")
         print(f"下書き{len(drafts)}件。orgh criteria list で確認、"
               f"orgh criteria approve <name> で本台帳へ反映")
+        return
+
+    if args.cmd == "criteria":
+        if args.action == "list":
+            for fp in list_drafts(cfg):
+                print(f"[draft] {fp.stem}: {fp.read_text()}")
+            print("--- 台帳 ---")
+            print(criteria_context(cfg, max_chars=100000))
+            return
+        if not args.name:
+            raise SystemExit("approve/reject には name が必要(orgh criteria list で確認)")
+        if args.action == "approve":
+            print(approve_draft(cfg, args.name))
+        else:
+            print(f"rejected -> {reject_draft(cfg, args.name)}")
         return
 
     store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)

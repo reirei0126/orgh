@@ -7,7 +7,8 @@ from pathlib import Path
 
 from orgh import cli
 from orgh.criteria import (append_entry, criteria_context, criteria_dir,
-                           distill_verdict, next_id)
+                           distill_verdict, next_id, list_drafts, approve_draft,
+                           reject_draft)
 from orgh.planner import build_review_prompt
 from orgh.state import Mission, RunStore, Task
 
@@ -159,3 +160,36 @@ class TestVerdictCli:
         drafts = list((tmp_path / "criteria" / "_drafts").glob(f"{m.id}-*.json"))
         assert len(drafts) == 1
         assert json.loads(drafts[0].read_text())["prefix"] == "DESIGN"
+
+
+def _make_draft(cdir: Path, name: str) -> Path:
+    d = cdir / "_drafts"
+    d.mkdir(parents=True, exist_ok=True)
+    fp = d / f"{name}.json"
+    fp.write_text(json.dumps({"category": "design", "prefix": "DESIGN",
+                              "strength": "norm", "text": "原則X"},
+                             ensure_ascii=False))
+    return fp
+
+
+class TestCriteriaCli:
+    def test_approve_moves_draft_to_ledger(self, tmp_path):
+        cfg = {"criteria_dir": str(tmp_path / "criteria")}
+        _make_draft(Path(cfg["criteria_dir"]), "m123-1")
+        line = approve_draft(cfg, "m123-1")
+        assert "DESIGN-001" in line
+        assert "原則X" in criteria_context(cfg)
+        assert list_drafts(cfg) == []          # 下書きは消費済み
+
+    def test_reject_keeps_record(self, tmp_path):
+        cfg = {"criteria_dir": str(tmp_path / "criteria")}
+        _make_draft(Path(cfg["criteria_dir"]), "m123-1")
+        moved = reject_draft(cfg, "m123-1")
+        assert moved.exists() and "rejected" in str(moved)
+        assert criteria_context(cfg) == "(no criteria yet)"
+
+    def test_approve_missing_draft_raises(self, tmp_path):
+        cfg = {"criteria_dir": str(tmp_path / "criteria")}
+        import pytest
+        with pytest.raises(FileNotFoundError):
+            approve_draft(cfg, "nope-1")
