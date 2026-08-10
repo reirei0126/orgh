@@ -80,7 +80,12 @@ def _weekly_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, dict]:
         by_task: dict[str, list[dict]] = {}
         for e in events:
             if e.get("event") == "task.review":
-                by_task.setdefault(e["task"], []).append(e)
+                task_id = e.get("task")
+                if not isinstance(task_id, str):
+                    # ts/eventが妥当でもtask欠落の破損行はありうる。
+                    # 直接参照で全レポートを落とさずスキップする(p2r3指摘)
+                    continue
+                by_task.setdefault(task_id, []).append(e)
         for revs in by_task.values():
             first = revs[0]
             week = datetime.fromtimestamp(first["ts"]).strftime("%G-W%V")

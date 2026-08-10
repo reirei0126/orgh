@@ -282,3 +282,18 @@ class TestReportBrokenDataIsolation:
         assert payload["skipped"][0]["path"].endswith("mbroken/mission.json")
         out = report.build_report(cfg)
         assert "除外した壊れたデータ" in out
+
+    def test_task_review_without_task_field_is_skipped(self, cfg, mock_state_dir):
+        # ts/eventは妥当だがtask欠落のtask.review行でKeyError死しない(p2r3指摘)
+        import json as _json
+        from pathlib import Path as _P
+        _seed_runs(cfg)
+        d = _P(cfg["runs_dir"]) / "mnotask"
+        d.mkdir(parents=True)
+        (d / "mission.json").write_text(_json.dumps({
+            "id": "mnotask", "intent": "x", "context_digest": "",
+            "tasks": [], "budget": None}))
+        (d / "ledger.jsonl").write_text(
+            _json.dumps({"ts": 1.0, "event": "task.review", "passed": True}))
+        payload = report.report_payload(cfg)
+        assert any(m["mission_id"] == "m1" for m in payload["missions"])
