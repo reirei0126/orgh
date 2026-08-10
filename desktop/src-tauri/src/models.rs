@@ -92,19 +92,108 @@ pub struct EventsPayload {
 
 /// `orgh doctor --json` の `checks[]` 要素。types.ts の `DoctorCheck`。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct DoctorCheck {
     pub name: String,
     pub ok: bool,
     pub detail: String,
+    #[serde(default = "default_doctor_check_kind")]
+    pub kind: String,
+    #[serde(
+        default = "default_doctor_auth_state",
+        rename(serialize = "authState", deserialize = "auth_state")
+    )]
+    pub auth_state: String,
+}
+
+fn default_doctor_check_kind() -> String {
+    "connectivity".to_string()
+}
+fn default_doctor_auth_state() -> String {
+    "n/a".to_string()
 }
 
 /// `orgh doctor --json` の戻り値そのもの。types.ts の `DoctorReport`。
 /// `ok: false` でもCLIの終了コードは非0になるが、stdoutは引き続き
 /// このスキーマの完全なJSONを出す(desktop/API.md 1.3)。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct DoctorReport {
     pub ok: bool,
     pub checks: Vec<DoctorCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WeeklyReportStat {
+    pub week: String,
+    pub total: u32,
+    #[serde(rename(deserialize = "first_pass"))]
+    pub first_pass: u32,
+    #[serde(rename(deserialize = "first_pass_pct"))]
+    pub first_pass_pct: u32,
+    pub rework: u32,
+    #[serde(rename(deserialize = "rework_pct"))]
+    pub rework_pct: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MissionReportLine {
+    #[serde(rename(deserialize = "mission_id"))]
+    pub mission_id: String,
+    pub intent: String,
+    #[serde(rename(deserialize = "cost_usd"))]
+    pub cost_usd: f64,
+    #[serde(rename(deserialize = "duration_sec"))]
+    pub duration_sec: u64,
+    #[serde(rename(deserialize = "tasks_done"))]
+    pub tasks_done: u32,
+    #[serde(rename(deserialize = "tasks_total"))]
+    pub tasks_total: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerFailureStat {
+    pub worker: String,
+    pub failed: u32,
+    pub total: u32,
+    #[serde(rename(deserialize = "failed_pct"))]
+    pub failed_pct: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportPayload {
+    pub days: u32,
+    pub weekly: Vec<WeeklyReportStat>,
+    pub missions: Vec<MissionReportLine>,
+    pub workers: Vec<WorkerFailureStat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybookEntry {
+    pub text: String,
+    #[serde(rename(deserialize = "mission_id"))]
+    pub mission_id: Option<String>,
+    pub date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybookFile {
+    pub name: String,
+    pub path: String,
+    pub body: String,
+    pub entries: Vec<PlaybookEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybookPayload {
+    pub playbooks: Vec<PlaybookFile>,
 }
 
 /// "mission-log" イベントのペイロード。types.ts の `MissionLogEvent`。

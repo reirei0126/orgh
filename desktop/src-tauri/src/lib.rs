@@ -14,8 +14,11 @@ pub fn run() {
             commands::mission_events,
             commands::start_mission,
             commands::approve_mission,
+            commands::resume_mission,
             commands::cancel_mission,
             commands::doctor,
+            commands::report,
+            commands::playbooks,
             commands::get_settings,
             commands::set_settings,
         ])
