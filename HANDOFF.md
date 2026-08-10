@@ -1,5 +1,38 @@
 # orgh ハンドオフ(2026-08-10 更新)
 
+## 2026-08-10 スプリント: 判断基準台帳とペルソナ検収ゲート
+
+- **判断基準台帳(criteria)**: `criteria_dir`(既定`criteria`)配下に台帳行
+  `- ID [norm]: ... <!-- src:x d:date -->` を保持し、Reviewer・ペルソナ検収の
+  文脈に日付降順で自動注入。`orgh verdict <mission_id> --pass|--fail --reason "..."`
+  でオーナー裁定を`verdicts.jsonl`とledger(`mission.owner_verdict`)に記録し、
+  `criteria/_drafts/<mission_id>-<n>.json` へ台帳差分の下書きを蒸留生成する
+  (採番衝突は自動回避)。`orgh criteria list` で下書き+現行台帳を確認、
+  `orgh criteria approve <name>` で本台帳へ反映、`orgh criteria reject <name>` で
+  `_drafts/rejected/` へ退避(同名衝突は`.2`/`.3`連番)。本台帳への反映経路は
+  approveのみ
+- **ペルソナ検収ゲート**: `personas.enabled: [consumer, designer]` を設定すると、
+  依存されない最終タスク(`apply: final_task`)にReviewer合格後、実ブラウザ/
+  スクショ証拠つきの裁定が追加される。証拠なしの合格主張は`ValueError`で
+  ロールリトライ、ペルソナ名のtypo(プロンプト欠如)はリトライせず即failed。
+  不合格は`[<persona>ペルソナ検収] `プレフィックスで既存の差し戻しループへ
+  合流。ledgerイベントは`task.persona_review`/`task.persona_exhausted`。
+  ロール設定は`roles.persona_consumer`/`persona_designer`/`criteria_distill`
+  (未指定時デフォルト注入、`bin`はreviewer継承)
+- **運用手順**: ミッション完走→`orgh verdict`で裁定→`orgh criteria list`で
+  下書き確認→`orgh criteria approve`/`reject`。ペルソナ検収を使うには
+  `config.yaml`の`personas.enabled`に`consumer`/`designer`を追加するのみ
+  (空配列なら従来動作のまま無効)
+- **既知の会計上の割り切り**: `task_budget_usd`はworker実行コストのみを
+  キャップし、ロール(persona_*/criteria_distill含む)のコストはミッション
+  全体の`budget_usd`でのみ制約される。ペルソナ検収コストがタスク単位の
+  予算上限に反映されない点は改修候補
+- テスト: 195→222件(全緑)
+- 戦略設計書: [docs/strategy/2026-08-10-value-strategy-design.md](docs/strategy/2026-08-10-value-strategy-design.md) /
+  実装計画: [docs/plans/2026-08-10-criteria-personas-plan.md](docs/plans/2026-08-10-criteria-personas-plan.md)
+
+---
+
 ## 2026-08-07〜08-10 スプリント(このセクションが最新)
 
 - **ミッション3本完走→検収→mainマージ済み**: 8e096d63(デスクトップGUI第1期+コア堅牢化、23.6USD)/ a385f876(機能精査監査、12.0USD)/ 02a434ad(GUI第2期ギャップ分析+PRD、7.9USD)

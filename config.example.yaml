@@ -12,6 +12,19 @@ source:                        # 入力ソースの選択(将来Notion等を差�
 runs_dir: runs
 prompts_dir: prompts         # 役割プロンプト(planner/reviewer/retro/worker_preamble)の置き場
 playbooks_dir: playbooks     # Retroが蒸留した組織知の置き場
+
+criteria_dir: criteria       # オーナー判断基準台帳。Reviewer/ペルソナ検収に注入され、
+                             # orgh verdict の裁定から下書きが自動生成される
+                             # (本台帳への反映は orgh criteria approve のみ)
+
+personas:                    # ペルソナ検収ゲート(戦略設計書 柱1)
+  enabled: []                # 例: [consumer, designer]。空なら完全無効(従来動作)
+  apply: final_task          # 依存されない最終タスクに適用(現状これのみ)
+
+# roles にペルソナ・蒸留ロールを追加できる(未指定時のデフォルトは以下と同値)
+#   persona_consumer: {model: sonnet, max_turns: 30, allowed_tools: "Read,Bash,Glob,Grep"}
+#   persona_designer: {model: sonnet, max_turns: 30, allowed_tools: "Read,Bash,Glob,Grep"}
+#   criteria_distill: {model: sonnet, max_turns: 5, allowed_tools: "Read"}
 # projects_map: ~/obsidian/main/orgh/projects-map.md
 #                              # 対象プロジェクトの「絶対パス ⇔ 説明(通称含む)」対応表。
 #                              # Plannerのworkdir解決に注入される。曖昧なノート

@@ -83,6 +83,13 @@ orgh gc  # playbookの統合・退避とruns/のアーカイブ(実行前に全�
 orgh approve <mission_id>
 
 orgh report [--days N] [--vault]  # 初回合格率・差し戻し率の週次等を集計
+
+# ミッション完走後、オーナーとして検収裁定を記録(基準台帳の下書きが自動生成される)
+orgh verdict <mission_id> --fail --reason "レバーが見えない。視覚検証されていない"
+
+# 下書きの確認と承認/棄却(承認されたものだけが以後の全裁定に注入される)
+orgh criteria list
+orgh criteria approve <mission_id>-1
 ```
 
 実行結果は `runs/<mission_id>/` に永続化(mission.json / ledger.jsonl / artifacts/)。
