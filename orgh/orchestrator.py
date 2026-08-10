@@ -83,6 +83,17 @@ class _CancelledDuringRole(Exception):
     包括エラーハンドラでfailedに化けさせず、cancelledとして確定させる。"""
 
 
+def _is_non_retryable_role_error(e: Exception) -> bool:
+    """ロール呼び出し失敗のうち、リトライしても結果が変わらない決定論的な
+    設定ミスを見分ける。例: personas.enabledのタイポやprompts/persona_<name>.md
+    未作成によるFileNotFoundError(_read_prompt)。これを他の一時的失敗
+    (接続断・max_turns超過等)と同様にretries回リトライすると、無意味な
+    infra_retry_wait秒×retries回の待機だけが発生してユーザー体験を損なう。
+    ロールリトライ枯渇時の扱い(failed化・worker成果保持)自体は変えない —
+    呼び出し元の except節へ即座に流すだけ。"""
+    return isinstance(e, FileNotFoundError)
+
+
 def _run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     """最外周の薄いラッパ: 実処理(_attempt_loop)の全例外を1タスクのfailedに閉じ込め、
     ミッション全体を道連れにしない。"""
@@ -107,16 +118,28 @@ def _run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
 def _role_call_with_retry(cfg: dict, store: RunStore, t: Task, role: str,
                           fn, retries: int = 2, wait: float = 60):
     """ロール呼び出し(reviewer/persona)の失敗はロールのみリトライする。
-    worker実行はやり直さない(成果とコストを捨てない)。"""
+    worker実行はやり直さない(成果とコストを捨てない)。
+
+    呼び出し側のfnはadapter/_ask_jsonにregistry_keyを渡すこと。未登録だと
+    ロール実行中のキャンセルが効かず、キャンセル後に成果が確定してしまう。
+
+    再試行しない例外(_is_non_retryable_role_errorが真を返すもの)は即座に
+    再送出する: 設定ミス等の決定論的エラーをリトライで隠さない(60秒級の
+    無駄な待機×retries回を発生させない)ため。
+    """
     last: Exception | None = None
     for i in range(retries + 1):
         if _cancel_flag(store).exists():
+            # terminateされたロールの例外を「失敗」と誤認して新しいロールを
+            # 起動しない(キャンセル後の再起動はコストと成果確定の両方で有害)
             raise _CancelledDuringRole(f"cancelled before/during {role}")
         try:
             return fn()
         except Exception as e:
             if _cancel_flag(store).exists():
                 raise _CancelledDuringRole(f"{role} terminated by cancel") from e
+            if _is_non_retryable_role_error(e):
+                raise
             last = e
             if i < retries:
                 store.log("role.retry", role=role, task=t.id,
@@ -126,7 +149,8 @@ def _role_call_with_retry(cfg: dict, store: RunStore, t: Task, role: str,
     raise last  # type: ignore[misc]
 
 
-def _review_with_retry(cfg, store, t, budget, retries=2, wait=60):
+def _review_with_retry(cfg: dict, store: RunStore, t: Task, budget: Budget,
+                       retries: int = 2, wait: float = 60):
     return _role_call_with_retry(
         cfg, store, t, "reviewer",
         lambda: review(cfg, t, workdir=t.workdir, budget=budget,
@@ -196,7 +220,10 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         store.artifact(f"{t.id}_attempt{t.attempts}.md", res.output)
         store.log("task.output", task=t.id, ok=res.ok, cost=res.cost_usd)
 
-        # タスク上限超過: 次のattemptにもレビューにも進まない
+        # タスク上限超過: 次のattemptにもレビューにも進まない。
+        # t.cost_usdはworker実行コストのみを積む(reviewer/ペルソナのロール
+        # コストはミッション予算(budget.spent_usd)にのみ計上され、この
+        # タスク単価上限の対象外 — 会計を変える変更ではなく契約の明文化)
         if (budget.task_budget_usd is not None
                 and t.cost_usd >= budget.task_budget_usd):
             with store.lock:

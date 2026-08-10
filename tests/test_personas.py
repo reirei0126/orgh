@@ -1,6 +1,8 @@
 """ペルソナ検収ゲート(戦略設計書 柱1)。final_task割り当てと検収ループ。"""
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from .conftest import read_calls, read_ledger
@@ -108,3 +110,23 @@ class TestPersonaGateST:
         personas = [c for c in read_calls(mock_state_dir)
                     if c["role"] == "persona"]
         assert personas == []
+
+    def test_missing_persona_prompt_fails_without_retry(self, cfg,
+                                                         mock_state_dir):
+        """personas.enabledのタイポ等でprompts/persona_<name>.mdが無い場合は
+        FileNotFoundError(決定論的な設定ミス)。一時的失敗と同様にロール
+        リトライ(infra_retry_wait秒待機)しても直らないため、即失敗させる。"""
+        cfg["personas"] = {"enabled": ["nosuch"]}
+        cfg["loop"]["infra_retry_wait"] = 5
+        m = Mission.new(intent="x", context_digest="", tasks=[_task("g5")])
+        start = time.time()
+        run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
+        elapsed = time.time() - start
+        t = m.tasks[0]
+        assert t.status == "failed"
+        assert "ペルソナ" in t.review_notes
+        retries = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                   if e["event"] == "role.retry"
+                   and e["role"] == "persona_nosuch"]
+        assert retries == []              # リトライ待機を経由していない証拠
+        assert elapsed < cfg["loop"]["infra_retry_wait"]  # 60秒級の待機なし
