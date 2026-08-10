@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { startMission } from "../api";
+import { classifyNoteNotFound, withDetail } from "../errorClassify";
 import { clearPendingLines, getPendingLines, subscribePendingLog } from "../logStore";
 import type { Route } from "../router";
 
@@ -43,7 +44,15 @@ export function NewMissionPage({ navigate, onError }: { navigate: (route: Route)
       );
       navigate({ name: "mission", missionId });
     } catch (e) {
-      onError(`ミッションの開始に失敗しました: ${String(e)}`);
+      const raw = String(e);
+      // note未検出はCLIの生例外(note '...' not found)をそのまま出さず、
+      // 日本語の平易な説明に置き換える。生メッセージは折りたたみで参照可能にする
+      const noteNotFound = mode === "note" ? classifyNoteNotFound(raw) : null;
+      onError(
+        noteNotFound
+          ? withDetail(noteNotFound, raw)
+          : `ミッションの開始に失敗しました: ${raw}`,
+      );
       submittingRef.current = false;
       setSubmitting(false);
     }
@@ -71,6 +80,33 @@ export function NewMissionPage({ navigate, onError }: { navigate: (route: Route)
             <input type="radio" checked={mode === "note"} onChange={() => setMode("note")} />
             note 名を指定
           </label>
+        </div>
+
+        {/* 常時表示のヒント欄(P0-4)。プレースホルダ例文は入力すると消えて
+            読み飛ばされやすいため、入力の有無に関わらずここに置く */}
+        <div
+          className="panel"
+          style={{ marginTop: 4, marginBottom: 12, background: "var(--info-bg)", borderColor: "rgba(107, 169, 250, 0.35)" }}
+        >
+          <div className="panel-title" style={{ color: "var(--info)" }}>ヒント</div>
+          <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 8, fontSize: 12.5, color: "var(--text-dim)" }}>
+            <li>
+              <code className="mono">projects_map</code> が未設定だと、Plannerがタスクの実行先リポジトリ(workdir)を誤解決する場合があります。
+              config.yamlの <code className="mono">projects_map</code> に対象プロジェクトの絶対パス⇔説明の対応表を設定してください。
+            </li>
+            {mode === "note" && (
+              <>
+                <li>
+                  ノート名はタイトルの<strong>完全一致</strong>を優先して検索し、見つからない場合は部分一致でフォールバック検索します。
+                </li>
+                <li>
+                  <code className="mono">#go</code> タグはこのnoteモードの計画生成条件には使われません。<code className="mono">#go</code> は
+                  常駐監視(<code className="mono">orgh watch</code>)専用の着火タグです。README/config.example.yamlの記載から
+                  「タグを付けないと動かない」と誤解しやすい点ですが、ここでの起動には不要です。
+                </li>
+              </>
+            )}
+          </ul>
         </div>
 
         {mode === "intent" ? (
