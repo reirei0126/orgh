@@ -1,5 +1,21 @@
 # orgh ハンドオフ(2026-08-10 更新)
 
+## 2026-08-10 GUI第2期マージ済み(このセクションが最新)
+
+- **GUI第2期(mission 4d048081)をmainへマージ**(2df2619)。P0全6件+レポート/Playbook画面。
+  Codexレビュー3R(9指摘)+オーナー実機目視済み。同時に実機で発覚した2バグを修正:
+  (1) Tauri同期コマンドのメインスレッド凍結 — start/approve/resumeをasync+spawn_blocking化
+  (2) 新規プロジェクトの未作成workdir — orchestratorが自動ブートストラップ(mkdir+git init。
+  mission eceb49cb「puku-pals」で実測)
+- **resumeにORGH_RESUMED確認行契約を追加**(approveのORGH_APPROVEDと同方式)。
+  doctorは認証チェック(worker+role)対応。report/playbooks --json追加
+- 下記ペルソナ検収ゲート(別セッション)とは追加同士でマージ両立済み(競合2ファイルは両取り解消)。
+  マージ後の全テスト260件グリーン。watchデーモンはマージ後コードで再起動済み
+- GUI利用のvenv(~/.orgh-venv)はmainリポのeditable installへ再ポイント済み
+- config.yaml実測調整: reviewer max_turns 30→50、claude_code worker max_turns 60→100
+  (いずれも大型タスクの上限死。4d048081 t2/t7で実証)
+- 進行中: mission eceb49cb(新規プロジェクトpuku-pals=癒し系ゲームアプリ、GUIのresumeボタンから実走)
+
 ## 2026-08-10 スプリント: 判断基準台帳とペルソナ検収ゲート
 
 - **判断基準台帳(criteria)**: `criteria_dir`(既定`criteria`)配下に台帳行
