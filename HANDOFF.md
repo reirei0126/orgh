@@ -14,7 +14,11 @@
 - GUI利用のvenv(~/.orgh-venv)はmainリポのeditable installへ再ポイント済み
 - config.yaml実測調整: reviewer max_turns 30→50、claude_code worker max_turns 60→100
   (いずれも大型タスクの上限死。4d048081 t2/t7で実証)
-- 進行中: mission eceb49cb(新規プロジェクトpuku-pals=癒し系ゲームアプリ、GUIのresumeボタンから実走)
+- mission eceb49cb(puku-pals=癒し系ゲームアプリ)完走・オーナー検収済み(ドラフト承認、今後改善)。
+  成果は ~/projects/puku-pals main
+- **prompts/版ずれ対策実装済み(ad3faea)**: run_mission開始時にprompts/を runs/<id>/prompts/ へ
+  スナップショットし実行・retroはそれのみを読む。resume時は再スナップショット。
+  読み取り先は_prompts_read_dirキーで分離(prompts_dir差し替えは自己改変ガードを壊すため)
 
 ## 2026-08-10 スプリント: 判断基準台帳とペルソナ検収ゲート
 
