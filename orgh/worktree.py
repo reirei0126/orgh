@@ -126,6 +126,16 @@ def cleanup_mission_worktrees(mission) -> list[str]:
             continue
         main_repo = Path(common_dir.stdout.strip()).parent
 
+        # 安全ガード(オーナー裁定 2026-08-10の運用条件): 未マージブランチは
+        # worktreeごと保持する。--force+branch -Dは未退避の成果を回復困難に消すため
+        merged = _git(main_repo, "merge-base", "--is-ancestor",
+                      t.branch, "HEAD")
+        if merged.returncode != 0:
+            logs.append(
+                f"{t.id}: branch {t.branch} は主リポHEADへ未マージのため"
+                f"worktree・branchとも保持した(マージまたは退避後に再実行)")
+            continue
+
         rm = _git(main_repo, "worktree", "remove", "--force", str(path))
         if rm.returncode == 0:
             logs.append(f"{t.id}: worktree {path} を削除した")

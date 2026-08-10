@@ -142,3 +142,31 @@ class TestContextDigestSaved:
         fp = store.dir / "artifacts" / "context_digest.md"
         assert fp.exists()
         assert "監査用ダイジェスト本文" in fp.read_text()
+
+
+class TestDurationWithGuardStop:
+    def test_duration_uses_last_mission_finished(self, cfg, mock_state_dir):
+        # 自己改変ガード停止時にもmission.finishedが記録されるため、最初の
+        # イベントを拾うとapprove経由の実行時間が0sになる回帰テスト
+        import json as _json
+        from pathlib import Path as _P
+        from orgh import report as _report
+        runs = _P(cfg["runs_dir"])
+        d = runs / "mg1"
+        d.mkdir(parents=True)
+        (d / "mission.json").write_text(_json.dumps({
+            "id": "mg1", "intent": "ガード停止→approve", "context_digest": "",
+            "tasks": [{"id": "t1", "title": "x", "prompt": "p",
+                       "worker": "claude_code", "deps": [], "status": "done",
+                       "attempts": 1}],
+            "budget": {"limit_usd": None, "spent_usd": 1.0}}))
+        (d / "ledger.jsonl").write_text("\n".join([
+            _json.dumps({"ts": 1000.0, "event": "watch.triggered"}),
+            _json.dumps({"ts": 1001.0, "event": "task.awaiting_approval", "task": "t1"}),
+            _json.dumps({"ts": 1002.0, "event": "mission.finished", "done": []}),
+            _json.dumps({"ts": 2000.0, "event": "task.start", "task": "t1"}),
+            _json.dumps({"ts": 4600.0, "event": "mission.finished", "done": ["t1"]}),
+        ]))
+        out = _report.build_report(cfg)
+        line = next(l for l in out.splitlines() if "mg1" in l)
+        assert "duration=3600s" in line

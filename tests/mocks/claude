@@ -197,7 +197,8 @@ def main() -> int:
     fail = marker in _env_set("MOCK_WORKER_FAIL")
     _log_call(state, {"role": "worker", "marker": marker,
                       "resume": resume, "session_id": session_id,
-                      "ok": not fail, "argv": _log_argv})
+                      "ok": not fail, "argv": _log_argv,
+                      "prompt_head": prompt[:200]})
     if fail:
         print(_envelope(f"simulated worker error: {marker}",
                         session_id=session_id, is_error=True))

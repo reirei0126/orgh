@@ -216,9 +216,15 @@ class TestCleanup:
     def test_cleanup_removes_worktrees_and_branches(self, wt_cfg, repo,
                                                     mock_state_dir, tmp_path,
                                                     monkeypatch):
-        m = _mission([_task("t1", str(repo)), _task("t2", str(repo))])
+        m = _mission([_task("t1", str(repo), write="out1.txt"),
+                      _task("t2", str(repo), write="out2.txt")])
         run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
         assert (repo / ".orgh-worktrees" / f"{m.id}-t1").exists()
+        # 新仕様(オーナー裁定 2026-08-10): 未マージブランチは保持されるため、
+        # 削除確認の前にタスクブランチをHEADへマージしておく
+        for tid in ("t1", "t2"):
+            _git(repo, "merge", "-q", "--no-ff", "-m", f"merge {tid}",
+                 f"orgh/{m.id}/{tid}")
 
         cfg_path = write_config(tmp_path, wt_cfg)
         monkeypatch.setattr(sys, "argv", [
@@ -230,3 +236,56 @@ class TestCleanup:
         assert not any(b.startswith(f"orgh/{m.id}/") for b in _branches(repo))
         # git側のworktree登録も消えている
         assert f"{m.id}-t1" not in _git(repo, "worktree", "list")
+
+
+class TestCleanupMergeGuard:
+    """cleanup安全ガード(オーナー裁定 2026-08-10の運用条件):
+    主リポHEADへ未マージのブランチはworktreeごと保持する。"""
+
+    def test_unmerged_branch_is_preserved(self, wt_cfg, repo, mock_state_dir):
+        from orgh.worktree import cleanup_mission_worktrees
+        m = _mission([_task("t1", str(repo), write="out1.txt")])
+        run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
+        assert m.tasks[0].status == "done"  # ブランチにコミット済み・未マージ
+
+        logs = cleanup_mission_worktrees(m)
+        assert any("未マージ" in l for l in logs)
+        assert f"orgh/{m.id}/t1" in _branches(repo)  # ブランチ保持
+        assert (repo / ".orgh-worktrees" / f"{m.id}-t1").exists()  # worktree保持
+
+    def test_merged_branch_is_cleaned(self, wt_cfg, repo, mock_state_dir):
+        from orgh.worktree import cleanup_mission_worktrees
+        m = _mission([_task("t1", str(repo), write="out1.txt")])
+        run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
+        _git(repo, "merge", "-q", "--no-ff", "-m", "merge t1",
+             f"orgh/{m.id}/t1")
+
+        logs = cleanup_mission_worktrees(m)
+        assert any("削除した" in l for l in logs)
+        assert f"orgh/{m.id}/t1" not in _branches(repo)
+        assert not (repo / ".orgh-worktrees" / f"{m.id}-t1").exists()
+
+
+class TestWorktreePromptGuard:
+    """worktree実行時、workerへの指示の先頭に作業場所の厳守を注入する
+    (mission 02a434ad: Plannerが主リポ絶対パスを指示に書き、成果物が
+    worktree外へ漏れて自動コミットから外れた事例の回帰テスト)。"""
+
+    def test_prompt_prefixed_with_worktree_path(self, wt_cfg, repo,
+                                                mock_state_dir):
+        m = _mission([_task("t1", str(repo), write="out1.txt")])
+        run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
+        calls = read_calls(mock_state_dir)
+        worker_calls = [c for c in calls if c["role"] == "worker"]
+        assert worker_calls
+        assert "【作業場所の厳守】" in worker_calls[0]["prompt_head"]
+        assert f"{m.id}-t1" in worker_calls[0]["prompt_head"]  # worktreeパスを含む
+
+    def test_no_prefix_without_worktree(self, cfg, repo, mock_state_dir):
+        cfg["worktree"] = {"enabled": False}
+        m = _mission([_task("t1", str(repo), write="out1.txt")])
+        run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
+        calls = read_calls(mock_state_dir)
+        worker_calls = [c for c in calls if c["role"] == "worker"]
+        assert worker_calls
+        assert "【作業場所の厳守】" not in worker_calls[0]["prompt_head"]

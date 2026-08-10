@@ -67,8 +67,11 @@ def _mission_line(mission: dict, events: list[dict]) -> str:
     cost = budget["spent_usd"] if budget else 0.0
     if events:
         first_ts = events[0]["ts"]
+        # mission.finishedは複数回残りうる(自己改変ガード停止時にも記録される)。
+        # 最初のものを拾うとapprove経由の実行時間が0sになるため、最後を採用する
         finished = next(
-            (e for e in events if e.get("event") == "mission.finished"), None)
+            (e for e in reversed(events)
+             if e.get("event") == "mission.finished"), None)
         last_ts = finished["ts"] if finished else events[-1]["ts"]
         duration = int(last_ts - first_ts)
     else:

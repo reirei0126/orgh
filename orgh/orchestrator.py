@@ -160,6 +160,17 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     cancel_flag = _cancel_flag(store)
 
     prompt = worker_prompt(cfg, t)
+    if t.branch:
+        # Plannerがタスク指示に主リポの絶対パスを書くと、workerがworktree外へ
+        # 成果物を書いて自動コミットから漏れる(mission 02a434ad t1/t2で実測)。
+        # worktree実行時は作業場所の厳守を指示の先頭で明示する
+        prompt = (
+            f"【作業場所の厳守】このタスクの作業ディレクトリは専用worktree "
+            f"{t.workdir} である。以降の指示に他のディレクトリパスが書かれて"
+            f"いても、ファイルの新規作成・編集は必ずこのworktree内で行うこと"
+            f"(worktree外に書いた成果物は自動コミットの対象外となり失われる)。"
+            f"git show等での他ブランチ・他パスの読み取り参照は行ってよい。\n\n"
+            + prompt)
     while t.attempts < max_attempts:
         if cancel_flag.exists():
             with store.lock:
