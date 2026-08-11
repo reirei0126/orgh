@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <defs>
+    <marker id="arrowBluePrimary" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#4F8CFF"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="720" fill="#0B0E14"/>
+
+  <!-- circular plan-execute-verify flow -->
+  <path d="M640,160 A200,200 0 0,1 827.9,428.4" fill="none" stroke="#4F8CFF" stroke-width="6" marker-end="url(#arrowBluePrimary)"/>
+  <path d="M813.2,460 A200,200 0 0,1 486.8,488.6" fill="none" stroke="#4F8CFF" stroke-width="6" marker-end="url(#arrowBluePrimary)"/>
+  <path d="M466.8,460 A200,200 0 0,1 605.3,163.0" fill="none" stroke="#4F8CFF" stroke-width="6" marker-end="url(#arrowBluePrimary)"/>
+
+  <text x="640" y="120" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" fill="#F5F7FA">計画</text>
+  <text x="847.8" y="480" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" fill="#F5F7FA">実行</text>
+  <text x="432.2" y="480" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" fill="#F5F7FA">検証</text>
+
+  <!-- agent icon: gear head -->
+  <g>
+    <rect x="632" y="280" width="16" height="24" fill="#4F8CFF" transform="rotate(0 640 360)"/>
+    <rect x="632" y="280" width="16" height="24" fill="#4F8CFF" transform="rotate(45 640 360)"/>
+    <rect x="632" y="280" width="16" height="24" fill="#4F8CFF" transform="rotate(90 640 360)"/>
+    <rect x="632" y="280" width="16" height="24" fill="#4F8CFF" transform="rotate(135 640 360)"/>
+    <rect x="632" y="280" width="16" height="24" fill="#4F8CFF" transform="rotate(180 640 360)"/>
+    <rect x="632" y="280" width="16" height="24" fill="#4F8CFF" transform="rotate(225 640 360)"/>
+    <rect x="632" y="280" width="16" height="24" fill="#4F8CFF" transform="rotate(270 640 360)"/>
+    <rect x="632" y="280" width="16" height="24" fill="#4F8CFF" transform="rotate(315 640 360)"/>
+    <circle cx="640" cy="360" r="70" fill="#151A24" stroke="#4F8CFF" stroke-width="4"/>
+    <circle cx="640" cy="360" r="28" fill="#4F8CFF"/>
+    <circle cx="640" cy="360" r="10" fill="#0B0E14"/>
+  </g>
+</svg>

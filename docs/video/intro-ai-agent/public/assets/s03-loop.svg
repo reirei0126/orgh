@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <defs>
+    <marker id="arrowBlue2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#4F8CFF"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="720" fill="#0B0E14"/>
+
+  <!-- big circular arrow loop: plan -> tool execution -> verify -> (dashed) back to plan -->
+  <path d="M732.97,180.6 A220,220 0 0,1 859.2,399.2" fill="none" stroke="#4F8CFF" stroke-width="6" marker-end="url(#arrowBlue2)"/>
+  <path d="M766.2,560.2 A220,220 0 0,1 513.8,560.2" fill="none" stroke="#4F8CFF" stroke-width="6" marker-end="url(#arrowBlue2)"/>
+  <path d="M420.8,399.2 A220,220 0 0,1 547.0,180.6" fill="none" stroke="#4F8CFF" stroke-width="6" stroke-dasharray="10,8" marker-end="url(#arrowBlue2)"/>
+
+  <!-- nodes -->
+  <rect x="555" y="130" width="170" height="60" rx="16" fill="#151A24" stroke="#4F8CFF" stroke-width="3"/>
+  <text x="640" y="167" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" fill="#F5F7FA">計画</text>
+
+  <rect x="745.5" y="460" width="170" height="60" rx="16" fill="#151A24" stroke="#4F8CFF" stroke-width="3"/>
+  <text x="830.5" y="497" text-anchor="middle" font-family="system-ui, sans-serif" font-size="26" fill="#F5F7FA">ツール実行</text>
+
+  <rect x="364.5" y="460" width="170" height="60" rx="16" fill="#151A24" stroke="#4F8CFF" stroke-width="3"/>
+  <text x="449.5" y="497" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" fill="#F5F7FA">検証</text>
+
+  <!-- tool icons near "ツール実行", placed clear of the arc paths in the open space to the node's right -->
+  <text x="965" y="499" text-anchor="middle" font-family="monospace, system-ui, sans-serif" font-size="26" fill="#2A3242">&lt;/&gt;</text>
+
+  <circle cx="1027" cy="486" r="12" fill="none" stroke="#2A3242" stroke-width="3"/>
+  <line x1="1036" y1="495" x2="1047" y2="506" stroke="#2A3242" stroke-width="3" stroke-linecap="round"/>
+
+  <rect x="1088" y="474" width="24" height="32" rx="3" fill="none" stroke="#2A3242" stroke-width="3"/>
+  <line x1="1092" y1="484" x2="1108" y2="484" stroke="#2A3242" stroke-width="2"/>
+  <line x1="1092" y1="492" x2="1108" y2="492" stroke="#2A3242" stroke-width="2"/>
+</svg>

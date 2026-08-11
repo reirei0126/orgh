@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <defs>
+    <marker id="arrowMuted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#8891A5"/>
+    </marker>
+    <marker id="arrowGreenLoop" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#7CF29C"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="720" fill="#0B0E14"/>
+
+  <!-- left panel: chat AI, single pass -->
+  <rect x="60" y="80" width="540" height="560" rx="24" fill="#151A24" stroke="#2A3242" stroke-width="2"/>
+  <text x="330" y="150" text-anchor="middle" font-family="system-ui, sans-serif" font-size="34" fill="#F5F7FA">チャットAI</text>
+
+  <circle cx="330" cy="300" r="8" fill="#8891A5"/>
+  <text x="330" y="270" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" fill="#8891A5">質問</text>
+  <line x1="330" y1="316" x2="330" y2="464" stroke="#8891A5" stroke-width="4" marker-end="url(#arrowMuted)"/>
+  <text x="330" y="510" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" fill="#8891A5">回答</text>
+
+  <!-- right panel: AI agent, looping plan-execute-verify -->
+  <rect x="680" y="80" width="540" height="560" rx="24" fill="#151A24" stroke="#2A3242" stroke-width="2"/>
+  <text x="950" y="150" text-anchor="middle" font-family="system-ui, sans-serif" font-size="34" fill="#F5F7FA">AIエージェント</text>
+
+  <path d="M993.3,286.9 A140,140 0 0,1 1086.9,449.1" fill="none" stroke="#7CF29C" stroke-width="5" marker-end="url(#arrowGreenLoop)"/>
+  <path d="M1043.7,524 A140,140 0 0,1 856.3,524" fill="none" stroke="#7CF29C" stroke-width="5" marker-end="url(#arrowGreenLoop)"/>
+  <path d="M813.1,449.1 A140,140 0 0,1 906.7,286.9" fill="none" stroke="#7CF29C" stroke-width="5" marker-end="url(#arrowGreenLoop)"/>
+
+  <circle cx="950" cy="280" r="34" fill="#151A24" stroke="#7CF29C" stroke-width="3"/>
+  <text x="950" y="287" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" fill="#F5F7FA">計画</text>
+
+  <circle cx="1071.2" cy="490" r="34" fill="#151A24" stroke="#7CF29C" stroke-width="3"/>
+  <text x="1071.2" y="497" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" fill="#F5F7FA">実行</text>
+
+  <circle cx="828.8" cy="490" r="34" fill="#151A24" stroke="#7CF29C" stroke-width="3"/>
+  <text x="828.8" y="497" text-anchor="middle" font-family="system-ui, sans-serif" font-size="22" fill="#F5F7FA">検証</text>
+</svg>

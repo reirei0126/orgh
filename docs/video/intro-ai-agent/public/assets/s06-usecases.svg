@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <rect x="0" y="0" width="1280" height="720" fill="#0B0E14"/>
+
+  <!-- card 1: コード実装 -->
+  <rect x="140" y="80" width="480" height="260" rx="20" fill="#151A24" stroke="#2A3242" stroke-width="2"/>
+  <text x="380" y="188" text-anchor="middle" font-family="monospace, system-ui, sans-serif" font-size="48" fill="#4F8CFF">&lt;/&gt;</text>
+  <text x="380" y="260" text-anchor="middle" font-family="system-ui, sans-serif" font-size="30" fill="#F5F7FA">コード実装</text>
+
+  <!-- card 2: 技術調査 -->
+  <rect x="660" y="80" width="480" height="260" rx="20" fill="#151A24" stroke="#2A3242" stroke-width="2"/>
+  <circle cx="865" cy="170" r="16" fill="none" stroke="#4F8CFF" stroke-width="3"/>
+  <line x1="877" y1="182" x2="890" y2="195" stroke="#4F8CFF" stroke-width="3" stroke-linecap="round"/>
+  <rect x="915" y="155" width="28" height="36" rx="3" fill="none" stroke="#4F8CFF" stroke-width="3"/>
+  <line x1="921" y1="166" x2="937" y2="166" stroke="#4F8CFF" stroke-width="2"/>
+  <line x1="921" y1="176" x2="937" y2="176" stroke="#4F8CFF" stroke-width="2"/>
+  <text x="900" y="260" text-anchor="middle" font-family="system-ui, sans-serif" font-size="30" fill="#F5F7FA">技術調査</text>
+
+  <!-- card 3: 資料作成 -->
+  <rect x="140" y="380" width="480" height="260" rx="20" fill="#151A24" stroke="#2A3242" stroke-width="2"/>
+  <rect x="356" y="445" width="48" height="56" rx="4" fill="none" stroke="#4F8CFF" stroke-width="3"/>
+  <line x1="364" y1="460" x2="396" y2="460" stroke="#4F8CFF" stroke-width="2"/>
+  <line x1="364" y1="472" x2="396" y2="472" stroke="#4F8CFF" stroke-width="2"/>
+  <line x1="364" y1="484" x2="396" y2="484" stroke="#4F8CFF" stroke-width="2"/>
+  <text x="380" y="560" text-anchor="middle" font-family="system-ui, sans-serif" font-size="30" fill="#F5F7FA">資料作成</text>
+
+  <!-- card 4: 運用監視 -->
+  <rect x="660" y="380" width="480" height="260" rx="20" fill="#151A24" stroke="#2A3242" stroke-width="2"/>
+  <rect x="880" y="478" width="14" height="30" fill="#4F8CFF"/>
+  <rect x="898" y="460" width="14" height="48" fill="#4F8CFF"/>
+  <rect x="916" y="445" width="14" height="63" fill="#4F8CFF"/>
+  <text x="900" y="560" text-anchor="middle" font-family="system-ui, sans-serif" font-size="30" fill="#F5F7FA">運用監視</text>
+</svg>
