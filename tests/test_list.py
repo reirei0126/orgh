@@ -148,6 +148,23 @@ class TestListMissions:
         out = list_missions(runs_dir)
         assert out[0]["status"] == "cancelled"
 
+    def test_status_awaiting_human_when_any_task_awaiting(self, tmp_path):
+        runs_dir = tmp_path / "runs"
+        _mk_mission(runs_dir, "m1", "人間対応待ち",
+                    [_task("t1", "awaiting_human"), _task("t2", "pending")])
+        out = list_missions(runs_dir)
+        assert out[0]["status"] == "awaiting_human"
+
+    def test_status_awaiting_approval_takes_precedence_over_awaiting_human(
+            self, tmp_path):
+        # status_json.status_payload と同一の優先順位規則(awaiting_approval優先)
+        runs_dir = tmp_path / "runs"
+        _mk_mission(runs_dir, "m1", "両方待ち",
+                    [_task("t1", "awaiting_approval"),
+                     _task("t2", "awaiting_human")])
+        out = list_missions(runs_dir)
+        assert out[0]["status"] == "awaiting_approval"
+
     def test_dir_without_mission_json_is_skipped(self, tmp_path):
         runs_dir = tmp_path / "runs"
         _mk_mission(runs_dir, "m1", "正常ミッション", [_task("t1", "done")])

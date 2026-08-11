@@ -33,8 +33,14 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
         mission_status = "done"
     elif any(s == "failed" for s in statuses):
         mission_status = "failed"
+    # awaiting_approval と awaiting_human が同時に存在する場合は
+    # awaiting_approval を優先する: 承認待ちは orgh 自身への変更を止めている
+    # 自己改変ガードであり、放置するとセキュリティ上のリスクがあるため、
+    # 人間への作業依頼(awaiting_human)より先に目に入るべき
     elif any(s == "awaiting_approval" for s in statuses):
         mission_status = "awaiting_approval"
+    elif any(s == "awaiting_human" for s in statuses):
+        mission_status = "awaiting_human"
     elif statuses and all(s in terminal for s in statuses):
         # 全タスク終端でdone以外を含む(cancel/budget stop後)。runningのままだと
         # 停止済みミッションへ再キャンセルを誘発する
@@ -92,5 +98,22 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
                 "gated_tasks": gated_tasks,
                 "pending_task_count": pending_task_count,
             }
+
+    # awaiting_human タスクが1件以上あるときのみ human_requests キーを追加する
+    # (approval_brief と同じく、対象なしのときはキー自体を省いて後方互換を保つ)。
+    # cfgを読まずに済む(依頼一文はplanner.build_human_requestが既にtaskへ
+    # 埋め込み済みで、artifactパスもstore.artifact()の命名規則から機械的に
+    # 導けるため)、cfg=Noneの呼び出しでもこのキーは出す
+    human_waiting = [t for t in mission.tasks if t.status == "awaiting_human"]
+    if human_waiting:
+        payload["human_requests"] = [
+            {
+                "task": t.id,
+                "title": _flatten(t.title),
+                "request": _flatten(t.human_request),
+                "artifact": f"artifacts/human_request_{t.id}.md",
+            }
+            for t in human_waiting
+        ]
 
     return payload

@@ -28,8 +28,11 @@ def _derive_status(tasks: list[dict]) -> str:
         return "done"
     if any(s == "failed" for s in statuses):
         return "failed"
+    # status_json.status_payload と同一の優先順位(awaiting_approval優先)を保つ
     if any(s == "awaiting_approval" for s in statuses):
         return "awaiting_approval"
+    if any(s == "awaiting_human" for s in statuses):
+        return "awaiting_human"
     if all(s in terminal for s in statuses):
         return "cancelled"
     return "running"

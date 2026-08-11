@@ -19,7 +19,8 @@ from .sources.base import MissionFeedback
 _TEXT_EXTS = {".md", ".txt", ".json", ".yaml", ".log"}
 
 _TASK_ICONS = {"done": "✅", "failed": "❌", "cancelled": "⊘",
-               "skipped": "⊘", "awaiting_approval": "🔒"}
+               "skipped": "⊘", "awaiting_approval": "🔒",
+               "awaiting_human": "🙋"}
 
 
 def _task_icon(status: str) -> str:
@@ -63,7 +64,11 @@ class ResultsNote(MissionFeedback):
         elif any(s == "cancelled" for s in statuses):
             label = "⊘ 中止"
         elif any(s == "awaiting_approval" for s in statuses):
+            # awaiting_approval と awaiting_human が同時に存在する場合は
+            # status_json.status_payload と同一の優先順位(awaiting_approval優先)
             label = "🔒 承認待ち"
+        elif any(s == "awaiting_human" for s in statuses):
+            label = "🙋 人間対応待ち"
         else:
             label = "⏳ 実行中"
         return label, done, n
@@ -88,6 +93,16 @@ class ResultsNote(MissionFeedback):
                 f"続行するには `orgh approve {mission.id}` を実行",
                 "",
             ]
+
+        # 人間対応待ち: 依頼一文をノート上でも見せ、完了報告コマンドを案内する
+        for t in mission.tasks:
+            if t.status == "awaiting_human":
+                lines += [
+                    f"> [!warning] 「{t.title}」が人間の対応待ち: {t.human_request}\n"
+                    f"> 完了したら `orgh humandone {mission.id} {t.id} "
+                    f"--note \"実施内容の要約\"` を実行",
+                    "",
+                ]
 
         if finalize:
             lines += self._acceptance_lines(mission, done, n)

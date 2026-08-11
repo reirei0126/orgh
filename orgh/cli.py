@@ -182,7 +182,7 @@ def main() -> None:
         if not args.no_retro:
             # 承認待ちで停止したミッションを未完了のままretroしない(決着時のみ)
             planner.retro_if_finished(cfg, mission, store)
-        _summary(mission)
+        _summary(mission, store)
         return
 
     if args.cmd == "list":
@@ -278,7 +278,7 @@ def main() -> None:
         if args.json:
             print(json.dumps(status_payload(mission, cfg), ensure_ascii=False, indent=2))
             return
-        _summary(mission)
+        _summary(mission, store)
     elif args.cmd == "cleanup":
         for line in worktree.cleanup_mission_worktrees(mission):
             print(line)
@@ -328,7 +328,7 @@ def main() -> None:
         # (決着時のみ・RETRO_DONEで二重防止)
         planner.retro_if_finished(cfg, mission, store)
         _sync_results_note(cfg, mission, store)
-        _summary(mission)
+        _summary(mission, store)
     elif args.cmd == "cancel":
         # フラグが唯一の停止信号: 実行中プロセス側がループごとに検知して
         # subprocessをterminateする。ここでは未着手をcancelledに確定するだけ
@@ -342,7 +342,7 @@ def main() -> None:
         print(f"mission {mission.id} にCANCELフラグを置いた。"
               f"実行中のプロセスがあればまもなく停止する")
         _sync_results_note(cfg, mission, store)
-        _summary(mission)
+        _summary(mission, store)
     else:  # resume
         # 実行ロックを先に取得する。CANCEL削除をロック外で行うと、まだ動いている
         # 実行プロセスへのキャンセル信号をresumeが握り潰してしまう
@@ -371,7 +371,7 @@ def main() -> None:
         # 置くと、後の再resume完走時の真の教訓が阻まれる)
         planner.retro_if_finished(cfg, mission, store, only_if_all_done=True)
         _sync_results_note(cfg, mission, store)
-        _summary(mission)
+        _summary(mission, store)
 
 
 def _sync_results_note(cfg: dict, mission, store: RunStore) -> None:
@@ -396,7 +396,7 @@ def _sync_results_note(cfg: dict, mission, store: RunStore) -> None:
         print(f"結果ノートの更新に失敗(処理は続行): {e!r}", file=sys.stderr)
 
 
-def _summary(m) -> None:
+def _summary(m, store: RunStore | None = None) -> None:
     print(f"\nmission {m.id}: {m.intent}")
     for t in m.tasks:
         mark = {"done": "✓", "failed": "✗", "cancelled": "⊘",
@@ -408,6 +408,17 @@ def _summary(m) -> None:
         if b.limit_usd:
             line += f" / budget {b.limit_usd} USD ({b.spent_usd / b.limit_usd * 100:.0f}%)"
         print(line)
+
+    # PROD-001: 承認ブリーフ(approveコマンド、上のbrief["summary"]出力)と同様、
+    # まず依頼一文を一行で示し、詳細(依頼書artifact)と完了報告コマンドを続ける
+    for t in m.tasks:
+        if t.status != "awaiting_human":
+            continue
+        print(f"\n  🙋 {t.human_request}")
+        artifact = (store.dir / "artifacts" / f"human_request_{t.id}.md"
+                    if store is not None else f"artifacts/human_request_{t.id}.md")
+        print(f"     依頼書: {artifact}")
+        print(f"     完了したら: orgh humandone {m.id} {t.id} --note \"実施内容の要約\"")
 
 
 if __name__ == "__main__":
