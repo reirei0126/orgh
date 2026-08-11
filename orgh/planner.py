@@ -264,6 +264,19 @@ def replan_task(cfg: dict, task: Task, reason: str,
                      registry_key=registry_key)
 
 
+def _elide(text: str, limit: int) -> str:
+    """limit文字を超える一文を末尾省略する。素朴な文字数カットだと英数字の
+    単語途中で切れて可読性が落ちる(例: "headlessな" → "head…")ため、
+    切れ目が英数字列の途中に来た場合はその単語ごと落とす。"""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit - 1]
+    m = re.search(r"[A-Za-z0-9]+$", cut)
+    if m and m.start() > 0:
+        cut = cut[:m.start()]
+    return cut.rstrip() + "…"
+
+
 def build_human_request(mission_id: str, task: Task, reason: str) -> tuple[str, str]:
     """人間依頼書を組み立てる(awaiting_human基盤)。
 
@@ -273,9 +286,7 @@ def build_human_request(mission_id: str, task: Task, reason: str) -> tuple[str, 
     実行中のHUMAN:転換の両方から呼ばれる(reasonの由来だけが異なる)。
     """
     reason_flat = " ".join(reason.split())
-    brief = f"「{task.title}」の完了に人間の対応が必要: {reason_flat}"
-    if len(brief) > 100:
-        brief = brief[:99] + "…"
+    brief = _elide(f"「{task.title}」の完了に人間の対応が必要: {reason_flat}", 100)
     acceptance = "\n".join(f"- {a}" for a in task.acceptance) or "- (未指定)"
     body = (
         f"{brief}\n\n"

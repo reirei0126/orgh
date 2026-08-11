@@ -1,6 +1,60 @@
 # orgh ハンドオフ(2026-08-11 更新)
 
-## 2026-08-11 承認ブリーフ実装(このセクションが最新)
+## 2026-08-11 人間依頼(awaiting_human)実装・GUI耐性確認(このセクションが最新)
+
+mission 3af738a2: headlessなAIワーカーでは恒常的に実行不能なタスク(保護
+パスへの書き込み・対面作業・アカウント登録等)を、人間に依頼して完了を待つ
+新ステータス `awaiting_human` を実装。t1/t2で基盤とCLI/JSON表示を実装済み
+だったが、実装の実体を確認したところ**`orgh humandone` CLIコマンド自体が
+未実装**(README/依頼書テンプレ/テストにコマンド名の言及はあるが、
+argparseにもハンドラにも存在しなかった)。ドキュメントに「実装済み」として
+書くと嘘になるため、本タスクでコマンド実体を追加した(スコープ外への
+逸脱ではなく、ドキュメント化に必須の欠落として判断)。
+
+- **新ステータス `awaiting_human`**(t1/t2で実装済み・本タスクでは変更なし):
+  `Task.human_request` フィールド、`orgh/status_json.py`/`orgh/listing.py`の
+  優先順位(`awaiting_approval` > `awaiting_human`)、結果ノート(vault)への
+  🙋アイコン表示
+- **新CLI `orgh humandone <mission_id> <task_id> --note "..."`**(本タスクで
+  追加。`orgh/cli.py`): `--note`の内容をタスクの成果物(`last_output`)として
+  設定し、**通常のReviewer検収と同じ `planner.review()` をそのまま呼ぶ**
+  (worker成果と同等の扱い)。合格なら`done`にしてミッション実行を再開し
+  (依存タスクがあれば続けて動く)、不合格ならfeedbackを新しい依頼理由として
+  再度`awaiting_human`に戻す(試行回数の上限は設けない=HUMAN:転換と同型)。
+  対象外(task_id不在・awaiting_human以外の状態)はエラー終了し状態を変えない
+- **PROD-001是正(orgh/planner.py `build_human_request`)**: 実際の出力で
+  確認したところ、依頼一文が100字超過時に単純な文字数カットで切っており、
+  `"...headlessな"` が `"...head…"` のように英単語途中で千切れ、「端的な
+  一文」として読みにくい実例を確認した。`_elide()` ヘルパーを追加し、
+  切れ目が英数字列の途中に来た場合はその単語ごと落として省略するよう修正
+  (例: `"...計画した。…"` のように文の区切りで切れるようになった)
+- **desktop/src/types.ts**: `MissionListStatus`/`MissionRunStatus` に
+  `"awaiting_human"` を追加(型の正確性のため。表示・導線ロジックの変更は無し)
+- **GUI耐性確認**(実装変更ではなく確認作業。詳細は
+  [docs/gui-phase2/UNKNOWN-STATUS-RESILIENCE.md](docs/gui-phase2/UNKNOWN-STATUS-RESILIENCE.md)):
+  `StatusBadge`は元々未知ステータスに対する安全側フォールバックを持っており、
+  未知の`status`文字列・未知のJSONキー(`human_requests`)のいずれも
+  クラッシュしない(Rustブリッジ側もserdeの既定でunknownフィールドを無視、
+  `status`はenumでなく素の`String`)。承認/再開ボタンの条件式も
+  `awaiting_human`単体では誤って活性化しないことを確認済み
+- テスト: 295→301件(全緑。`tests/test_humandone.py`を新規追加)。
+  `cd desktop && npm run build`(`tsc && vite build`)も終了コード0を確認
+
+**スコープ外として残した事項(申し送り)**:
+- **GUIのawaiting_human専用UI**: 専用ラベル・専用導線(依頼書へのリンク、
+  humandone実行ボタン等)は本ミッションの禁則により未実装。現状GUIからは
+  awaiting_humanミッションに対してキャンセルボタンすら押せない(活性条件が
+  `running`/`awaiting_approval`のみのため)。CLIの`orgh cancel`は引き続き使える
+- **依頼書の通知連携**: 結果ノート(vault)には🙋表示が追記されるが、
+  approval_brief同様、push通知やSlack等の外部アラートは無い。人間側が
+  能動的に`orgh status`か結果ノートを見に行かないと依頼に気づけない
+- **humandoneのREPLAN:扱いの簡略化**: `orgh humandone`後のReviewer feedbackが
+  `REPLAN:`だった場合でも、本実装では計画の再設計(`replan_task`)は行わず、
+  HUMAN:と同様にfeedback文言をそのまま新しい依頼理由として`awaiting_human`に
+  戻すだけ。acceptance自体に欠陥がある場合の是正導線は無い(将来的に
+  `replan_task`相当の呼び出しを足す余地あり)
+
+## 2026-08-11 承認ブリーフ実装
 
 オーナー裁定(台帳 PROD-001 [norm]): 承認・検収などのオーナー接点では、
 求める判断の内容を端的な一文で先に提示し、詳細はオーナーが求めたときに

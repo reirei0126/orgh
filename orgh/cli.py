@@ -7,6 +7,7 @@
   orgh status <mission_id>
   orgh cancel <mission_id>        # 実行中subprocessをterminateし未着手をcancelledに
   orgh approve <mission_id>       # 自己改変ガードで停止したミッションを承認して続行
+  orgh humandone <mission_id> <task_id> --note "..."  # 人間対応待ちタスクの完了報告
   orgh cleanup <mission_id>       # worktree/ブランチの掃除(worktree.enabled時)
   orgh doctor                     # 外部CLI疎通・config・vault・書き込み権限の確認
   orgh gc                         # playbookの統合・退避とruns/のアーカイブ
@@ -87,6 +88,11 @@ def main() -> None:
     g.add_argument("--pass", dest="passed", action="store_true")
     g.add_argument("--fail", dest="passed", action="store_false")
     vp.add_argument("--reason", required=True)
+
+    hd = sub.add_parser("humandone")  # awaiting_human タスクの人間完了報告
+    hd.add_argument("mission_id")
+    hd.add_argument("task_id")
+    hd.add_argument("--note", required=True)
 
     cp = sub.add_parser("criteria")
     cp.add_argument("action", choices=["list", "approve", "reject"])
@@ -235,6 +241,67 @@ def main() -> None:
             print(f"draft: {fp}")
         print(f"下書き{len(drafts)}件。orgh criteria list で確認、"
               f"orgh criteria approve <name> で本台帳へ反映")
+        return
+
+    if args.cmd == "humandone":
+        # awaiting_human タスクの完了報告: --note を人間の成果物として
+        # 通常のReviewerに掛ける(worker成果と同様の扱い)。approve/resumeと
+        # 同じくミッション実行ロックを取ってから状態を変える(二重発行防止)
+        from .orchestrator import acquire_mission_lock
+        store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)
+        lock_fp = acquire_mission_lock(store)
+        if lock_fp is None:
+            sys.exit(f"mission {args.mission_id} は別プロセスが実行中。"
+                     f"完了報告を中止する")
+        mission = store.load()  # ロック取得後に再読込(実行側の最終保存を見る)
+        task = next((t for t in mission.tasks if t.id == args.task_id), None)
+        if task is None:
+            lock_fp.close()
+            sys.exit(f"task '{args.task_id}' が mission {args.mission_id} に"
+                     f"見つからない")
+        if task.status != "awaiting_human":
+            lock_fp.close()
+            sys.exit(f"task '{args.task_id}' は awaiting_human ではない"
+                     f"(現在: {task.status})。完了報告を中止する")
+
+        task.last_output = args.note
+        store.log("task.human_report", task=task.id, note=args.note[:500])
+        cost_sink: list[float] = []
+        passed, feedback = planner.review(
+            cfg, task, workdir=task.workdir, budget=mission.budget,
+            registry_key=store.dir.name, cost_sink=cost_sink)
+        task.cost_usd += sum(cost_sink)
+        task.review_notes = feedback
+        store.log("task.review", task=task.id, passed=passed)
+
+        if passed:
+            commit = worktree.commit_task_result(task, store.dir.name)
+            if commit:
+                store.log("task.committed", task=task.id, commit=commit)
+            task.status = "done"
+            task.human_request = ""
+            store.save(mission)
+            print(f"task {task.id} を検収した(人間の完了報告に基づくレビュー合格)")
+            mission = run_mission(cfg, mission, store, lock_fp=lock_fp)
+            planner.retro_if_finished(cfg, mission, store)
+            _sync_results_note(cfg, mission, store)
+            _summary(mission, store)
+            return
+
+        # 不合格: 人間には再試行回数の上限を設けない(HUMAN:転換と同型)。
+        # feedbackが"HUMAN:"ならその理由を、そうでなくても通常のreview feedback
+        # をそのまま「なぜ人間が必要か」として再度依頼書を作る
+        reason = (feedback[len("HUMAN:"):].strip() if feedback.startswith("HUMAN:")
+                  else feedback or "レビューで差し戻された。再度対応せよ")
+        brief, body = planner.build_human_request(mission.id, task, reason)
+        task.status = "awaiting_human"
+        task.human_request = brief
+        store.artifact(f"human_request_{task.id}.md", body)
+        store.log("task.awaiting_human", task=task.id, brief=brief)
+        store.save(mission)
+        lock_fp.close()
+        print(f"task {task.id} の完了報告はレビューで差し戻された — {brief}")
+        _summary(mission, store)
         return
 
     if args.cmd == "criteria":

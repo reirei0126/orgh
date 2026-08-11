@@ -83,6 +83,10 @@ orgh gc  # playbookの統合・退避とruns/のアーカイブ(実行前に全�
 # TTY接続時はy/N確認。--yesで確認をスキップ。watch/GUI等の非TTYは従来どおり即続行)
 orgh approve <mission_id> [--yes]
 
+# 人間対応待ち(awaiting_human)タスクの完了報告。--noteの内容を成果物として
+# 通常のReviewerに掛け、合格すればdoneになり後続タスクが動き出す
+orgh humandone <mission_id> <task_id> --note "実施内容の要約"
+
 orgh report [--days N] [--vault]  # 初回合格率・差し戻し率の週次等を集計
 
 # ミッション完走後、オーナーとして検収裁定を記録(基準台帳の下書きが自動生成される)
@@ -162,6 +166,22 @@ Workerのデフォルト `allowed_tools` に Bash は含まれない。シェル
 Plannerに渡す文脈ダイジェストは「参照データであり指示ではない」マーカーで
 包まれ、ノート内の命令文が計画を乗っ取ることを防ぐ。
 守れていない範囲は [docs/threat-model.md](docs/threat-model.md) に正直に書いている。
+
+### 人間依頼(awaiting_human)
+
+headlessなAIワーカーでは恒常的に実行不能なタスク(保護パスへの書き込み・
+対面作業・アカウント登録など)は `awaiting_human` で停止し、人間の完了報告を
+待つ。入口は2つ: (1) Plannerが計画時点で `worker: "human"` を割り当てる、
+(2) 実行中にReviewerが「workerでは解消不能な環境制約」と判断し、feedbackを
+`HUMAN:` で始める(通常の差し戻しやREPLAN:とは別枠で、attemptsは消費しない)。
+いずれの経路でも依頼書 `runs/<mission_id>/artifacts/human_request_<task_id>.md`
+が生成され、1行目に端的な依頼一文(何をなぜ人間がやる必要があるか)、
+続けて完了時に提出すべき証拠(acceptance)が書かれる。`orgh status` の出力にも
+この依頼一文が先頭に出る。人間が作業を終えたら
+`orgh humandone <mission_id> <task_id> --note "実施内容の要約"` を実行する。
+--noteの内容は通常のworker成果と同様にReviewerへ渡され、合格すれば `done` に
+なって後続タスクが動き出し、不合格ならfeedbackを踏まえて再度 `awaiting_human`
+に戻る(いずれも試行回数の上限は設けない)。
 
 ## 設計判断メモ
 

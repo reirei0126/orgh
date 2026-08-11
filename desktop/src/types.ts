@@ -22,6 +22,7 @@ export interface MissionSummary {
 /** list時点のステータス派生規則(orgh/listing.py _derive_status 準拠)。
  * タスク0件="empty"。全件done="done"。1件でもfailed="failed"。
  * 1件でもawaiting_approval="awaiting_approval"。
+ * 1件でもawaiting_human="awaiting_human"(awaiting_approvalより優先度は下)。
  * 全件終端(done/cancelled/skipped)でdone以外を含む="cancelled"。
  * それ以外(pending/running混在)="running"。 */
 export type MissionListStatus =
@@ -30,6 +31,7 @@ export type MissionListStatus =
   | "done"
   | "failed"
   | "awaiting_approval"
+  | "awaiting_human"
   | "cancelled";
 
 /** list_missions() で読み飛ばされた壊れた mission.json の情報。
@@ -88,6 +90,7 @@ export type MissionRunStatus =
   | "done"
   | "failed"
   | "awaiting_approval"
+  | "awaiting_human"
   | "cancelled";
 
 export interface TaskStatus {
