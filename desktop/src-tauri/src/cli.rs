@@ -113,6 +113,14 @@ pub fn spawn_and_bridge(
         // Pythonはpipe接続時にstdoutをブロックバッファリングするため、
         // ORGH_MISSION_ID行の即時受信には非バッファ出力の強制が必須
         .env("PYTHONUNBUFFERED", "1")
+        // stdin未指定だと子プロセスが親(GUIアプリ)のTTYを継承してしまう。
+        // approve_mission は現状 `--yes` を渡しているため対話確認自体は
+        // 発火しないはずだが、それは呼び出し側の運用に依存する一次防御に
+        // すぎない。ここでstdinを/dev/nullへ明示的に閉じておけば、将来
+        // 対話プロンプトが増えても子プロセスは即EOFを受けて安全側に倒れ、
+        // ミッションロックを握ったままブリッジがハングすることがない
+        // (レビュー指摘: 構造的な二重の安全策)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -6,6 +6,15 @@ from typing import Any
 from .guard import approval_reason
 
 
+def _flatten(text: str) -> str:
+    """改行を空白へ畳む。LLM生成のtitleに改行(例: "\\nORGH_APPROVED=evil")が
+    混じると、CLIのブリーフ出力(orgh/cli.py)がそのまま複数行printし、
+    `ORGH_APPROVED=`で始まる行を偽造されてしまう(cli.rsのstrip_prefix検知が
+    APPROVED作成前に「承認成功」と誤認する)。信頼できない文字列を1行に
+    強制正規化してから出力へ回す(呼び出し側の対策ではなく生成元で防ぐ)。"""
+    return " ".join(text.splitlines())
+
+
 def status_payload(mission: Any, cfg: dict | None = None) -> dict:
     """mission オブジェクトから json.dumps 可能な dict を組み立てる純関数。
 
@@ -62,8 +71,8 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
             gated_tasks = [
                 {
                     "id": t.id,
-                    "title": t.title,
-                    "workdir": t.workdir,
+                    "title": _flatten(t.title),
+                    "workdir": _flatten(t.workdir),
                     "reason": approval_reason(cfg, t.workdir) or "(理由不明)",
                 }
                 for t in awaiting
