@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ErrorBanner } from "./components/ErrorBanner";
 import { startLogStore } from "./logStore";
+import { CriteriaPage } from "./pages/CriteriaPage";
 import { MissionDetailPage } from "./pages/MissionDetailPage";
 import { MissionListPage } from "./pages/MissionListPage";
 import { NewMissionPage } from "./pages/NewMissionPage";
@@ -45,6 +46,9 @@ function App() {
         <button className={`rail-nav-item${route.name === "playbooks" ? " active" : ""}`} onClick={() => navigate({ name: "playbooks" })}>
           Playbook
         </button>
+        <button className={`rail-nav-item${route.name === "criteria" ? " active" : ""}`} onClick={() => navigate({ name: "criteria" })}>
+          基準台帳
+        </button>
         <div className="rail-spacer" />
         <button className={`rail-nav-item${route.name === "settings" ? " active" : ""}`} onClick={() => navigate({ name: "settings" })}>
           設定
@@ -65,6 +69,7 @@ function App() {
         {route.name === "settings" && <SettingsPage onError={onError} />}
         {route.name === "report" && <ReportPage onError={onError} />}
         {route.name === "playbooks" && <PlaybooksPage navigate={navigate} onError={onError} filterMissionId={route.missionId} />}
+        {route.name === "criteria" && <CriteriaPage onError={onError} />}
         {route.name === "mission" && (
           <MissionDetailPage missionId={route.missionId} navigate={navigate} onError={onError} />
         )}
