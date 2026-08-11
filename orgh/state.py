@@ -64,6 +64,7 @@ class WorktreeCfg:
     enabled: bool = False
     base_ref: str = "HEAD"
     root: str = ".orgh-worktrees"
+    allow_nested_workdir: bool = False   # workdir_guardのオプトイン(既定は入れ子workdirを拒否)
 
 
 @dataclass

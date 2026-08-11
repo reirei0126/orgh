@@ -71,6 +71,9 @@ worktree:                      # タスクごとのgit worktree分離(並列タ�
   enabled: false               # デフォルト無効(後方互換)
   base_ref: HEAD               # 分岐元
   root: .orgh-worktrees        # worktree置き場(taskのworkdir相対)
+  allow_nested_workdir: false  # workdirが親リポの内側(gitignore対象含む)でも許可するオプトイン。
+                                # 既定は拒否(workdir_guard)。親リポにブランチ・成果物が
+                                # 誤って作られる事故を防ぐため、原則 workdir は独立リポのルートにすること
 
 watch:                         # orgh watch (イベント駆動デーモン)
   interval: 5                  # 監視間隔(秒)
