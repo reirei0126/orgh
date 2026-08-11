@@ -36,13 +36,17 @@
       "status": "empty" | "running" | "done" | "failed" | "awaiting_approval" | "cancelled",
       "cost_usd": 0.1234,
       "tasks_done": 2,
-      "tasks_total": 5
+      "tasks_total": 5,
+      "created_ts": 1786362431.3,
+      "finished_ts": null
     }
   ]
 }
 ```
 - 実装: `orgh/listing.py` `list_missions_report()` を再利用(`orgh/cli.py` の `list --json` 分岐)。
 - `status` 派生規則(`orgh status --json` と同一規則): タスク0件→`empty`。全件`done`→`done`。1件でも`failed`→`failed`。1件でも`awaiting_approval`→`awaiting_approval`。全件終端(done/cancelled/skipped)で`done`以外を含む→`cancelled`。それ以外→`running`。
+- **並び順(2026-08-12改訂)**: `created_ts`(起票=ledger最初のイベントts)の新しい順。idは16進乱数で並びに意味が無いため。ledger欠落でcreated_ts=nullのものは末尾、同点はid順で安定。
+- `finished_ts` は状態が終端(done/failed/cancelled)のときの最後の `mission.finished` イベントts。実行中・承認待ちはnull。
 - ミッションが1件もない場合 `{"missions": [], "skipped": []}`(エラーではない)。
 - `runs/` 配下の壊れた `mission.json`(JSON不正など)は `skipped` 配列(`{"path": ..., "reason": ...}`)として明示的に返る。黙殺すると「0件」とデータ破損をGUIが区別できないため。
 

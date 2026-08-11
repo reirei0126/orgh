@@ -21,6 +21,8 @@ export const MOCK_MISSIONS: MissionSummary[] = [
     costUsd: 1.8342,
     tasksDone: 4,
     tasksTotal: 4,
+    createdTs: NOW - 10800,
+    finishedTs: NOW - 600,
   },
   {
     missionId: "f9e8d7c6",
@@ -29,6 +31,8 @@ export const MOCK_MISSIONS: MissionSummary[] = [
     costUsd: 0.9127,
     tasksDone: 2,
     tasksTotal: 5,
+    createdTs: NOW - 14400,
+    finishedTs: null,
   },
   {
     missionId: "5a4b3c2d",
@@ -37,6 +41,8 @@ export const MOCK_MISSIONS: MissionSummary[] = [
     costUsd: 0.4310,
     tasksDone: 1,
     tasksTotal: 3,
+    createdTs: NOW - 18000,
+    finishedTs: null,
   },
   {
     missionId: "b1c2d3e4",
@@ -45,6 +51,8 @@ export const MOCK_MISSIONS: MissionSummary[] = [
     costUsd: 1.2050,
     tasksDone: 3,
     tasksTotal: 3,
+    createdTs: NOW - 21600,
+    finishedTs: NOW - 2400,
   },
   {
     missionId: "c1d2e3f4",
@@ -53,6 +61,8 @@ export const MOCK_MISSIONS: MissionSummary[] = [
     costUsd: 0.7742,
     tasksDone: 2,
     tasksTotal: 2,
+    createdTs: NOW - 25200,
+    finishedTs: NOW - 3000,
   },
   {
     missionId: "d1e2f3a4",
@@ -61,6 +71,8 @@ export const MOCK_MISSIONS: MissionSummary[] = [
     costUsd: 0.3120,
     tasksDone: 1,
     tasksTotal: 2,
+    createdTs: NOW - 28800,
+    finishedTs: null,
   },
 ];
 

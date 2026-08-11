@@ -17,6 +17,10 @@ export interface MissionSummary {
   costUsd: number;
   tasksDone: number;
   tasksTotal: number;
+  /** 起票日時(unix秒、ledger最初のイベント)。ledger欠落時はnull。 */
+  createdTs: number | null;
+  /** 完了日時(unix秒、終端ミッションの最後のmission.finished)。実行中はnull。 */
+  finishedTs: number | null;
 }
 
 /** list時点のステータス派生規則(orgh/listing.py _derive_status 準拠)。

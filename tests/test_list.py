@@ -220,3 +220,69 @@ class TestListJsonCli:
         assert "m1" in out
         with pytest.raises(json.JSONDecodeError):
             json.loads(out)
+
+
+class TestDateOrderAndTimestamps:
+    """一覧は起票日時の新しい順(id順はランダム16進で意味が無い)。
+    起票=ledger最初のイベントts、完了=終端ミッションの最後のmission.finished ts。"""
+
+    def _mk_with_ledger(self, runs_dir, mid, status, events):
+        import json as _json
+        d = runs_dir / mid
+        d.mkdir(parents=True)
+        (d / "mission.json").write_text(_json.dumps({
+            "id": mid, "intent": mid, "context_digest": "",
+            "tasks": [{"id": "t1", "title": "x", "prompt": "p",
+                       "worker": "claude_code", "deps": [],
+                       "status": status, "attempts": 1}],
+            "budget": None}))
+        (d / "ledger.jsonl").write_text(
+            "\n".join(_json.dumps(e) for e in events))
+
+    def test_sorted_by_created_desc(self, tmp_path):
+        runs = tmp_path / "runs"
+        self._mk_with_ledger(runs, "aaa-old", "done", [
+            {"ts": 1000.0, "event": "task.start", "task": "t1"},
+            {"ts": 1500.0, "event": "mission.finished", "done": ["t1"]}])
+        self._mk_with_ledger(runs, "zzz-new", "done", [
+            {"ts": 9000.0, "event": "task.start", "task": "t1"},
+            {"ts": 9500.0, "event": "mission.finished", "done": ["t1"]}])
+        out = list_missions(runs)
+        assert [m["mission_id"] for m in out] == ["zzz-new", "aaa-old"]
+        assert out[0]["created_ts"] == 9000.0
+        assert out[0]["finished_ts"] == 9500.0
+
+    def test_finished_ts_uses_last_mission_finished(self, tmp_path):
+        # ガード停止時の早期mission.finishedではなく最後を採る(report.pyと同一規則)
+        runs = tmp_path / "runs"
+        self._mk_with_ledger(runs, "mguard", "done", [
+            {"ts": 100.0, "event": "task.awaiting_approval", "task": "t1"},
+            {"ts": 101.0, "event": "mission.finished", "done": []},
+            {"ts": 200.0, "event": "task.start", "task": "t1"},
+            {"ts": 900.0, "event": "mission.finished", "done": ["t1"]}])
+        out = list_missions(runs)
+        assert out[0]["created_ts"] == 100.0
+        assert out[0]["finished_ts"] == 900.0
+
+    def test_running_mission_has_null_finished(self, tmp_path):
+        runs = tmp_path / "runs"
+        self._mk_with_ledger(runs, "mrun", "running", [
+            {"ts": 100.0, "event": "task.start", "task": "t1"},
+            {"ts": 101.0, "event": "mission.finished", "done": []}])
+        out = list_missions(runs)
+        assert out[0]["finished_ts"] is None
+
+    def test_missing_ledger_sorts_last(self, tmp_path):
+        import json as _json
+        runs = tmp_path / "runs"
+        self._mk_with_ledger(runs, "with-ledger", "done", [
+            {"ts": 50.0, "event": "task.start", "task": "t1"},
+            {"ts": 60.0, "event": "mission.finished", "done": ["t1"]}])
+        d = runs / "no-ledger"
+        d.mkdir(parents=True)
+        (d / "mission.json").write_text(_json.dumps({
+            "id": "no-ledger", "intent": "x", "context_digest": "",
+            "tasks": [], "budget": None}))
+        out = list_missions(runs)
+        assert [m["mission_id"] for m in out] == ["with-ledger", "no-ledger"]
+        assert out[1]["created_ts"] is None

@@ -26,6 +26,12 @@ pub struct MissionSummary {
     pub tasks_done: u32,
     #[serde(rename(serialize = "tasksTotal", deserialize = "tasks_total"))]
     pub tasks_total: u32,
+    /// 起票日時(ledger最初のイベントts)。ledger欠落時はnull。旧CLI互換で欠落許容
+    #[serde(rename(serialize = "createdTs", deserialize = "created_ts"), default)]
+    pub created_ts: Option<f64>,
+    /// 完了日時(終端ミッションの最後のmission.finished ts)。実行中はnull
+    #[serde(rename(serialize = "finishedTs", deserialize = "finished_ts"), default)]
+    pub finished_ts: Option<f64>,
 }
 
 /// `orgh list --json` で読み飛ばされた壊れたmission.jsonの情報。

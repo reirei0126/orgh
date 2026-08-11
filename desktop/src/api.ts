@@ -240,6 +240,8 @@ async function mockStartOrApprove(existingId: string | null, intentForLog: strin
       costUsd: 0,
       tasksDone: 0,
       tasksTotal: 2,
+      createdTs: Date.now() / 1000,
+      finishedTs: null,
     });
     mockEmit<MissionLogEvent>("mission-log", { missionId: null, line: "== planning ==" });
     mockEmit<MissionLogEvent>("mission-log", { missionId: null, line: `intent: ${intent}` });

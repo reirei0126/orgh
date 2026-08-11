@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { listMissions } from "../api";
 import { StatusBadge } from "../components/StatusBadge";
 import { classifyListError, withDetail } from "../errorClassify";
-import { formatCost } from "../format";
+import { formatCost, formatDateTime } from "../format";
 import type { ListPayload } from "../types";
 import type { Route } from "../router";
 
@@ -119,6 +119,8 @@ export function MissionListPage({ navigate, onError }: { navigate: (route: Route
                 <th>Intent</th>
                 <th>Status</th>
                 <th>進捗</th>
+                <th>起票</th>
+                <th>完了</th>
                 <th>Cost</th>
               </tr>
             </thead>
@@ -139,6 +141,8 @@ export function MissionListPage({ navigate, onError }: { navigate: (route: Route
                       <span className="progress-label">{m.tasksDone}/{m.tasksTotal}</span>
                     </div>
                   </td>
+                  <td className="mono cell-muted">{formatDateTime(m.createdTs)}</td>
+                  <td className="mono cell-muted">{formatDateTime(m.finishedTs)}</td>
                   <td className="mono">{formatCost(m.costUsd)}</td>
                 </tr>
               ))}

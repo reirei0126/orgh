@@ -201,8 +201,13 @@ def main() -> None:
         if not missions:
             print("no missions")
         else:
+            def _dt(ts):
+                return (datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
+                        if ts else "--")
             for m in missions:
                 print(f"{m['mission_id']}  [{m['status']}]  "
+                      f"起票 {_dt(m['created_ts'])}  "
+                      f"完了 {_dt(m['finished_ts'])}  "
                       f"{m['tasks_done']}/{m['tasks_total']} tasks  "
                       f"{m['cost_usd']:.4f} USD  {m['intent']}")
         for s in payload["skipped"]:
