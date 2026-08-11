@@ -98,6 +98,118 @@ class TestSelfModificationGuard:
         assert f"orgh approve {mdir.name}" in body
 
 
+class TestApprovalReason:
+    """PROD-001の土台: needs_approvalと同一規則で発火理由の一文を返す。"""
+
+    def test_reason_for_package_dir(self, cfg):
+        from orgh.guard import approval_reason, package_dir
+        reason = approval_reason(cfg, str(REPO))
+        assert reason == f"orgh自身のパッケージ ({package_dir()}) を書き換える"
+
+    def test_reason_for_prompts_dir(self, cfg):
+        from orgh.guard import approval_reason
+        p = Path(cfg["prompts_dir"]).expanduser().resolve()
+        reason = approval_reason(cfg, cfg["prompts_dir"])
+        assert reason == f"prompts_dir ({p}) 配下を書き換える"
+
+    def test_reason_for_playbooks_dir(self, cfg):
+        from orgh.guard import approval_reason
+        p = Path(cfg["playbooks_dir"]).expanduser().resolve()
+        reason = approval_reason(cfg, cfg["playbooks_dir"])
+        assert reason == f"playbooks_dir ({p}) 配下を書き換える"
+
+    def test_reason_none_when_unrelated(self, cfg, tmp_path):
+        from orgh.guard import approval_reason
+        assert approval_reason(cfg, str(tmp_path)) is None
+
+    def test_needs_approval_is_reason_is_not_none_wrapper(self, cfg, tmp_path):
+        # needs_approvalとapproval_reasonの判定規則が二重管理でズレていないこと
+        from orgh.guard import approval_reason, needs_approval
+        for wd in (str(REPO), cfg["prompts_dir"], cfg["playbooks_dir"], str(tmp_path)):
+            assert needs_approval(cfg, wd) == (approval_reason(cfg, wd) is not None)
+
+
+class TestApproveConfirmationGate:
+    """PROD-001のCLI適用: approveは実行前に一文ブリーフを表示する。
+    --yes/非TTY(watch・GUI経由)は従来どおり即続行(ORGH_APPROVED=契約は不変)。"""
+
+    def test_yes_flag_prints_brief_before_confirmation_line(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        m = _mission([_task("t1", workdir=str(REPO))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+        assert m.tasks[0].status == "awaiting_approval"
+
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "approve", m.id, "--yes"])
+        cli.main()
+
+        out = capsys.readouterr().out
+        assert "承認すると残り" in out  # ブリーフのsummary文言
+        brief_idx = out.index("承認すると残り")
+        approved_idx = out.index("ORGH_APPROVED=")
+        assert brief_idx < approved_idx  # ブリーフは確認行より前に出る(契約)
+
+    def test_non_tty_without_yes_still_continues(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        # pytest配下のstdinは非TTY: --yes無しでも従来どおり即続行する(後方互換)
+        m = _mission([_task("t1", workdir=str(REPO))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "approve", m.id])
+        cli.main()
+
+        out = capsys.readouterr().out
+        assert "承認すると残り" in out
+        assert "ORGH_APPROVED=" in out
+        reloaded = store.load()
+        assert reloaded.tasks[0].status == "done"
+
+    def test_interactive_decline_does_not_create_approved(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        m = _mission([_task("t1", workdir=str(REPO))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "approve", m.id])
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+
+        with pytest.raises(SystemExit):
+            cli.main()
+
+        out = capsys.readouterr().out
+        assert "承認を中止した" in out
+        assert not (store.dir / "APPROVED").exists()
+        reloaded = store.load()
+        assert reloaded.tasks[0].status == "awaiting_approval"
+
+    def test_interactive_confirm_continues(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        m = _mission([_task("t1", workdir=str(REPO))])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "approve", m.id])
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+
+        cli.main()
+
+        out = capsys.readouterr().out
+        assert "ORGH_APPROVED=" in out
+        reloaded = store.load()
+        assert reloaded.tasks[0].status == "done"
+
+
 class TestDoctor:
     def test_doctor_ok_with_mock_binaries(self, cfg, mock_state_dir, tmp_path,
                                           monkeypatch, capsys):

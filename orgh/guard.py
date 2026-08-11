@@ -22,16 +22,23 @@ def package_dir() -> Path:
     return Path(orgh.__file__).resolve().parent
 
 
-def needs_approval(cfg: dict, workdir: str) -> bool:
+def approval_reason(cfg: dict, workdir: str) -> str | None:
+    """needs_approvalがTrueになる理由を人間可読の一文で返す(発火しなければNone)。
+    判定ロジックはneeds_approvalと同一規則を保つこと(needs_approvalはこの
+    関数のNone判定へのラッパとして実装し、二重管理を避ける)。"""
     wd = Path(workdir).expanduser().resolve()
 
     pkg = package_dir()
     if wd == pkg or wd.is_relative_to(pkg) or pkg.is_relative_to(wd):
-        return True
+        return f"orgh自身のパッケージ ({pkg}) を書き換える"
 
-    for key, default in (("prompts_dir", "prompts"),
-                         ("playbooks_dir", "playbooks")):
+    for key, default, label in (("prompts_dir", "prompts", "prompts_dir"),
+                                ("playbooks_dir", "playbooks", "playbooks_dir")):
         p = Path(cfg.get(key, default)).expanduser().resolve()
         if wd == p or wd.is_relative_to(p):
-            return True
-    return False
+            return f"{label} ({p}) 配下を書き換える"
+    return None
+
+
+def needs_approval(cfg: dict, workdir: str) -> bool:
+    return approval_reason(cfg, workdir) is not None

@@ -78,6 +78,8 @@ def main() -> None:
             sp.add_argument("--retry-failed", action="store_true")
         if name == "status":
             sp.add_argument("--json", action="store_true")
+        if name == "approve":
+            sp.add_argument("--yes", action="store_true")
 
     vp = sub.add_parser("verdict")   # オーナー検収裁定の記録と基準蒸留
     vp.add_argument("mission_id")
@@ -274,7 +276,7 @@ def main() -> None:
     mission = store.load(reset_inflight=args.cmd not in ("status", "cleanup", "cancel"))
     if args.cmd == "status":
         if args.json:
-            print(json.dumps(status_payload(mission), ensure_ascii=False, indent=2))
+            print(json.dumps(status_payload(mission, cfg), ensure_ascii=False, indent=2))
             return
         _summary(mission)
     elif args.cmd == "cleanup":
@@ -295,6 +297,24 @@ def main() -> None:
         if not waiting:
             sys.exit(f"mission {mission.id} に承認待ちタスクが無い"
                      f"(承認済み・実行中・またはガード未発火)。承認を中止する")
+
+        # PROD-001: 承認接点は「何を承認するか」を一文(summary)で先に提示し、
+        # 詳細(対象タスク一覧)はその下に展開する。これより後段の確認行
+        # (ORGH_APPROVED=)より必ず前に出す
+        brief = status_payload(mission, cfg).get("approval_brief")
+        if brief:
+            print(brief["summary"])
+            for t in brief["gated_tasks"]:
+                print(f"  - {t['title']}  ({t['workdir']})")
+
+        # --yesが無くTTY接続時のみ対話確認する。watch/GUI(非TTY)や--yes指定は
+        # 従来どおり即続行(後方互換優先。ブリーフは表示済み)
+        if not args.yes and sys.stdin.isatty():
+            ans = input("承認して実行する? [y/N]: ")
+            if ans.strip().lower() != "y":
+                print("承認を中止した")
+                sys.exit(0)
+
         (store.dir / "APPROVED").touch()
         for t in waiting:
             t.status = "pending"

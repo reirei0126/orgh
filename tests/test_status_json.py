@@ -16,9 +16,11 @@ REQUIRED_TASK_KEYS = {"id", "title", "status", "attempts", "worker", "deps"}
 
 
 def _task(id: str, status: str, worker: str = "claude_code",
-          deps: list[str] | None = None, attempts: int = 1) -> Task:
-    return Task(id=id, title=f"task {id}", prompt="p", worker=worker,
-                deps=deps or [], status=status, attempts=attempts)
+          deps: list[str] | None = None, attempts: int = 1,
+          workdir: str = ".", title: str | None = None) -> Task:
+    return Task(id=id, title=title or f"task {id}", prompt="p", worker=worker,
+                deps=deps or [], status=status, attempts=attempts,
+                workdir=workdir)
 
 
 def _mission(tasks: list[Task], budget: Budget | None = None) -> Mission:
@@ -145,3 +147,46 @@ class TestStatusShowsInflightTruthfully:
         # listは"empty"を返すためstatusも同一規則で揃える(画面間の食い違い防止)
         m = _mission([])
         assert status_payload(m)["status"] == "empty"
+
+
+class TestApprovalBrief:
+    """PROD-001: 承認待ち一文ブリーフ(orgh approve / GUI承認ダイアログの土台)。"""
+
+    def test_absent_without_cfg(self):
+        # cfg未指定(既存呼び出し)は awaiting があってもキー自体を省く
+        m = _mission([_task("t1", "awaiting_approval")])
+        assert "approval_brief" not in status_payload(m)
+
+    def test_absent_when_no_awaiting_task(self, cfg):
+        m = _mission([_task("t1", "done"), _task("t2", "pending")])
+        assert "approval_brief" not in status_payload(m, cfg)
+
+    def test_summary_includes_title_reason_and_spent_cost(self, cfg):
+        t1 = _task("t1", "awaiting_approval", workdir=cfg["prompts_dir"],
+                   title="設定を書き換える")
+        t2 = _task("t2", "pending")
+        m = _mission([t1, t2], budget=Budget(limit_usd=5.0, spent_usd=1.23))
+        brief = status_payload(m, cfg)["approval_brief"]
+
+        assert "設定を書き換える" in brief["summary"]
+        assert "prompts_dir" in brief["summary"]
+        assert "1.23" in brief["summary"]
+        assert "ほか" not in brief["summary"]  # gated_tasksが1件なら省く
+        assert brief["pending_task_count"] == 2  # awaiting(1) + pending(1)
+        assert len(brief["gated_tasks"]) == 1
+        assert brief["gated_tasks"][0] == {
+            "id": "t1", "title": "設定を書き換える",
+            "workdir": cfg["prompts_dir"],
+            "reason": brief["gated_tasks"][0]["reason"],
+        }
+        assert "prompts_dir" in brief["gated_tasks"][0]["reason"]
+
+    def test_summary_shows_hoka_n_when_multiple_gated_tasks(self, cfg):
+        t1 = _task("t1", "awaiting_approval", workdir=cfg["prompts_dir"])
+        t2 = _task("t2", "awaiting_approval", workdir=cfg["playbooks_dir"])
+        m = _mission([t1, t2])
+        brief = status_payload(m, cfg)["approval_brief"]
+
+        assert "ほか1件" in brief["summary"]
+        assert len(brief["gated_tasks"]) == 2
+        assert brief["pending_task_count"] == 2  # awaiting(2) + pending(0)
