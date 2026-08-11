@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { approveMission, cancelMission, missionEvents, missionStatus, onMissionUpdated } from "../api";
+import { approveMission, cancelMission, humanDone, missionEvents, missionStatus, onMissionUpdated, ownerVerdict } from "../api";
 import { DependencyGraph } from "../components/DependencyGraph";
 import { LiveLog, type LogLine } from "../components/LiveLog";
 import { StatusBadge } from "../components/StatusBadge";
@@ -8,6 +8,14 @@ import { formatClock, formatCost } from "../format";
 import { getLiveLines, subscribeLiveLog } from "../logStore";
 import type { Route } from "../router";
 import type { LedgerEvent, MissionStatus } from "../types";
+
+/** verdicts[].ts (unix epoch seconds) を「日付 時刻」表示にする。
+ * formatClockは時刻のみのため、複数日にまたがる裁定記録の判別用に別関数とする。 */
+function formatVerdictDateTime(tsSeconds: number): string {
+  const d = new Date(tsSeconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function ledgerToLine(e: LedgerEvent, index: number): LogLine {
   const { ts, event, ...rest } = e;
@@ -58,6 +66,17 @@ export function MissionDetailPage({
   // (開くたびに詳細は畳んだ状態へ戻す)
   const [confirmApproveOpen, setConfirmApproveOpen] = useState(false);
   const [approvalDetailsOpen, setApprovalDetailsOpen] = useState(false);
+  // 検収裁定(owner_verdict)フォームの入力・送信状態
+  const [verdictPassed, setVerdictPassed] = useState<boolean | null>(null);
+  const [verdictReason, setVerdictReason] = useState("");
+  const [verdictSubmitting, setVerdictSubmitting] = useState(false);
+  const [verdictResult, setVerdictResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // 人間対応(human_done)の入力・送信状態はタスクIDごとに持つ(複数タスクが
+  // 同時にawaiting_humanになりうるため)
+  const [humanNotes, setHumanNotes] = useState<Record<string, string>>({});
+  const [humanSubmittingId, setHumanSubmittingId] = useState<string | null>(null);
+  const [humanResults, setHumanResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const [humanDetailsOpen, setHumanDetailsOpen] = useState<Record<string, boolean>>({});
   const missionIdRef = useRef(missionId);
   missionIdRef.current = missionId;
   // ポーリング応答の逆転対策: 古い世代の応答でstateを上書きしない
@@ -192,6 +211,43 @@ export function MissionDetailPage({
     }
   };
 
+  const handleSubmitVerdict = async () => {
+    if (verdictPassed === null || verdictReason.trim().length === 0) return;
+    setVerdictSubmitting(true);
+    setVerdictResult(null);
+    try {
+      await ownerVerdict(missionId, verdictPassed, verdictReason.trim());
+      setVerdictResult({ ok: true, message: "検収裁定を記録しました" });
+      setVerdictPassed(null);
+      setVerdictReason("");
+      refetchStatus();
+    } catch (e) {
+      setVerdictResult({ ok: false, message: `検収裁定の記録に失敗しました: ${String(e)}` });
+    } finally {
+      setVerdictSubmitting(false);
+    }
+  };
+
+  const handleSubmitHumanDone = async (taskId: string) => {
+    const note = (humanNotes[taskId] ?? "").trim();
+    if (note.length === 0) return;
+    setHumanSubmittingId(taskId);
+    setHumanResults((prev) => {
+      const { [taskId]: _drop, ...rest } = prev;
+      return rest;
+    });
+    try {
+      await humanDone(missionId, taskId, note);
+      setHumanResults((prev) => ({ ...prev, [taskId]: { ok: true, message: "完了報告を送信しました" } }));
+      setHumanNotes((prev) => ({ ...prev, [taskId]: "" }));
+      refetchStatus();
+    } catch (e) {
+      setHumanResults((prev) => ({ ...prev, [taskId]: { ok: false, message: `送信に失敗しました: ${String(e)}` } }));
+    } finally {
+      setHumanSubmittingId(null);
+    }
+  };
+
   return (
     <div className="page">
       <div className="breadcrumb">
@@ -256,6 +312,176 @@ export function MissionDetailPage({
               )}
             </div>
           </div>
+
+          {status.tasks.some((t) => t.status === "awaiting_human") && (
+            <div className="panel">
+              <div className="panel-title">人間対応が必要なタスク</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {status.tasks
+                  .filter((t) => t.status === "awaiting_human")
+                  .map((t) => {
+                    const result = humanResults[t.id];
+                    const note = humanNotes[t.id] ?? "";
+                    const submitting = humanSubmittingId === t.id;
+                    return (
+                      <div key={t.id} className="record-card">
+                        <p className="modal-summary">{t.humanRequest || "(依頼内容が指定されていません)"}</p>
+                        <div className="mono cell-muted" style={{ fontSize: 11, marginBottom: 8 }}>
+                          タスク {t.id}: {t.title}
+                        </div>
+                        {t.humanRequestBody && (
+                          <>
+                            <button
+                              type="button"
+                              className="modal-details-toggle"
+                              onClick={() =>
+                                setHumanDetailsOpen((prev) => ({ ...prev, [t.id]: !prev[t.id] }))
+                              }
+                            >
+                              {humanDetailsOpen[t.id] ? "▾ 詳細を隠す" : "▸ 詳細"}
+                            </button>
+                            {humanDetailsOpen[t.id] && (
+                              <pre
+                                className="mono"
+                                style={{
+                                  fontSize: 12,
+                                  whiteSpace: "pre-wrap",
+                                  marginTop: 8,
+                                  background: "var(--bg-elevated)",
+                                  padding: 10,
+                                  borderRadius: "var(--radius-md)",
+                                }}
+                              >
+                                {t.humanRequestBody}
+                              </pre>
+                            )}
+                          </>
+                        )}
+                        <div className="field" style={{ marginTop: 12 }}>
+                          <label className="field-label" htmlFor={`human-note-${t.id}`}>完了報告</label>
+                          <textarea
+                            id={`human-note-${t.id}`}
+                            className="textarea"
+                            placeholder="対応結果を書く(必須)"
+                            value={note}
+                            onChange={(e) =>
+                              setHumanNotes((prev) => ({ ...prev, [t.id]: e.target.value }))
+                            }
+                            disabled={submitting}
+                          />
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => handleSubmitHumanDone(t.id)}
+                            disabled={submitting || note.trim().length === 0}
+                          >
+                            {submitting ? <span className="spinner" /> : "✓"} 完了を報告
+                          </button>
+                        </div>
+                        {result && (
+                          <div
+                            className={`banner ${result.ok ? "banner-success" : "banner-error"}`}
+                            style={{ marginTop: 10, marginBottom: 0 }}
+                          >
+                            {result.message}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
+          {(status.status === "done" || status.status === "failed") && (
+            <div className="panel">
+              <div className="panel-title">検収裁定</div>
+              <p className="modal-summary">このミッションを検収する: {status.intent}</p>
+              {status.verdicts && status.verdicts.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {[...status.verdicts]
+                    .sort((a, b) => b.ts - a.ts)
+                    .map((v, i) => (
+                      <div className="record-card" key={i}>
+                        <div className="modal-gated-task-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span
+                            className="badge"
+                            style={{
+                              color: v.passed ? "var(--success)" : "var(--danger)",
+                              background: v.passed ? "var(--success-bg)" : "var(--danger-bg)",
+                            }}
+                          >
+                            <span
+                              className="badge-dot"
+                              style={{ background: v.passed ? "var(--success)" : "var(--danger)" }}
+                            />
+                            {v.passed ? "合格" : "不合格"}
+                          </span>
+                          <span className="mono cell-muted" style={{ fontSize: 12 }}>
+                            {formatVerdictDateTime(v.ts)}
+                          </span>
+                        </div>
+                        <div className="modal-gated-task-meta">{v.reason}</div>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <>
+                  <div className="radio-row" style={{ marginTop: 8 }}>
+                    <label className="radio-option">
+                      <input
+                        type="radio"
+                        name="verdict-passed"
+                        checked={verdictPassed === true}
+                        onChange={() => setVerdictPassed(true)}
+                        disabled={verdictSubmitting}
+                      />
+                      合格
+                    </label>
+                    <label className="radio-option">
+                      <input
+                        type="radio"
+                        name="verdict-passed"
+                        checked={verdictPassed === false}
+                        onChange={() => setVerdictPassed(false)}
+                        disabled={verdictSubmitting}
+                      />
+                      不合格
+                    </label>
+                  </div>
+                  <div className="field" style={{ marginTop: 8 }}>
+                    <label className="field-label" htmlFor="verdict-reason">理由</label>
+                    <textarea
+                      id="verdict-reason"
+                      className="textarea"
+                      placeholder="裁定の理由を書く(必須)"
+                      value={verdictReason}
+                      onChange={(e) => setVerdictReason(e.target.value)}
+                      disabled={verdictSubmitting}
+                    />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleSubmitVerdict}
+                      disabled={verdictSubmitting || verdictPassed === null || verdictReason.trim().length === 0}
+                    >
+                      {verdictSubmitting ? <span className="spinner" /> : "✓"} 裁定を記録
+                    </button>
+                  </div>
+                  {verdictResult && (
+                    <div
+                      className={`banner ${verdictResult.ok ? "banner-success" : "banner-error"}`}
+                      style={{ marginTop: 10, marginBottom: 0 }}
+                    >
+                      {verdictResult.message}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           <div className="panel">
             <div className="panel-title">コスト / 予算</div>

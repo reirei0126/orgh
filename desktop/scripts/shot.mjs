@@ -1,11 +1,13 @@
 // 目視検証用スクリーンショット撮影スクリプト。
-// 前提: `VITE_MOCK=1 npm run dev` が http://localhost:1420 で起動していること。
+// 前提: `VITE_MOCK=1 npm run dev` が http://localhost:1420 で起動していること
+// (別ポートで起動した場合は環境変数 SHOT_BASE_URL で上書き可能)。
 // 実行: node scripts/shot.mjs
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
-const BASE = "http://localhost:1420";
+const BASE = process.env.SHOT_BASE_URL ?? "http://localhost:1420";
 const OUT = fileURLToPath(new URL("../docs/screenshots/", import.meta.url));
+const OUT_PHASE3 = fileURLToPath(new URL("../docs/screenshots/phase3/", import.meta.url));
 
 async function main() {
   const browser = await chromium.launch();
@@ -26,8 +28,30 @@ async function main() {
   await page.waitForSelector("textarea.textarea");
   await page.screenshot({ path: `${OUT}new.png`, fullPage: false });
 
+  // ミッション詳細ページの検収裁定(verdict)/人間依頼(awaiting_human)UI。
+  // b1c2d3e4 = done かつ未裁定(裁定フォームが出る状態)
+  await page.goto(`${BASE}/#/mission/b1c2d3e4`);
+  await page.waitForSelector("#verdict-reason");
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${OUT_PHASE3}detail-verdict-form.png`, fullPage: false });
+
+  // c1d2e3f4 = done かつ verdicts に1件記録済み(裁定済み表示)
+  await page.goto(`${BASE}/#/mission/c1d2e3f4`);
+  await page.waitForSelector(".record-card");
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${OUT_PHASE3}detail-verdict-recorded.png`, fullPage: false });
+
+  // d1e2f3a4 = awaiting_human タスクを持つミッション(人間依頼ブロック)
+  await page.goto(`${BASE}/#/mission/d1e2f3a4`);
+  await page.waitForSelector('textarea[id^="human-note-"]');
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${OUT_PHASE3}detail-human-request.png`, fullPage: false });
+
   await browser.close();
-  console.log("saved list.png / detail.png / new.png");
+  console.log(
+    "saved list.png / detail.png / new.png / " +
+      "phase3/detail-verdict-form.png / phase3/detail-verdict-recorded.png / phase3/detail-human-request.png",
+  );
 }
 
 main().catch((e) => {
