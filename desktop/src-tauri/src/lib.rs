@@ -19,6 +19,11 @@ pub fn run() {
             commands::doctor,
             commands::report,
             commands::playbooks,
+            commands::owner_verdict,
+            commands::criteria_list,
+            commands::criteria_approve,
+            commands::criteria_reject,
+            commands::human_done,
             commands::get_settings,
             commands::set_settings,
         ])

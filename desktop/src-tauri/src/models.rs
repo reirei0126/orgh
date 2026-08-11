@@ -55,6 +55,20 @@ pub struct TaskStatus {
     pub attempts: u32,
     pub worker: String,
     pub deps: Vec<String>,
+    /// 旧CLI互換のため欠落を許容(approval_briefと同じくOptionでgraceful
+    /// degradation)。types.ts `humanRequest`。
+    #[serde(
+        default,
+        rename(serialize = "humanRequest", deserialize = "human_request")
+    )]
+    pub human_request: Option<String>,
+    /// types.ts `humanRequestBody`。status が awaiting_human のときのみ値が
+    /// 入る(orgh/status_json.py)。
+    #[serde(
+        default,
+        rename(serialize = "humanRequestBody", deserialize = "human_request_body")
+    )]
+    pub human_request_body: Option<String>,
 }
 
 /// `orgh status <id> --json` の `approval_brief.gated_tasks[]` 要素。
@@ -98,6 +112,21 @@ pub struct MissionStatus {
         rename(serialize = "approvalBrief", deserialize = "approval_brief")
     )]
     pub approval_brief: Option<ApprovalBrief>,
+    /// オーナー裁定の記録(runs/<id>/verdicts.jsonl由来)。旧CLI互換のため
+    /// 欠落を許容する(approval_briefと同じくOptionでgraceful degradation)。
+    /// types.ts `verdicts`。
+    #[serde(default)]
+    pub verdicts: Option<Vec<Verdict>>,
+}
+
+/// オーナー検収裁定1件。types.ts の `Verdict`。
+/// `orgh verdict <id> --pass|--fail --reason <text>` が
+/// runs/<id>/verdicts.jsonl へ追記する形そのもの(orgh/cli.py verdict分岐)。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Verdict {
+    pub ts: f64,
+    pub passed: bool,
+    pub reason: String,
 }
 
 /// `orgh events <id> --json` の `events[]` 要素。types.ts の `LedgerEvent`。
@@ -241,4 +270,42 @@ pub struct MissionLogEvent {
 #[serde(rename_all = "camelCase")]
 pub struct MissionUpdatedEvent {
     pub mission_id: String,
+}
+
+// ---------------------------------------------------------------------------
+// GUIブリッジ層 契約確定タスクで追加。owner_verdict / criteria_list の型。
+// orgh/criteria.py `criteria_list_payload()` 由来。types.ts の
+// `CriteriaEntry` / `CriteriaDraft` / `CriteriaPayload` に対応。
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CriteriaEntry {
+    pub category: String,
+    pub id: String,
+    pub strength: String,
+    pub text: String,
+    #[serde(rename(deserialize = "source_mission"))]
+    pub source_mission: Option<String>,
+    pub date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CriteriaDraft {
+    pub name: String,
+    pub path: String,
+    pub category: Option<String>,
+    pub strength: Option<String>,
+    pub text: Option<String>,
+    pub raw: serde_json::Value,
+}
+
+/// `orgh criteria list --json` の戻り値そのもの。types.ts の `CriteriaPayload`。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CriteriaPayload {
+    pub entries: Vec<CriteriaEntry>,
+    pub drafts: Vec<CriteriaDraft>,
+    #[serde(default)]
+    pub skipped: Vec<SkippedMission>,
 }

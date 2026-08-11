@@ -2,6 +2,7 @@
 // desktop/src/api.ts がTauri未検出時にここへフォールバックする。
 
 import type {
+  CriteriaPayload,
   DoctorReport,
   LedgerEvent,
   MissionStatus,
@@ -37,6 +38,30 @@ export const MOCK_MISSIONS: MissionSummary[] = [
     tasksDone: 1,
     tasksTotal: 3,
   },
+  {
+    missionId: "b1c2d3e4",
+    intent: "ログ基盤のPIIマスキング処理を追加し、既存ダッシュボードへの影響を検証する",
+    status: "done",
+    costUsd: 1.2050,
+    tasksDone: 3,
+    tasksTotal: 3,
+  },
+  {
+    missionId: "c1d2e3f4",
+    intent: "決済Webhookの署名検証を追加し、リプレイ攻撃を防止する",
+    status: "done",
+    costUsd: 0.7742,
+    tasksDone: 2,
+    tasksTotal: 2,
+  },
+  {
+    missionId: "d1e2f3a4",
+    intent: "本番DBのマイグレーション実行(破壊的操作のため人手での実行が必要)",
+    status: "awaiting_human",
+    costUsd: 0.3120,
+    tasksDone: 1,
+    tasksTotal: 2,
+  },
 ];
 
 const MOCK_TASKS: Record<string, TaskStatus[]> = {
@@ -57,6 +82,39 @@ const MOCK_TASKS: Record<string, TaskStatus[]> = {
     { id: "t1", title: "現行クエリのプロファイリングとボトルネック特定", status: "running", attempts: 1, worker: "claude_code", deps: [] },
     { id: "t2", title: "インデックス再設計案の作成とベンチマーク", status: "pending", attempts: 0, worker: "claude_code", deps: ["t1"] },
     { id: "t3", title: "段階的ロールアウト計画とロールバック手順の整備", status: "pending", attempts: 0, worker: "codex", deps: ["t2"] },
+  ],
+  // (a) done かつ未裁定: ownerVerdict導線の初期表示確認用(verdictsキー自体が無い)
+  b1c2d3e4: [
+    { id: "t1", title: "ログ出力箇所の棚卸しとPII該当フィールドの特定", status: "done", attempts: 1, worker: "claude_code", deps: [] },
+    { id: "t2", title: "マスキング処理の実装とユニットテスト追加", status: "done", attempts: 1, worker: "claude_code", deps: ["t1"] },
+    { id: "t3", title: "既存ダッシュボードの回帰確認", status: "done", attempts: 1, worker: "codex", deps: ["t2"] },
+  ],
+  // (b) done かつ verdicts に1件記録済み: ownerVerdict完了後の表示確認用
+  c1d2e3f4: [
+    { id: "t1", title: "Webhook署名検証ロジックの実装", status: "done", attempts: 1, worker: "claude_code", deps: [] },
+    { id: "t2", title: "リプレイ攻撃を想定した統合テスト追加", status: "done", attempts: 1, worker: "claude_code", deps: ["t1"] },
+  ],
+  // (c) awaiting_human タスクを持つミッション: humanDone導線の表示確認用
+  d1e2f3a4: [
+    { id: "t1", title: "マイグレーションSQLのドライラン結果の確認", status: "done", attempts: 1, worker: "claude_code", deps: [] },
+    {
+      id: "t2",
+      title: "本番DBへのマイグレーション実行",
+      status: "awaiting_human",
+      attempts: 1,
+      worker: "claude_code",
+      deps: ["t1"],
+      humanRequest: "本番DBへのDDL実行はorghの自己改変ガード対象外の破壊的操作のため、人間が直接実行して完了報告すること",
+      humanRequestBody:
+        "# 人間対応依頼: 本番DBマイグレーション実行\n\n" +
+        "## 背景\n" +
+        "ドライラン(t1)は成功したが、本番DBへのDDL実行はorghのworker権限では行わない方針のため、\n" +
+        "人間が直接実行する必要がある。\n\n" +
+        "## 実施手順\n" +
+        "1. `runs/d1e2f3a4/artifacts/migration.sql` の内容を確認する\n" +
+        "2. メンテナンスウィンドウ内で本番DBに対して実行する\n" +
+        "3. 実行結果(成功/失敗、所要時間)を `orgh humandone d1e2f3a4 t2 --note \"...\"` で報告する\n",
+    },
   ],
 };
 
@@ -100,6 +158,37 @@ export const MOCK_STATUS: Record<string, MissionStatus> = {
     costUsd: 0.4310,
     budgetUsd: null,
   },
+  // (a) done かつ未裁定: verdictsキー自体を省略する(旧CLI互換のgraceful
+  // degradationと同じ経路を、そのまま「まだ裁定していない」表示にも使う)。
+  b1c2d3e4: {
+    missionId: "b1c2d3e4",
+    intent: "ログ基盤のPIIマスキング処理を追加し、既存ダッシュボードへの影響を検証する",
+    status: "done",
+    tasks: MOCK_TASKS.b1c2d3e4,
+    costUsd: 1.2050,
+    budgetUsd: 2.0,
+  },
+  // (b) done かつ verdicts に1件記録済み
+  c1d2e3f4: {
+    missionId: "c1d2e3f4",
+    intent: "決済Webhookの署名検証を追加し、リプレイ攻撃を防止する",
+    status: "done",
+    tasks: MOCK_TASKS.c1d2e3f4,
+    costUsd: 0.7742,
+    budgetUsd: 1.5,
+    verdicts: [
+      { ts: NOW - 300, passed: true, reason: "要件どおり実装され、統合テストも回帰も無かった" },
+    ],
+  },
+  // (c) awaiting_human タスクを持つミッション
+  d1e2f3a4: {
+    missionId: "d1e2f3a4",
+    intent: "本番DBのマイグレーション実行(破壊的操作のため人手での実行が必要)",
+    status: "awaiting_human",
+    tasks: MOCK_TASKS.d1e2f3a4,
+    costUsd: 0.3120,
+    budgetUsd: null,
+  },
 };
 
 function buildLedger(missionId: string): LedgerEvent[] {
@@ -134,6 +223,9 @@ export const MOCK_EVENTS: Record<string, LedgerEvent[]> = {
   a1b2c3d4: buildLedger("a1b2c3d4"),
   f9e8d7c6: buildLedger("f9e8d7c6"),
   "5a4b3c2d": buildLedger("5a4b3c2d"),
+  b1c2d3e4: buildLedger("b1c2d3e4"),
+  c1d2e3f4: buildLedger("c1d2e3f4"),
+  d1e2f3a4: buildLedger("d1e2f3a4"),
 };
 
 export const MOCK_DOCTOR: DoctorReport = {
@@ -153,4 +245,65 @@ export const MOCK_SETTINGS: Settings = {
   orghBin: "orgh",
   configPath: "/Users/mock/org-harness/config.yaml",
   runsDir: "/Users/mock/org-harness/runs",
+};
+
+// (d) 判断基準台帳: 本台帳エントリ複数カテゴリ + _drafts 下書き2件以上。
+// criteriaApprove/criteriaRejectのモックはこの配列自体を破壊的に操作する
+// (呼ぶとdraftsから該当エントリが消える。api.tsのモック実装から参照される)。
+export const MOCK_CRITERIA: CriteriaPayload = {
+  entries: [
+    {
+      category: "design",
+      id: "DESIGN-001",
+      strength: "norm",
+      text: "承認接点は判断内容を一文(summary)で先に提示し、詳細は展開時のみ見せる",
+      sourceMission: "4d048081",
+      date: "2026-08-10",
+    },
+    {
+      category: "design",
+      id: "DESIGN-002",
+      strength: "pref",
+      text: "ステータスの内部値は英語のまま変更せず、表示ラベルのみ日本語化する",
+      sourceMission: "4d048081",
+      date: "2026-08-10",
+    },
+    {
+      category: "process",
+      id: "PROCESS-001",
+      strength: "norm",
+      text: "後続タスクは前段タスクの完了報告を鵜呑みにせず、実装コードを読んで実在確認してから着手する",
+      sourceMission: "3af738a2",
+      date: "2026-08-11",
+    },
+  ],
+  drafts: [
+    {
+      name: "c1d2e3f4-1",
+      path: "/Users/mock/org-harness/criteria/_drafts/c1d2e3f4-1.json",
+      category: "process",
+      strength: "pref",
+      text: "Webhook系タスクは署名検証の単体テストを必ず含める",
+      raw: {
+        category: "process",
+        prefix: "PROCESS",
+        strength: "pref",
+        text: "Webhook系タスクは署名検証の単体テストを必ず含める",
+      },
+    },
+    {
+      name: "c1d2e3f4-2",
+      path: "/Users/mock/org-harness/criteria/_drafts/c1d2e3f4-2.json",
+      category: "design",
+      strength: "norm",
+      text: "破壊的操作(本番DB変更等)は人間対応(awaiting_human)へ委譲し、workerに直接実行させない",
+      raw: {
+        category: "design",
+        prefix: "DESIGN",
+        strength: "norm",
+        text: "破壊的操作(本番DB変更等)は人間対応(awaiting_human)へ委譲し、workerに直接実行させない",
+      },
+    },
+  ],
+  skipped: [],
 };

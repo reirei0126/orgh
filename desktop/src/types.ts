@@ -61,6 +61,19 @@ export interface MissionStatus {
    * undefined/nullを許容し、その場合GUIは詳細確認ダイアログを出さず
    * 従来どおり即時承認にフォールバックする(graceful degradation)。 */
   approvalBrief?: ApprovalBrief | null;
+  /** オーナー裁定の記録(orgh/status_json.py `verdicts`、
+   * runs/<id>/verdicts.jsonl 由来)。旧CLI/裁定なしでは欠落・空配列を許容する
+   * ため任意プロパティとする。 */
+  verdicts?: Verdict[];
+}
+
+/** オーナー検収裁定1件。`orgh verdict <id> --pass|--fail --reason <text>` が
+ * runs/<id>/verdicts.jsonl へ追記する形そのもの(orgh/cli.py verdict分岐)。 */
+export interface Verdict {
+  /** unix epoch seconds (Python time.time()) */
+  ts: number;
+  passed: boolean;
+  reason: string;
 }
 
 /** 承認ブリーフ: 「何を承認するのか」をsummaryの一文で先に提示し、詳細
@@ -103,6 +116,14 @@ export interface TaskStatus {
   attempts: number;
   worker: string;
   deps: string[];
+  /** awaiting_humanへ遷移する原因になった依頼の一文(orgh/status_json.py
+   * `human_request`)。旧CLI/該当なしでは欠落するため任意プロパティとし、
+   * その場合GUIは人間対応の導線を出さずグレースフルデグレードする。 */
+  humanRequest?: string;
+  /** 依頼本文の全文(orgh/status_json.py `human_request_body`、
+   * artifacts/human_request_<task_id>.md の内容)。status が awaiting_human の
+   * ときのみ値が入り、それ以外は null。旧CLIでは欠落する。 */
+  humanRequestBody?: string | null;
 }
 
 /** mission_events(missionId, tail) の戻り値の要素。
@@ -282,4 +303,49 @@ export interface PlaybookEntry {
   missionId: string | null;
   /** ISO日付文字列(例: "2026-08-05")。 */
   date: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// GUIブリッジ層 契約確定タスクで追加。owner_verdict / criteria_list /
+// criteria_approve / criteria_reject / human_done の5コマンドに関する型。
+// orgh/criteria.py criteria_list_payload() / orgh/cli.py criteria・verdict・
+// humandone分岐が実装(desktop/API.md参照)。
+// ---------------------------------------------------------------------------
+
+/** criteriaList() の `entries[]` 要素。判断基準台帳(criteria/<category>.md)
+ * の本台帳エントリ1行分。orgh/criteria.py `criteria_list_payload()` 由来。 */
+export interface CriteriaEntry {
+  /** 台帳ファイル名(拡張子除く)。例: "design" "process"。 */
+  category: string;
+  /** 台帳ID。例: "DESIGN-001"。 */
+  id: string;
+  strength: "norm" | "pref";
+  text: string;
+  /** この基準を生んだミッションID。手動追記行はnull。 */
+  sourceMission: string | null;
+  /** ISO日付文字列。手動追記行はnull。 */
+  date: string | null;
+}
+
+/** criteriaList() の `drafts[]` 要素。criteria/_drafts/*.json の下書き1件分
+ * (owner_verdict実行時にdistill_verdictが生成、まだ本台帳へ未承認)。 */
+export interface CriteriaDraft {
+  /** ファイル名(拡張子除く)。criteriaApprove/criteriaRejectへ渡すキー。 */
+  name: string;
+  /** 絶対パス。 */
+  path: string;
+  category: string | null;
+  strength: string | null;
+  text: string | null;
+  /** 下書きJSONの生データ(想定外キーも含めてそのまま透過)。 */
+  raw: Record<string, unknown>;
+}
+
+/** criteriaList() の戻り値全体。orgh criteria list --json 由来。 */
+export interface CriteriaPayload {
+  entries: CriteriaEntry[];
+  drafts: CriteriaDraft[];
+  /** パース不能な台帳行・壊れた下書きJSON(黙殺すると原因が分からなくなる
+   * ため明示的に返す。ListPayload.skippedと同じ形)。 */
+  skipped: SkippedMission[];
 }

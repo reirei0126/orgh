@@ -9,8 +9,8 @@ use tauri::AppHandle;
 
 use crate::cli;
 use crate::models::{
-    DoctorReport, EventsPayload, LedgerEvent, ListPayload, MissionStatus, PlaybookPayload,
-    ReportPayload,
+    CriteriaPayload, DoctorReport, EventsPayload, LedgerEvent, ListPayload, MissionStatus,
+    PlaybookPayload, ReportPayload,
 };
 use crate::settings::{self, Settings};
 
@@ -130,6 +130,54 @@ pub fn cancel_mission(app: AppHandle, mission_id: String) -> Result<(), String> 
     cli::run_sync(&settings, &["cancel", &mission_id])
 }
 
+// owner_verdict/criteria_*/human_doneは確認行の待受(ORGH_APPROVED=等)を
+// 必要としない同期コマンド(desktop/API.md 2.1のlist_missions等と同じ経路)。
+// approve_mission/resume_missionの`spawn_and_bridge`契約には一切手を入れない。
+
+#[tauri::command]
+pub fn owner_verdict(
+    app: AppHandle,
+    mission_id: String,
+    passed: bool,
+    reason: String,
+) -> Result<(), String> {
+    let settings = settings::load_settings(&app)?;
+    let args = build_verdict_args(&mission_id, passed, &reason);
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    cli::run_sync(&settings, &refs)
+}
+
+#[tauri::command]
+pub fn criteria_list(app: AppHandle) -> Result<CriteriaPayload, String> {
+    let settings = settings::load_settings(&app)?;
+    cli::run_json(&settings, &["criteria", "list", "--json"])
+}
+
+#[tauri::command]
+pub fn criteria_approve(app: AppHandle, name: String) -> Result<(), String> {
+    let settings = settings::load_settings(&app)?;
+    cli::run_sync(&settings, &["criteria", "approve", &name])
+}
+
+#[tauri::command]
+pub fn criteria_reject(app: AppHandle, name: String) -> Result<(), String> {
+    let settings = settings::load_settings(&app)?;
+    cli::run_sync(&settings, &["criteria", "reject", &name])
+}
+
+#[tauri::command]
+pub fn human_done(
+    app: AppHandle,
+    mission_id: String,
+    task_id: String,
+    note: String,
+) -> Result<(), String> {
+    let settings = settings::load_settings(&app)?;
+    let args = build_human_done_args(&mission_id, &task_id, &note);
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    cli::run_sync(&settings, &refs)
+}
+
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Result<Settings, String> {
     settings::load_settings(&app)
@@ -195,6 +243,36 @@ pub fn build_playbooks_args() -> Vec<String> {
     vec!["playbooks".to_string(), "--json".to_string()]
 }
 
+/// `orgh verdict <id> --pass|--fail --reason <text>` の引数組み立て。
+/// `--reason` は `--reason=<value>` 形式(等号つき単一トークン)で渡す。
+/// 空白区切りの `--reason` "-値" 形式だと、Python argparseが値の先頭が
+/// `-` の場合にオプションと誤認し `expected one argument` で落ちる
+/// (argparseの既知の挙動)。等号形式なら値の内容(先頭ハイフン・改行・
+/// 空白・日本語いずれも)に関わらず1トークンとして安全に渡せる。
+pub fn build_verdict_args(mission_id: &str, passed: bool, reason: &str) -> Vec<String> {
+    vec![
+        "verdict".to_string(),
+        mission_id.to_string(),
+        if passed {
+            "--pass".to_string()
+        } else {
+            "--fail".to_string()
+        },
+        format!("--reason={reason}"),
+    ]
+}
+
+/// `orgh humandone <mission_id> <task_id> --note <text>` の引数組み立て。
+/// `--note` も build_verdict_args と同じ理由で `--note=<value>` 形式にする。
+pub fn build_human_done_args(mission_id: &str, task_id: &str, note: &str) -> Vec<String> {
+    vec![
+        "humandone".to_string(),
+        mission_id.to_string(),
+        task_id.to_string(),
+        format!("--note={note}"),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,5 +328,82 @@ mod tests {
                 "my note".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn build_verdict_args_pass() {
+        let args = build_verdict_args("m123", true, "十分な品質だった");
+        assert_eq!(
+            args,
+            vec![
+                "verdict".to_string(),
+                "m123".to_string(),
+                "--pass".to_string(),
+                "--reason=十分な品質だった".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_verdict_args_fail() {
+        let args = build_verdict_args("m123", false, "要件を満たしていない");
+        assert_eq!(
+            args,
+            vec![
+                "verdict".to_string(),
+                "m123".to_string(),
+                "--fail".to_string(),
+                "--reason=要件を満たしていない".to_string(),
+            ]
+        );
+    }
+
+    // --reason/--noteの値は「1個の引数配列要素」として渡ることを検証する
+    // (シェルを経由しないRustのCommand::argsは配列要素をそのまま子プロセスへ
+    // 渡すため、値の中身に関わらずインジェクションは起こらない。ここで
+    // 確認したいのは、値の先頭が"-"のときにPython argparseが別オプション
+    // だと誤認しないための"--reason=<value>"形式になっていること)。
+    #[test]
+    fn build_verdict_args_reason_with_leading_hyphen_stays_one_token() {
+        let args = build_verdict_args("m123", true, "-1件の懸念あり");
+        assert_eq!(args[3], "--reason=-1件の懸念あり");
+        assert_eq!(args.len(), 4, "reasonは分割されず単一トークンのまま");
+    }
+
+    #[test]
+    fn build_verdict_args_reason_with_whitespace_and_newlines() {
+        let reason = "1行目\n2行目 スペース入り\tタブ入り";
+        let args = build_verdict_args("m123", false, reason);
+        assert_eq!(args[3], format!("--reason={reason}"));
+        assert_eq!(args.len(), 4);
+    }
+
+    #[test]
+    fn build_human_done_args_basic() {
+        let args = build_human_done_args("m123", "t1", "対応完了しました");
+        assert_eq!(
+            args,
+            vec![
+                "humandone".to_string(),
+                "m123".to_string(),
+                "t1".to_string(),
+                "--note=対応完了しました".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_human_done_args_note_with_leading_hyphen_stays_one_token() {
+        let args = build_human_done_args("m123", "t1", "-手動で回避策を実施");
+        assert_eq!(args[3], "--note=-手動で回避策を実施");
+        assert_eq!(args.len(), 4, "noteは分割されず単一トークンのまま");
+    }
+
+    #[test]
+    fn build_human_done_args_note_with_whitespace_and_newlines() {
+        let note = "対応内容:\n  - 再起動\n  - ログ確認";
+        let args = build_human_done_args("m123", "t1", note);
+        assert_eq!(args[3], format!("--note={note}"));
+        assert_eq!(args.len(), 4);
     }
 }

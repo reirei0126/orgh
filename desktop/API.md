@@ -122,9 +122,13 @@
 {
   "mission_id": "a1b2c3d4",
   "intent": "...",
-  "status": "empty" | "running" | "done" | "failed" | "awaiting_approval" | "cancelled",
+  "status": "empty" | "running" | "done" | "failed" | "awaiting_approval" | "awaiting_human" | "cancelled",
   "tasks": [
-    {"id": "t1", "title": "...", "status": "done", "attempts": 1, "worker": "claude_code", "deps": []}
+    {
+      "id": "t1", "title": "...", "status": "done", "attempts": 1, "worker": "claude_code", "deps": [],
+      "human_request": "",
+      "human_request_body": null
+    }
   ],
   "cost_usd": 0.5,
   "budget_usd": 2.0,
@@ -132,7 +136,10 @@
     "summary": "タスク「...」ほかN件が<理由>ため停止中。承認すると残りM件のタスクが実行される(消費済み X.XX USD)。",
     "gated_tasks": [{"id": "t1", "title": "...", "workdir": "...", "reason": "..."}],
     "pending_task_count": 3
-  }
+  },
+  "verdicts": [
+    {"ts": 1733500000.123, "passed": true, "reason": "要件どおり実装され、回帰も無かった"}
+  ]
 }
 ```
 実装: `orgh/status_json.py` `status_payload()`。`status` の派生規則は §1.1 の list と完全に同一(`orgh/listing.py` `_derive_status()` と相互参照コメントで固定)。
@@ -144,6 +151,23 @@
 `approval_reason()` が決定する。camelCase変換は
 `approvalBrief`/`gatedTasks`/`pendingTaskCount`(types.ts `ApprovalBrief`/
 `GatedTask`)。
+
+`tasks[].human_request` / `tasks[].human_request_body`(GUIブリッジ層契約確定
+タスクで追加。実装は `orgh/status_json.py`、`orgh humandone`/`awaiting_human`
+状態導出は先行タスクmission 3af738a2実装)。`human_request` はタスクが
+`awaiting_human` へ遷移した理由の一文で、該当なしは空文字列(常にキーは
+存在する)。`human_request_body` は依頼本文の全文
+(`artifacts/human_request_<task_id>.md`)で、`status` が `awaiting_human` の
+ときのみ値が入り、それ以外は `null`。camelCase変換は
+`humanRequest`/`humanRequestBody`(types.ts `TaskStatus`)。旧CLI互換のため
+Rust側はどちらも欠落を許容する(`Option<String>`)。
+
+トップレベルの `verdicts` (GUIブリッジ層契約確定タスクで追加。実装は
+`orgh/status_json.py` `_read_verdicts()`、`runs/<id>/verdicts.jsonl` をそのまま
+読んだ配列)。`orgh verdict` を一度も実行していないミッションは空配列。
+camelCase変換は `verdicts`(types.ts `Verdict[]`、`ts`/`passed`/`reason` は
+単語がキャメルケースと一致するためキー名自体は変換不要)。旧CLI互換のため
+Rust側は欠落を許容する(`Option<Vec<Verdict>>`)。
 
 ### 1.5 `orgh run` 標準出力への `ORGH_MISSION_ID` 行
 
@@ -259,6 +283,77 @@ Rustブリッジがどう扱うかは §3.1.1 で規定する。
 `<!-- m:... d:... -->` タグの解析ロジックを、追記側(`orgh/planner.py` retro())と
 同じPython側に置くことで、フォーマット変更時の二重実装・二重メンテを避けられる。
 
+### 1.8 `orgh verdict <mission_id> --pass|--fail --reason <text>`(GUIブリッジ層契約確定タスクで追加)
+
+JSON出力を持たない(既存の `cancel`/`humandone` と同様、成否は終了コード/
+stderrで判定する)。標準出力にはドラフト件数などの人間可読メッセージのみ
+(GUIは無視してよい)。成功時は終了コード0で `runs/<mission_id>/verdicts.jsonl`
+へ1行追記し、`orgh/criteria.py` `distill_verdict()` が判断基準台帳の下書き
+(`criteria/_drafts/*.json`)を生成する。この下書きは自動では本台帳へ反映
+されず、`orgh criteria approve` を経由するオーナー操作が必要(ワンタップ
+承認ガバナンス)。
+- `--pass`/`--fail` は排他必須。`--reason` は必須(空文字列も可)。
+- 対象ミッションが存在しない場合は非0終了・stderrにエラーメッセージ。
+
+### 1.9 `orgh criteria list --json` / `orgh criteria approve <name>` / `orgh criteria reject <name>`(GUIブリッジ層契約確定タスクで追加)
+
+`orgh criteria list --json`:
+```json
+{
+  "entries": [
+    {"category": "design", "id": "DESIGN-001", "strength": "norm", "text": "...", "source_mission": "4d048081", "date": "2026-08-10"}
+  ],
+  "drafts": [
+    {"name": "a1b2c3d4-1", "path": "/abs/path/criteria/_drafts/a1b2c3d4-1.json", "category": "process", "strength": "pref", "text": "...", "raw": {"category": "process", "prefix": "PROCESS", "strength": "pref", "text": "..."}}
+  ],
+  "skipped": [
+    {"path": "/abs/path/criteria/_drafts/broken.json", "reason": "JSONDecodeError: ..."}
+  ]
+}
+```
+- 実装: `orgh/criteria.py` `criteria_list_payload()`(`orgh/cli.py` の
+  `criteria list --json` 分岐)。`orgh list --json`/`orgh report --json` 等と
+  同じ作法で、パース不能な台帳行・壊れた下書きJSONは例外で落とさず
+  `skipped` へ退避する(黙殺すると原因不明の「0件」になるため)。
+- `entries[].strength` は `"norm" | "pref"` の2値。`source_mission`/`date` は
+  台帳行にメタコメント(`<!-- src:<mission_id> d:<date> -->`)が無い手動追記
+  行では `null`。
+- `drafts[].name` が `criteriaApprove`/`criteriaReject` へ渡すキー
+  (`orgh criteria list` で確認 → `orgh criteria approve <name>` で本台帳へ反映、
+  という設計上のワンタップ承認フロー)。`raw` は下書きJSONの生データを
+  そのまま透過する(想定外キーが増えてもGUIが情報を失わないため)。
+- 台帳・下書きが1件も無くてもエラーにせず
+  `{"entries": [], "drafts": [], "skipped": []}` を返す。
+
+`orgh criteria approve <name>` / `orgh criteria reject <name>`: JSON出力を
+持たない同期コマンド(§1.8の`verdict`と同様、成否は終了コード/stderrで判定)。
+`approve` は下書きを本台帳(`criteria/<category>.md`)へ追記して下書きファイルを
+削除、`reject` は `criteria/_drafts/rejected/` へ退避する(削除ではない —
+棄却理由の見直し・復活を可能にするため)。対象の下書きが存在しない場合は
+非0終了。
+
+### 1.10 `orgh humandone <mission_id> <task_id> --note <text>`(GUIブリッジ層契約確定タスクで追加)
+
+JSON出力を持たない(§1.8の`verdict`と同様)。`awaiting_human` タスクの
+人間による完了報告を、通常のworker成果と同じくReviewerに掛ける
+(`orgh/planner.py` `review()`)。
+- レビュー合格: タスクは `done` になり、`run_mission()` を呼んでミッション
+  残りタスクの実行を再開する。これは `orgh resume` と同様にミッション
+  完走までブロックしうる長時間処理だが、本タスク(GUIブリッジ層契約確定)は
+  §3.1/§3.1.1のような確認行方式・非同期ブリッジは要求せず、既存の
+  非ブリッジ系コマンド(`list_missions`等)と同じ「Rustの同期
+  `#[tauri::command]` で完了を待つ」経路に統一する契約とする(発行元の
+  タスク指示による明示的な設計選択)。実行時間次第でTauriのメインスレッドが
+  ブロックされうるため、フロントエンドUI実装タスクは`humanDone`呼び出し中に
+  操作不能である旨をローディング表示すること。GUI側はコマンドの `await`
+  完了をもって結果を判断し、以後は `mission_status` を呼び直して最新状態を
+  反映すること。
+- レビュー不合格: タスクは再び `awaiting_human` に戻り、新しい
+  `human_request`/`human_request_body` が設定される(再試行回数の上限なし)。
+- 対象タスクが存在しない、または `status` が `awaiting_human` でない場合は
+  非0終了・stderrにエラーメッセージ。ミッション実行ロック競合時(他プロセスが
+  実行中)も非0終了。
+
 ## 2. Tauriコマンド契約(Rust側 `#[tauri::command]`)
 
 命名規約: **Rust関数名・引数はsnake_case**で書く(例: `mission_id: String`)。
@@ -284,6 +379,11 @@ Tauriの既定動作でJS側の `invoke()` 引数名は自動的にcamelCaseへ�
 | `doctor` | なし | `DoctorReport` | `orgh doctor --json` の出力そのもの |
 | `report` | `days: number` | `ReportPayload` | `orgh report --days <days> --json` の出力そのもの(camelCase変換のみ、§1.6) |
 | `playbooks` | なし | `PlaybookPayload` | `orgh playbooks --json` の出力そのもの(camelCase変換のみ、§1.7) |
+| `owner_verdict` | `mission_id: string`, `passed: boolean`, `reason: string` | なし(`void`) | `orgh verdict <mission_id> --pass\|--fail --reason <reason>` を実行し完了を待つ(§1.8) |
+| `criteria_list` | なし | `CriteriaPayload`(entries+drafts+skipped) | `orgh criteria list --json` の出力そのもの(camelCase変換のみ、§1.9) |
+| `criteria_approve` | `name: string` | なし(`void`) | `orgh criteria approve <name>` を実行し完了を待つ(§1.9) |
+| `criteria_reject` | `name: string` | なし(`void`) | `orgh criteria reject <name>` を実行し完了を待つ(§1.9) |
+| `human_done` | `mission_id: string`, `task_id: string`, `note: string` | なし(`void`) | `orgh humandone <mission_id> <task_id> --note <note>` を実行し完了を待つ(§1.10。長時間ブロックしうる点に注意) |
 | `get_settings` | なし | `Settings` | GUI設定の読み出し(永続化方式はブリッジ実装タスクの裁量) |
 | `set_settings` | `settings: Settings` | なし(`void`) | GUI設定の書き込み |
 
@@ -329,6 +429,21 @@ Tauriの既定動作でJS側の `invoke()` 引数名は自動的にcamelCaseへ�
 - `start_mission` / `approve_mission`: §3.1 参照(長時間プロセス・非同期)。
 - `resume_mission`: §3.1.1 参照(長時間プロセス・非同期。`ORGH_RESUMED=`
   確認行の検出まで成功を返さない — §3.1のapproveと同一の仕組み)。
+- `owner_verdict` / `criteria_list` / `criteria_approve` / `criteria_reject` /
+  `human_done`(GUIブリッジ層契約確定タスクで追加): 確認行の待受
+  (`ORGH_APPROVED=`等)を必要としない同期実行。`list_missions`等と同じ
+  `Command::output()` で完了を待ちJSON/終了コードを解釈する経路
+  (`cli::run_json`/`cli::run_sync`)を使う。**既存の`spawn_and_bridge`/
+  `ORGH_APPROVED=`確認行契約には一切手を入れない**(この5コマンドは
+  そもそも確認行を出力しないCLIサブコマンドを叩くため対象外)。
+  `--reason`/`--note` の値は空白・改行・日本語・先頭ハイフンいずれを
+  含んでいても1個の引数配列要素として安全に子プロセスへ渡す必要がある
+  (Rustの`Command::args`はシェルを経由しないため値の中身自体で
+  インジェクションは起きないが、値の先頭が`-`のときPython argparseが
+  別オプションと誤認し`expected one argument`で失敗する既知の挙動が
+  あるため、Rust側は`--reason=<value>`/`--note=<value>`という等号つき
+  単一トークン形式で組み立てる。`desktop/src-tauri/src/commands.rs`
+  `build_verdict_args`/`build_human_done_args`とそのユニットテスト参照)。
 
 ## 3. Tauriイベント契約
 

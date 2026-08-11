@@ -5,6 +5,7 @@
 // 意識する必要がない。
 
 import type {
+  CriteriaPayload,
   DoctorReport,
   LedgerEvent,
   ListPayload,
@@ -12,8 +13,10 @@ import type {
   MissionStatus,
   MissionUpdatedEvent,
   Settings,
+  Verdict,
 } from "./types";
 import {
+  MOCK_CRITERIA,
   MOCK_DOCTOR,
   MOCK_EVENTS,
   MOCK_MISSIONS,
@@ -116,6 +119,63 @@ export async function cancelMission(missionId: string): Promise<void> {
   if (isTauriRuntime()) return invokeReal<void>("cancel_mission", { missionId });
   await mockDelay();
   mockEmit<MissionLogEvent>("mission-log", { missionId, line: `[cancel] mission ${missionId} をキャンセルしました` });
+  mockEmit<MissionUpdatedEvent>("mission-updated", { missionId });
+}
+
+export async function ownerVerdict(missionId: string, passed: boolean, reason: string): Promise<void> {
+  if (isTauriRuntime()) {
+    return invokeReal<void>("owner_verdict", { missionId, passed, reason });
+  }
+  await mockDelay();
+  const status = MOCK_STATUS[missionId];
+  if (!status) throw new Error(`mission '${missionId}' not found`);
+  const verdict: Verdict = { ts: Date.now() / 1000, passed, reason };
+  status.verdicts = [...(status.verdicts ?? []), verdict];
+  mockEmit<MissionUpdatedEvent>("mission-updated", { missionId });
+}
+
+export async function criteriaList(): Promise<CriteriaPayload> {
+  if (isTauriRuntime()) return invokeReal<CriteriaPayload>("criteria_list");
+  await mockDelay();
+  return MOCK_CRITERIA;
+}
+
+export async function criteriaApprove(name: string): Promise<void> {
+  if (isTauriRuntime()) return invokeReal<void>("criteria_approve", { name });
+  await mockDelay();
+  MOCK_CRITERIA.drafts = MOCK_CRITERIA.drafts.filter((d) => d.name !== name);
+}
+
+export async function criteriaReject(name: string): Promise<void> {
+  if (isTauriRuntime()) return invokeReal<void>("criteria_reject", { name });
+  await mockDelay();
+  MOCK_CRITERIA.drafts = MOCK_CRITERIA.drafts.filter((d) => d.name !== name);
+}
+
+export async function humanDone(missionId: string, taskId: string, note: string): Promise<void> {
+  if (isTauriRuntime()) {
+    return invokeReal<void>("human_done", { missionId, taskId, note });
+  }
+  await mockDelay();
+  const status = MOCK_STATUS[missionId];
+  if (!status) throw new Error(`mission '${missionId}' not found`);
+  const task = status.tasks.find((t) => t.id === taskId);
+  if (!task) throw new Error(`task '${taskId}' not found in mission '${missionId}'`);
+  if (task.status !== "awaiting_human") {
+    throw new Error(`task '${taskId}' は awaiting_human ではない(現在: ${task.status})`);
+  }
+  task.status = "done";
+  task.humanRequest = "";
+  task.humanRequestBody = null;
+  const doneCount = status.tasks.filter((t) => t.status === "done").length;
+  const allDone = doneCount === status.tasks.length;
+  if (allDone) status.status = "done";
+  const summary = MOCK_MISSIONS.find((m) => m.missionId === missionId);
+  if (summary) {
+    summary.tasksDone = doneCount;
+    if (allDone) summary.status = "done";
+  }
+  mockEmit<MissionLogEvent>("mission-log", { missionId, line: `task ${taskId} を検収した(人間の完了報告に基づくレビュー合格)` });
   mockEmit<MissionUpdatedEvent>("mission-updated", { missionId });
 }
 
