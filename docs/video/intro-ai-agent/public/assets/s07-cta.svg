@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <defs>
+    <marker id="arrowBlue4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#4F8CFF"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="720" fill="#0B0E14"/>
+
+  <!-- small agent gear icon, reprised from s01, kept in the upper region of the frame -->
+  <g>
+    <rect x="634" y="98" width="12" height="18" fill="#4F8CFF" transform="rotate(0 640 150)"/>
+    <rect x="634" y="98" width="12" height="18" fill="#4F8CFF" transform="rotate(45 640 150)"/>
+    <rect x="634" y="98" width="12" height="18" fill="#4F8CFF" transform="rotate(90 640 150)"/>
+    <rect x="634" y="98" width="12" height="18" fill="#4F8CFF" transform="rotate(135 640 150)"/>
+    <rect x="634" y="98" width="12" height="18" fill="#4F8CFF" transform="rotate(180 640 150)"/>
+    <rect x="634" y="98" width="12" height="18" fill="#4F8CFF" transform="rotate(225 640 150)"/>
+    <rect x="634" y="98" width="12" height="18" fill="#4F8CFF" transform="rotate(270 640 150)"/>
+    <rect x="634" y="98" width="12" height="18" fill="#4F8CFF" transform="rotate(315 640 150)"/>
+    <circle cx="640" cy="150" r="45" fill="#151A24" stroke="#4F8CFF" stroke-width="3"/>
+    <circle cx="640" cy="150" r="18" fill="#4F8CFF"/>
+    <circle cx="640" cy="150" r="7" fill="#0B0E14"/>
+  </g>
+
+  <!-- three-step flow -->
+  <circle cx="340" cy="340" r="40" fill="#151A24" stroke="#4F8CFF" stroke-width="3"/>
+  <circle cx="640" cy="340" r="40" fill="#151A24" stroke="#4F8CFF" stroke-width="3"/>
+  <circle cx="940" cy="340" r="40" fill="#151A24" stroke="#4F8CFF" stroke-width="3"/>
+
+  <line x1="380" y1="340" x2="600" y2="340" stroke="#4F8CFF" stroke-width="5" marker-end="url(#arrowBlue4)"/>
+  <line x1="680" y1="340" x2="900" y2="340" stroke="#4F8CFF" stroke-width="5" marker-end="url(#arrowBlue4)"/>
+
+  <text x="340" y="410" text-anchor="middle" font-family="system-ui, sans-serif" font-size="26" fill="#F5F7FA">タスクを渡す</text>
+  <text x="640" y="410" text-anchor="middle" font-family="system-ui, sans-serif" font-size="26" fill="#F5F7FA">自律実行</text>
+  <text x="940" y="410" text-anchor="middle" font-family="system-ui, sans-serif" font-size="26" fill="#F5F7FA">結果を確認</text>
+
+  <!-- CTA button panel -->
+  <rect x="430" y="520" width="420" height="90" rx="28" fill="#7CF29C"/>
+  <text x="640" y="573" text-anchor="middle" font-family="system-ui, sans-serif" font-size="32" fill="#0B0E14">次の一歩へ</text>
+</svg>
