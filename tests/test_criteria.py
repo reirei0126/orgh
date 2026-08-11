@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from orgh import cli
 from orgh.criteria import (append_entry, criteria_context, criteria_dir,
-                           distill_verdict, next_id, list_drafts, approve_draft,
-                           reject_draft)
+                           criteria_list_payload, distill_verdict, next_id,
+                           list_drafts, approve_draft, reject_draft)
 from orgh.planner import build_review_prompt
 from orgh.state import Mission, RunStore, Task
 
@@ -294,3 +295,102 @@ class TestApproveDraftValidation:
         with pytest.raises(ValueError, match="category"):
             approve_draft(cfg, "m123-1")
         assert list_drafts(cfg) == [cdir / "_drafts" / "m123-1.json"]
+
+
+class TestCriteriaListJson:
+    """`orgh criteria list --json` 用の機械可読ペイロード。"""
+
+    def test_empty_dir_returns_empty_lists(self, tmp_path):
+        cfg = {"criteria_dir": str(tmp_path / "criteria")}
+        payload = criteria_list_payload(cfg)
+        assert payload == {"entries": [], "drafts": [], "skipped": []}
+
+    def test_entry_fields_parsed_from_ledger_line(self, tmp_path):
+        cdir = tmp_path / "criteria"
+        append_entry(cdir, "ops", "ENG", "pref", "本文", src="3af738a2-2")
+        cfg = {"criteria_dir": str(cdir)}
+        payload = criteria_list_payload(cfg)
+        assert payload["entries"] == [{
+            "category": "ops", "id": "ENG-001", "strength": "pref",
+            "text": "本文", "source_mission": "3af738a2-2",
+            "date": date.today().isoformat(),
+        }]
+        assert payload["skipped"] == []
+
+    def test_entry_without_meta_tag_has_null_source_and_date(self, tmp_path):
+        cdir = tmp_path / "criteria"
+        cdir.mkdir()
+        (cdir / "ops.md").write_text("- ENG-001 [norm]: メタ無し本文\n")
+        cfg = {"criteria_dir": str(cdir)}
+        entry = criteria_list_payload(cfg)["entries"][0]
+        assert entry["text"] == "メタ無し本文"
+        assert entry["source_mission"] is None
+        assert entry["date"] is None
+
+    def test_unparseable_line_is_skipped_not_raised(self, tmp_path):
+        cdir = tmp_path / "criteria"
+        cdir.mkdir()
+        (cdir / "ops.md").write_text(
+            "- ENG-001 [pref]: 正常な行 <!-- src:m1 d:2026-08-11 -->\n"
+            "this is not a valid entry line\n")
+        cfg = {"criteria_dir": str(cdir)}
+        payload = criteria_list_payload(cfg)
+        assert len(payload["entries"]) == 1
+        assert payload["entries"][0]["id"] == "ENG-001"
+        assert len(payload["skipped"]) == 1
+        assert "not a valid entry line" in payload["skipped"][0]["reason"]
+
+    def test_draft_fields_parsed(self, tmp_path):
+        cdir = tmp_path / "criteria"
+        fp = _make_draft(cdir, "m123-1")
+        cfg = {"criteria_dir": str(cdir)}
+        payload = criteria_list_payload(cfg)
+        assert len(payload["drafts"]) == 1
+        d = payload["drafts"][0]
+        assert d["name"] == "m123-1"
+        assert d["path"] == str(fp)
+        assert d["category"] == "design"
+        assert d["strength"] == "norm"
+        assert d["text"] == "原則X"
+        assert d["raw"]["prefix"] == "DESIGN"
+
+    def test_invalid_draft_json_is_skipped_not_raised(self, tmp_path):
+        cdir = tmp_path / "criteria"
+        d = cdir / "_drafts"
+        d.mkdir(parents=True)
+        (d / "broken-1.json").write_text("{not valid json")
+        cfg = {"criteria_dir": str(cdir)}
+        payload = criteria_list_payload(cfg)
+        assert payload["drafts"] == []
+        assert len(payload["skipped"]) == 1
+        assert "broken-1.json" in payload["skipped"][0]["path"]
+
+    def test_cli_criteria_list_json_outputs_parseable_json(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        cfg["criteria_dir"] = str(tmp_path / "criteria")
+        append_entry(Path(cfg["criteria_dir"]), "ops", "ENG", "pref",
+                     "本文", src="m1")
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "criteria", "list", "--json"])
+        cli.main()
+
+        out = capsys.readouterr().out
+        payload = json.loads(out)
+        assert "entries" in payload and "drafts" in payload
+        assert payload["entries"][0]["id"] == "ENG-001"
+
+    def test_cli_criteria_list_without_json_flag_unchanged(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        """既存の引数なし出力(人間向けテキスト)は変更しない。"""
+        cfg["criteria_dir"] = str(tmp_path / "criteria")
+        append_entry(Path(cfg["criteria_dir"]), "ops", "ENG", "pref",
+                     "本文", src="m1")
+        cfg_path = write_config(tmp_path, cfg)
+        monkeypatch.setattr(sys, "argv", [
+            "orgh", "--config", str(cfg_path), "criteria", "list"])
+        cli.main()
+
+        out = capsys.readouterr().out
+        assert "--- 台帳 ---" in out
+        assert "ENG-001" in out

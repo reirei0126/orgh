@@ -17,8 +17,8 @@
   orgh criteria                   # 判断基準台帳の下書き確認・承認・却下
   orgh report --days N            # 週次合格率・ミッション別コスト・worker別失敗率
   orgh playbooks                  # playbooks/配下の教訓(Retro追記分)を表示
-  # 上記の list/doctor/events/status/report/playbooks は --json で機械可読出力
-  # (GUI連携用)
+  # 上記の list/doctor/events/status/report/playbooks/criteria list は --json で
+  # 機械可読出力(GUI連携用)
 """
 from __future__ import annotations
 
@@ -30,8 +30,8 @@ from datetime import datetime
 from pathlib import Path
 
 from . import doctor, gc, listing, planner, report, watcher
-from .criteria import (approve_draft, criteria_context, distill_verdict,
-                       list_drafts, reject_draft)
+from .criteria import (approve_draft, criteria_context, criteria_list_payload,
+                       distill_verdict, list_drafts, reject_draft)
 from .events_json import events_payload
 from .orchestrator import run_mission
 from .playbooks_json import playbooks_payload
@@ -97,6 +97,7 @@ def main() -> None:
     cp = sub.add_parser("criteria")
     cp.add_argument("action", choices=["list", "approve", "reject"])
     cp.add_argument("name", nargs="?")
+    cp.add_argument("--json", action="store_true")
 
     args = ap.parse_args()
     try:
@@ -306,6 +307,9 @@ def main() -> None:
 
     if args.cmd == "criteria":
         if args.action == "list":
+            if args.json:
+                print(json.dumps(criteria_list_payload(cfg), ensure_ascii=False))
+                return
             for fp in list_drafts(cfg):
                 print(f"[draft] {fp.stem}: {fp.read_text()}")
             print("--- 台帳 ---")

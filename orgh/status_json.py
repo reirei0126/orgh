@@ -1,9 +1,38 @@
 """orgh status --json 用のペイロード組み立て(機械可読)。"""
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from .guard import approval_reason
+
+
+def _mission_dir(cfg: dict | None, mission_id: str) -> Path:
+    """RunStoreと同じ既定(cfg.get("runs_dir", "runs"))でミッションdirを解決する。"""
+    return Path((cfg or {}).get("runs_dir", "runs")) / mission_id
+
+
+def _read_human_request_body(mission_dir: Path, task_id: str) -> str | None:
+    try:
+        return (mission_dir / "artifacts" / f"human_request_{task_id}.md").read_text()
+    except OSError:
+        return None
+
+
+def _read_verdicts(mission_dir: Path) -> list[dict]:
+    fp = mission_dir / "verdicts.jsonl"
+    if not fp.is_file():
+        return []
+    out: list[dict] = []
+    for line in fp.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out
 
 
 def _flatten(text: str) -> str:
@@ -51,6 +80,7 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
     budget = getattr(mission, "budget", None)
     cost_usd = budget.spent_usd if budget else 0.0
     budget_usd = budget.limit_usd if budget else None
+    mission_dir = _mission_dir(cfg, mission.id)
 
     payload = {
         "mission_id": mission.id,
@@ -64,11 +94,17 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
                 "attempts": t.attempts,
                 "worker": t.worker,
                 "deps": list(t.deps),
+                "human_request": _flatten(t.human_request) if t.human_request else "",
+                "human_request_body": (
+                    _read_human_request_body(mission_dir, t.id)
+                    if t.status == "awaiting_human" else None
+                ),
             }
             for t in mission.tasks
         ],
         "cost_usd": cost_usd,
         "budget_usd": budget_usd,
+        "verdicts": _read_verdicts(mission_dir),
     }
 
     if cfg is not None:

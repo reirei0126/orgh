@@ -13,6 +13,7 @@ from datetime import date
 from pathlib import Path
 
 _ENTRY_RE = re.compile(r"^- ([A-Z]+)-(\d{3}) \[(norm|pref)\]:")
+_LEDGER_ENTRY_RE = re.compile(r"^- ([A-Z]+-\d{3}) \[(norm|pref)\]: (.*)$")
 _META_RE = re.compile(r"<!-- src:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
 # prefixは_ENTRY_REが `[A-Z]+` しか認識しないため、それより緩い正規表現を許すと
 # next_id走査から漏れて同一IDが再発行される(Fix 1が閉じたはずの欠陥クラス)
@@ -171,6 +172,59 @@ def reject_draft(cfg: dict, name: str) -> Path:
 
     fp.rename(dst)
     return dst
+
+
+def criteria_list_payload(cfg: dict) -> dict:
+    """`orgh criteria list --json` 用の機械可読ペイロード。
+
+    本台帳(criteria/<category>.md)と下書き(criteria/_drafts/*.json)を
+    それぞれエントリ化する。distill LLMの出力ではなく人間が直接編集する
+    ファイルが入力元のため、orgh list --json(listing.py)と同じ作法で
+    パース不能な行・ファイルは例外で落とさずskipし、原因をskippedへ残す。
+    """
+    cdir = criteria_dir(cfg)
+    entries: list[dict] = []
+    skipped: list[dict] = []
+
+    for p in _ledger_files(cdir):
+        category = p.stem
+        for line in p.read_text().splitlines():
+            if not line.strip():
+                continue
+            m = _LEDGER_ENTRY_RE.match(line)
+            if not m:
+                skipped.append({"path": str(p),
+                                "reason": f"unparseable line: {line!r}"})
+                continue
+            entry_id, strength, rest = m.group(1), m.group(2), m.group(3)
+            meta = _META_RE.search(rest)
+            if meta:
+                text = rest[:meta.start()].rstrip()
+                source_mission, entry_date = meta.group(1), meta.group(2)
+            else:
+                text, source_mission, entry_date = rest.strip(), None, None
+            entries.append({
+                "category": category, "id": entry_id, "strength": strength,
+                "text": text, "source_mission": source_mission,
+                "date": entry_date,
+            })
+
+    drafts: list[dict] = []
+    for fp in list_drafts(cfg):
+        try:
+            raw = json.loads(fp.read_text())
+            if not isinstance(raw, dict):
+                raise ValueError("draft is not a JSON object")
+        except (OSError, ValueError) as e:
+            skipped.append({"path": str(fp), "reason": f"{type(e).__name__}: {e}"})
+            continue
+        drafts.append({
+            "name": fp.stem, "path": str(fp),
+            "category": raw.get("category"), "strength": raw.get("strength"),
+            "text": raw.get("text"), "raw": raw,
+        })
+
+    return {"entries": entries, "drafts": drafts, "skipped": skipped}
 
 
 def distill_verdict(cfg: dict, mission_id: str, intent: str,

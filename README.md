@@ -97,6 +97,12 @@ orgh criteria list
 orgh criteria approve <mission_id>-1
 ```
 
+`orgh criteria list --json` は本台帳の全エントリ(`entries`)と未承認下書き(`drafts`)を
+機械可読で返す(GUI連携用。パース不能な行/ファイルは`skipped`に回してエラーにしない)。
+`orgh status --json` の `tasks[]` には依頼一文 `human_request` と(awaiting_humanタスクのみ)
+依頼書全文 `human_request_body` が、トップレベルには `runs/<mission_id>/verdicts.jsonl` を
+古い順に配列化した `verdicts` が乗る。
+
 実行結果は `runs/<mission_id>/` に永続化(mission.json / ledger.jsonl / artifacts/)。
 
 `config.yaml` の `personas.enabled` にペルソナ名を設定すると、依存されない
