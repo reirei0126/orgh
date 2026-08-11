@@ -1,6 +1,44 @@
 # orgh ハンドオフ(2026-08-11 更新)
 
-## 2026-08-11 フォローアップ対応(このセクションが最新)
+## 2026-08-11 承認ブリーフ実装(このセクションが最新)
+
+オーナー裁定(台帳 PROD-001 [norm]): 承認・検収などのオーナー接点では、
+求める判断の内容を端的な一文で先に提示し、詳細はオーナーが求めたときに
+展開表示する(判断材料を探させるUIは不合格)。mission 1adf234eで承認ボタンを
+押す際、何を承認するのか分からなかった実例の是正。`feat/approval-brief`
+(worktree)で実装、PROD-001の初適用。
+
+- **orgh/guard.py**: `approval_reason(cfg, workdir)` を追加(発火理由を
+  人間可読の一文で返す)。`needs_approval` はそのラッパに書き換え、判定規則の
+  二重管理を排除
+- **orgh/status_json.py**: `status_payload(mission, cfg=None)` に拡張。
+  awaiting_approvalタスクが1件以上あるときのみ `approval_brief`
+  (summary/gated_tasks/pending_task_count)を追加。cfg未指定時は従来どおり
+  省略(GUI後方互換)
+- **orgh/cli.py**: `orgh approve` に `--yes` を追加。waiting判定後・APPROVED
+  作成前にブリーフをprintし、`--yes` 無し&TTY接続時のみ `y/N` 確認する
+  (非TTY・`--yes` は従来どおり即続行。`ORGH_APPROVED=` の契約と出力順は不変)
+- **desktop**: MissionDetailPageの「承認する」ボタンが確認ダイアログを
+  経由するようになった(summaryを一文表示・詳細は展開)。approval_briefが
+  無い旧CLI/旧データでは従来どおり即時承認(graceful degradation)。
+  実機Tauriビルドでも届くよう `models.rs` の `MissionStatus` にも
+  `approval_brief` を追加(brief記載外だが、無いと実機で機能しないため)
+- テスト: 267→280件(全緑)。詳細は
+  [.superpowers/sdd/approval-brief/report.md](.superpowers/sdd/approval-brief/report.md)
+
+改修候補(申し送り・a2d8d01a 21時間ゾンビ事例より):
+- **watch再起動が実行中ミッションを巻き込む(graceful drainなし)**:
+  watchデーモンを再起動すると、実行中のタスクを穏やかに待たずそのまま
+  巻き込む。実行中subprocessの生死とdaemon再起動のタイミングが噛み合わない
+  ケースの対策が未実装
+- **死んだミッションが `orgh list` で `[running]` 表示され続ける
+  (プロセス生存確認なし)**: mission.jsonの`status`はプロセスの実死活と
+  非同期のため、subprocessが既に死んでいてもrunning表示のまま残り続ける
+  (a2d8d01aで21時間ゾンビ状態のまま検出されなかった実例)
+
+---
+
+## 2026-08-11 フォローアップ対応
 
 2026-08-10スプリントの検収ゲートに対するオーナー承認済み改修候補4件を
 `feat/persona-followups`(worktree)で実装。

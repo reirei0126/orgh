@@ -79,8 +79,9 @@ orgh doctor
 
 orgh gc  # playbookの統合・退避とruns/のアーカイブ(実行前に全量バックアップ)
 
-# 自己改変ガードで停止したミッションの承認・続行
-orgh approve <mission_id>
+# 自己改変ガードで停止したミッションの承認・続行(何を承認するか一文表示→
+# TTY接続時はy/N確認。--yesで確認をスキップ。watch/GUI等の非TTYは従来どおり即続行)
+orgh approve <mission_id> [--yes]
 
 orgh report [--days N] [--vault]  # 初回合格率・差し戻し率の週次等を集計
 
