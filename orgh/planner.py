@@ -264,6 +264,31 @@ def replan_task(cfg: dict, task: Task, reason: str,
                      registry_key=registry_key)
 
 
+def build_human_request(mission_id: str, task: Task, reason: str) -> tuple[str, str]:
+    """人間依頼書を組み立てる(awaiting_human基盤)。
+
+    オーナー裁定 PROD-001 準拠: 1行目に端的な依頼一文を置き、詳細はその後に
+    見出し付きで展開する(判断材料を探させない)。戻り値は
+    (依頼一文, 依頼書本文の全文)。worker: "human" のdispatch時と、
+    実行中のHUMAN:転換の両方から呼ばれる(reasonの由来だけが異なる)。
+    """
+    reason_flat = " ".join(reason.split())
+    brief = f"「{task.title}」の完了に人間の対応が必要: {reason_flat}"
+    if len(brief) > 100:
+        brief = brief[:99] + "…"
+    acceptance = "\n".join(f"- {a}" for a in task.acceptance) or "- (未指定)"
+    body = (
+        f"{brief}\n\n"
+        f"## 何をするか\n{task.prompt}\n\n"
+        f"## なぜ人間が必要か\n{reason}\n\n"
+        f"## 完了時に提出する証拠\n{acceptance}\n\n"
+        f"## 完了報告\n"
+        f"作業が完了したら以下を実行して orgh に完了を伝えること:\n"
+        f"```\norgh humandone {mission_id} {task.id} --note \"実施内容の要約\"\n```\n"
+    )
+    return brief, body
+
+
 def worker_prompt(cfg: dict, task: Task) -> str:
     tmpl = _read_prompt(cfg, "worker_preamble.md")
     return tmpl.format(title=task.title, prompt=task.prompt,

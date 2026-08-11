@@ -22,7 +22,8 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from . import procreg
 from .adapters.base import get_adapter
 from .guard import needs_approval
-from .planner import persona_review, replan_task, review, worker_prompt
+from .planner import (build_human_request, persona_review, replan_task,
+                      review, worker_prompt)
 from .state import Budget, Mission, RunStore, Task
 from .worktree import commit_task_result, ensure_task_worktree
 
@@ -407,6 +408,21 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             prompt = worker_prompt(cfg, t)  # 再設計後の指示で最初から
             continue
 
+        if feedback.startswith("HUMAN:"):
+            # workerには解消不能な環境側の恒常的制約(オーナー裁定: 保護パスへの
+            # 書き込み・対面作業・アカウント登録等)。REPLANと同型でattemptsは
+            # 消費しない(再設計しても解消しない制約のため回数上限も設けない)
+            reason = feedback[len("HUMAN:"):].strip()
+            brief, body = build_human_request(store.dir.name, t, reason)
+            with store.lock:
+                t.status = "awaiting_human"
+                t.human_request = brief
+                t.attempts -= 1
+            store.artifact(f"human_request_{t.id}.md", body)
+            store.log("task.awaiting_human", task=t.id, brief=brief)
+            print(f"  [awaiting_human] {t.title} — {brief}")
+            return t
+
         # 改善ループ: レビューのフィードバックを次のattemptへ
         prompt = _retry_prompt(
             adapter, cfg, t,
@@ -573,6 +589,24 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                                   workdir=t.workdir)
                         print(f"  [awaiting_approval] {t.title} — "
                               f"orgh approve {store.dir.name} で続行")
+                        continue
+                    # worker: "human"(人間依頼): サブプロセスを一切起動せず、
+                    # 依頼書を生成してawaiting_humanで停止する。poolにsubmitしない
+                    # ため futures には入らず、後続の「if not futures: break」が
+                    # 依存タスクだけが残った状態でミッションを自然に終了させる
+                    # (_blocked_forever改修は不要: awaiting_humanは"dead"扱いに
+                    # せず、依存タスクは_readyの既存規則どおりpendingのまま残る)
+                    if t.worker == "human":
+                        reason = ("Plannerがこのタスクをworker: human"
+                                  "(人間依頼)として計画した。headlessなAI"
+                                  "ワーカーでは恒常的に実行不能と判断された作業")
+                        brief, body = build_human_request(store.dir.name, t, reason)
+                        with store.lock:
+                            t.status = "awaiting_human"
+                            t.human_request = brief
+                        store.artifact(f"human_request_{t.id}.md", body)
+                        store.log("task.awaiting_human", task=t.id, brief=brief)
+                        print(f"  [awaiting_human] {t.title} — {brief}")
                         continue
                     with store.lock:
                         t.status = "queued"

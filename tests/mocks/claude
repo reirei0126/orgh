@@ -10,6 +10,9 @@
   MOCK_REVIEW_ALWAYS_FAIL カンマ区切りマーカー: レビュー常時差し戻し
   MOCK_REVIEW_REPLAN      カンマ区切りマーカー: 初回レビューをREPLAN:差し戻し
   MOCK_REVIEW_REPLAN_ALWAYS 同上だが毎回REPLAN:差し戻し(上限試験用)
+  MOCK_REVIEW_HUMAN       カンマ区切りマーカー: レビューをHUMAN:差し戻し
+                          (awaiting_human転換試験用。転換後は再レビューされ
+                          ない前提のため常時差し戻しでよい)
   MOCK_REPLAN_JSON        Planner再設計応答の上書き(inline JSON)
   MOCK_RETRO_JSON         Retro応答の上書き(inline JSON)
   MOCK_GC_JSON            統合Retro(GC)応答の上書き(inline JSON)
@@ -167,8 +170,18 @@ def main() -> int:
         always_fail = marker in _env_set("MOCK_REVIEW_ALWAYS_FAIL")
         replan_once = marker in _env_set("MOCK_REVIEW_REPLAN")
         replan_always = marker in _env_set("MOCK_REVIEW_REPLAN_ALWAYS")
+        human_reject = marker in _env_set("MOCK_REVIEW_HUMAN")
         once_flag = state / f"reviewed_once_{marker}"
         replan_flag = state / f"replan_once_{marker}"
+        if human_reject:
+            verdict = {"pass": False,
+                       "feedback": f"HUMAN: 保護パスへの書き込みが必要で対面作業"
+                                   f"でしか解消できない [[MARK:{marker}]]"}
+            _log_call(state, {"role": "reviewer", "marker": marker,
+                              "resume": resume, "passed": False, "human": True})
+            print(_envelope(json.dumps(verdict, ensure_ascii=False),
+                            session_id="sess-reviewer"))
+            return 0
         if replan_always or (replan_once and not replan_flag.exists()):
             replan_flag.touch()
             verdict = {"pass": False,

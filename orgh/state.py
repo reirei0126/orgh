@@ -238,6 +238,7 @@ class Task:
     tools: str | None = None             # Plannerが明示付与するallowed_tools(worker既定を上書き)
     replans: int = 0                     # REPLAN再設計の回数(1タスク1回まで)
     personas: list[str] = field(default_factory=list)  # 検収ゲートのペルソナ名(空=通常レビューのみ)
+    human_request: str = ""              # awaiting_human時の依頼一文(詳細は依頼書artifact)
 
 
 @dataclass
