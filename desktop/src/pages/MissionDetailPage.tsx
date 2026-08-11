@@ -97,6 +97,14 @@ export function MissionDetailPage({
     setStatus(null);
     setLedgerLines([]);
     setLiveLines(getLiveLines(missionId));
+    // missionId切替時、前のミッションの検収裁定/人間報告のフォーム入力や
+    // 結果バナーが新しいミッションの画面に残留しないようリセットする
+    setVerdictPassed(null);
+    setVerdictReason("");
+    setVerdictResult(null);
+    setHumanNotes({});
+    setHumanResults({});
+    setHumanDetailsOpen({});
 
     let cancelled = false;
 

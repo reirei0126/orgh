@@ -47,10 +47,24 @@ async function main() {
   await page.waitForTimeout(200);
   await page.screenshot({ path: `${OUT_PHASE3}detail-human-request.png`, fullPage: false });
 
+  // 基準台帳: 下書き2件が承認待ちの初期状態(非同期ロード完了まで待つ)
+  await page.goto(`${BASE}/#/criteria`);
+  await page.waitForSelector(".panel-title");
+  await page.waitForFunction(() => document.querySelectorAll("li.panel").length === 2);
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${OUT_PHASE3}criteria-drafts.png`, fullPage: false });
+
+  // 基準台帳: 1件目の下書きを承認した後(下書きが1件に減る = 承認導線が実際に動くことの確認)
+  await page.locator("li.panel button.btn-primary").first().click();
+  await page.waitForFunction(() => document.querySelectorAll("li.panel").length === 1);
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${OUT_PHASE3}criteria-ledger.png`, fullPage: false });
+
   await browser.close();
   console.log(
     "saved list.png / detail.png / new.png / " +
-      "phase3/detail-verdict-form.png / phase3/detail-verdict-recorded.png / phase3/detail-human-request.png",
+      "phase3/detail-verdict-form.png / phase3/detail-verdict-recorded.png / " +
+      "phase3/detail-human-request.png / phase3/criteria-drafts.png / phase3/criteria-ledger.png",
   );
 }
 

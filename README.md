@@ -235,11 +235,18 @@ pytest tests/
 `orgh`本体は今まで通りCLIとして使える(下記「使い方」節はそのまま有効)。
 `desktop/`には、同じ`orgh`をサブプロセスとして呼び出すTauri v2製のGUIラッパー
 「orgh Desktop」がある — **CLIを置き換えるものではなく、その派生**。ミッション一覧・
-詳細(タスク表・コスト・依存関係DAG)・新規ミッション起動・ライブログ表示をGUIで行える。
+詳細(タスク表・コスト・依存関係DAG)・新規ミッション起動・ライブログ表示・
+レポート・Playbook閲覧に加え、オーナー運用向けに以下3画面/機能をGUIで行える:
+
+- **検収裁定**(ミッション詳細画面): `done`ミッションを合格/不合格で裁定し、理由を記録する(`orgh verdict`)。裁定は判断基準台帳の下書きを自動生成する。
+- **人間依頼**(ミッション詳細画面): `awaiting_human`タスクに対し、人間が対応した完了報告をGUIから送信できる(`orgh humandone`)。通常のworker成果と同じくReviewerに掛かる。
+- **基準台帳**(`#/criteria`画面): 判断基準の下書き一覧の承認/棄却と、承認済み本台帳の閲覧(`orgh criteria list/approve/reject`)。
 
 CLI(`orgh/`)⇔Rustブリッジ(`desktop/src-tauri/`)⇔React UI(`desktop/src/`)の
 連携契約は [`desktop/API.md`](desktop/API.md) と [`desktop/src/types.ts`](desktop/src/types.ts)
-がSSOT。実データでの結線・実起動検証の記録は [`desktop/docs/VERIFY.md`](desktop/docs/VERIFY.md)。
+がSSOT。実データでの結線・実起動検証の記録は [`desktop/docs/VERIFY.md`](desktop/docs/VERIFY.md)
+(第1期)・[`desktop/docs/VERIFY-PHASE2.md`](desktop/docs/VERIFY-PHASE2.md)(第2期)・
+[`desktop/docs/VERIFY-PHASE3.md`](desktop/docs/VERIFY-PHASE3.md)(第3期・検収裁定/基準台帳/人間依頼)。
 
 ![orgh Desktop — ミッション詳細画面(実データ)](desktop/docs/screenshots/app-running.png)
 
