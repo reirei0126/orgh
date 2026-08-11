@@ -54,6 +54,10 @@ export function MissionDetailPage({
   const [liveLines, setLiveLines] = useState<string[]>([]);
   const [busy, setBusy] = useState<"approve" | "cancel" | "resume" | null>(null);
   const [retryFailed, setRetryFailed] = useState(false);
+  // PROD-001承認ダイアログ: 開閉状態と「詳細を見る」の展開状態を分けて持つ
+  // (開くたびに詳細は畳んだ状態へ戻す)
+  const [confirmApproveOpen, setConfirmApproveOpen] = useState(false);
+  const [approvalDetailsOpen, setApprovalDetailsOpen] = useState(false);
   const missionIdRef = useRef(missionId);
   missionIdRef.current = missionId;
   // ポーリング応答の逆転対策: 古い世代の応答でstateを上書きしない
@@ -143,6 +147,24 @@ export function MissionDetailPage({
     }
   };
 
+  // 承認ボタン押下時のエントリポイント。approval_brief(orgh/status_json.py由来)が
+  // あれば「何を承認するのか」を確認するダイアログを開く(PROD-001)。旧CLI/旧データで
+  // approval_briefが無い場合は詳細を提示しようがないため、従来どおり即時承認する
+  // (graceful degradation)
+  const handleApproveClick = () => {
+    if (status?.approvalBrief) {
+      setApprovalDetailsOpen(false);
+      setConfirmApproveOpen(true);
+    } else {
+      void handleApprove();
+    }
+  };
+
+  const handleConfirmApprove = () => {
+    setConfirmApproveOpen(false);
+    void handleApprove();
+  };
+
   const handleCancel = async () => {
     setBusy("cancel");
     try {
@@ -205,7 +227,7 @@ export function MissionDetailPage({
               )}
               <button
                 className={`btn btn-primary${hasAwaitingApproval ? " btn-emphasis" : ""}`}
-                onClick={handleApprove}
+                onClick={handleApproveClick}
                 disabled={busy !== null || !hasAwaitingApproval}
                 title={hasAwaitingApproval ? "承認待ちのタスクがあります" : "承認待ちのタスクはありません"}
               >
@@ -318,6 +340,50 @@ export function MissionDetailPage({
             <LiveLog lines={logLines} />
           </div>
         </>
+      )}
+
+      {confirmApproveOpen && status?.approvalBrief && (
+        <div className="modal-overlay" onClick={() => setConfirmApproveOpen(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-title">承認の確認</div>
+            <p className="modal-summary">{status.approvalBrief.summary}</p>
+            <button
+              type="button"
+              className="modal-details-toggle"
+              onClick={() => setApprovalDetailsOpen((v) => !v)}
+            >
+              {approvalDetailsOpen ? "▾ 詳細を隠す" : "▸ 詳細を見る"}
+            </button>
+            {approvalDetailsOpen && (
+              <div className="modal-details">
+                {status.approvalBrief.gatedTasks.map((t) => (
+                  <div className="modal-gated-task" key={t.id}>
+                    <div className="modal-gated-task-title">{t.title}</div>
+                    <div className="modal-gated-task-meta">workdir: {t.workdir}</div>
+                    <div className="modal-gated-task-meta">理由: {t.reason}</div>
+                  </div>
+                ))}
+                <div className="modal-cost-line">消費済み: {formatCost(status.costUsd)}</div>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button
+                className="btn"
+                onClick={() => setConfirmApproveOpen(false)}
+                disabled={busy !== null}
+              >
+                キャンセル
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleConfirmApprove}
+                disabled={busy !== null}
+              >
+                {busy === "approve" ? <span className="spinner" /> : "✓"} 承認して実行
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -127,10 +127,23 @@
     {"id": "t1", "title": "...", "status": "done", "attempts": 1, "worker": "claude_code", "deps": []}
   ],
   "cost_usd": 0.5,
-  "budget_usd": 2.0
+  "budget_usd": 2.0,
+  "approval_brief": {
+    "summary": "タスク「...」ほかN件が<理由>ため停止中。承認すると残りM件のタスクが実行される(消費済み X.XX USD)。",
+    "gated_tasks": [{"id": "t1", "title": "...", "workdir": "...", "reason": "..."}],
+    "pending_task_count": 3
+  }
 }
 ```
 実装: `orgh/status_json.py` `status_payload()`。`status` の派生規則は §1.1 の list と完全に同一(`orgh/listing.py` `_derive_status()` と相互参照コメントで固定)。
+
+`approval_brief` はオーナー裁定(台帳PROD-001: 承認接点は判断内容を一文で先に
+提示し詳細は展開表示)の実装で追加。`tasks[]` に `awaiting_approval` が1件以上
+あるときのみ存在するキーで、無ければGUI側は詳細を提示しようがないため従来
+どおり即時承認する(graceful degradation)。`reason` は `orgh/guard.py`
+`approval_reason()` が決定する。camelCase変換は
+`approvalBrief`/`gatedTasks`/`pendingTaskCount`(types.ts `ApprovalBrief`/
+`GatedTask`)。
 
 ### 1.5 `orgh run` 標準出力への `ORGH_MISSION_ID` 行
 

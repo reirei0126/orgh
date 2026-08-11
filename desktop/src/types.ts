@@ -54,6 +54,30 @@ export interface MissionStatus {
   costUsd: number;
   /** 予算上限。config未設定(無制限)なら null。 */
   budgetUsd: number | null;
+  /** 承認待ちタスクが1件以上あるときのみ存在(orgh/status_json.py
+   * `approval_brief`。オーナー裁定PROD-001)。旧CLI/旧データでは欠落するため
+   * undefined/nullを許容し、その場合GUIは詳細確認ダイアログを出さず
+   * 従来どおり即時承認にフォールバックする(graceful degradation)。 */
+  approvalBrief?: ApprovalBrief | null;
+}
+
+/** 承認ブリーフ: 「何を承認するのか」をsummaryの一文で先に提示し、詳細
+ * (gatedTasks)はオーナーが「詳細を見る」を開いたときだけ見せる
+ * (台帳PROD-001: 判断材料を探させるUIは不合格)。 */
+export interface ApprovalBrief {
+  summary: string;
+  gatedTasks: GatedTask[];
+  /** 承認すると動き出すタスク数(awaiting_approval + pending の合計)。 */
+  pendingTaskCount: number;
+}
+
+/** approval_brief.gated_tasks[] の1要素。自己改変ガードに引っかかった
+ * タスク1件分(orgh/guard.py approval_reason() が理由文言を決定)。 */
+export interface GatedTask {
+  id: string;
+  title: string;
+  workdir: string;
+  reason: string;
 }
 
 /** 実行中ミッションのステータス派生規則(orgh/status_json.py 準拠)。

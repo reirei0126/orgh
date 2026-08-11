@@ -93,6 +93,9 @@ pub async fn approve_mission(app: AppHandle, mission_id: String) -> Result<(), S
         settings.config_path.clone(),
         "approve".to_string(),
         mission_id.clone(),
+        // GUIは非対話(TTY無し)なので本来--yes無しでも従来どおり即続行するが、
+        // 明示しておくことでCLI側の対話確認ロジック変更に依存しない
+        "--yes".to_string(),
     ];
     let bin = settings.orgh_bin.clone();
     tauri::async_runtime::spawn_blocking(move || {

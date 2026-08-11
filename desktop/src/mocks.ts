@@ -72,10 +72,25 @@ export const MOCK_STATUS: Record<string, MissionStatus> = {
   f9e8d7c6: {
     missionId: "f9e8d7c6",
     intent: "通知バッチのリトライ処理を冪等化し、重複送信インシデントの再発を防ぐ",
-    status: "running",
+    status: "awaiting_approval",
     tasks: MOCK_TASKS.f9e8d7c6,
     costUsd: 0.9127,
     budgetUsd: 2.5,
+    // PROD-001承認ブリーフの視覚確認用(承認ダイアログはブラウザモックモードで
+    // このミッションを開いて確認する: #/mission/f9e8d7c6)
+    approvalBrief: {
+      summary:
+        "タスク「リトライワーカーに冪等キーチェックを実装する」がorgh自身のパッケージ (/Users/mock/org-harness/orgh) を書き換えるため停止中。承認すると残り3件のタスクが実行される(消費済み 0.91 USD)。",
+      gatedTasks: [
+        {
+          id: "t3",
+          title: "リトライワーカーに冪等キーチェックを実装する",
+          workdir: "/Users/mock/org-harness",
+          reason: "orgh自身のパッケージ (/Users/mock/org-harness/orgh) を書き換える",
+        },
+      ],
+      pendingTaskCount: 3,
+    },
   },
   "5a4b3c2d": {
     missionId: "5a4b3c2d",

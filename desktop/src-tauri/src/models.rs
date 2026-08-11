@@ -57,6 +57,29 @@ pub struct TaskStatus {
     pub deps: Vec<String>,
 }
 
+/// `orgh status <id> --json` の `approval_brief.gated_tasks[]` 要素。
+/// types.ts の `GatedTask`。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GatedTask {
+    pub id: String,
+    pub title: String,
+    pub workdir: String,
+    pub reason: String,
+}
+
+/// `orgh status <id> --json` の `approval_brief`。types.ts の `ApprovalBrief`。
+/// オーナー裁定PROD-001: 承認接点は一文(summary)を先に見せ、詳細
+/// (gated_tasks)は展開時のみ見せる。awaiting_approvalタスクが1件以上ある
+/// ときのみサーバ側(orgh/status_json.py)が付与する。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ApprovalBrief {
+    pub summary: String,
+    #[serde(rename(serialize = "gatedTasks", deserialize = "gated_tasks"))]
+    pub gated_tasks: Vec<GatedTask>,
+    #[serde(rename(serialize = "pendingTaskCount", deserialize = "pending_task_count"))]
+    pub pending_task_count: u32,
+}
+
 /// `orgh status <id> --json` の戻り値そのもの。types.ts の `MissionStatus`。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MissionStatus {
@@ -69,6 +92,12 @@ pub struct MissionStatus {
     pub cost_usd: f64,
     #[serde(rename(serialize = "budgetUsd", deserialize = "budget_usd"))]
     pub budget_usd: Option<f64>,
+    /// 旧CLI互換のため欠落を許容(approval_briefキー自体が無いことがある)。
+    #[serde(
+        default,
+        rename(serialize = "approvalBrief", deserialize = "approval_brief")
+    )]
+    pub approval_brief: Option<ApprovalBrief>,
 }
 
 /// `orgh events <id> --json` の `events[]` 要素。types.ts の `LedgerEvent`。
