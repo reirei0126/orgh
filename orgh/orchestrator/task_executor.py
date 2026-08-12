@@ -11,12 +11,12 @@ import traceback
 from pathlib import Path
 
 from ..adapters.base import get_adapter
-from ..planner import build_human_request, replan_task, worker_prompt
+from ..planner import replan_task, worker_prompt
 from ..state import Budget, RunStore, Task
 from ..worktree import commit_task_result, ensure_task_worktree
 from .cancellation import CancelledDuringRole, cancel_flag, cancellable_sleep
 from .review_pipeline import run_review_pipeline
-from .transitions import transition
+from .transitions import enter_awaiting_human, transition
 
 # インフラ(ネットワーク・接続)起因のエラー署名。workerの失敗ではないため
 # attemptを消費せずにリトライする(実運用7307189e t5: ネットワーク断で
@@ -136,7 +136,7 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         store.log("task.start", task=t.id, worker=t.worker, attempt=t.attempts)
         res = adapter.run(prompt, workdir=t.workdir,
                           resume=t.session_id,
-                          timeout=cfg.get("loop", {}).get("task_timeout", 3600),
+                          timeout=lcfg.get("task_timeout", 3600),
                           registry_key=store.dir.name,
                           allowed_tools=t.tools)
         with store.lock:
@@ -240,14 +240,7 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             # 書き込み・対面作業・アカウント登録等)。REPLANと同型でattemptsは
             # 消費しない(再設計しても解消しない制約のため回数上限も設けない)
             reason = feedback[len("HUMAN:"):].strip()
-            brief, body = build_human_request(store.dir.name, t, reason)
-            with store.lock:
-                t.status = "awaiting_human"
-                t.human_request = brief
-                t.attempts -= 1
-            store.artifact(f"human_request_{t.id}.md", body)
-            store.log("task.awaiting_human", task=t.id, brief=brief)
-            print(f"  [awaiting_human] {t.title} — {brief}")
+            enter_awaiting_human(store, t, reason, refund_attempt=True)
             return t
 
         # 改善ループ: レビューのフィードバックを次のattemptへ

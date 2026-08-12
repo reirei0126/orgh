@@ -9,15 +9,11 @@ from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from ..guard import needs_approval
-from ..planner import build_human_request
-from ..state import Mission, RunStore, Task
+from ..state import TERMINAL, Mission, RunStore, Task
 from .budget_policy import initiate_budget_stop, setup_budget
 from .cancellation import cancel_flag, initiate_cancel
 from .task_executor import run_task
-from .transitions import transition
-
-# 終端ステータス(これ以外は実行中系としてresume時にpendingへ巻き戻される)
-TERMINAL = ("done", "failed", "cancelled", "skipped")
+from .transitions import enter_awaiting_human, transition
 
 # キャンセル検知のポーリング間隔(秒)。タスク完了イベントもこの粒度で拾う
 POLL_INTERVAL = 0.5
@@ -158,13 +154,7 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                         reason = ("Plannerがこのタスクをworker: human"
                                   "(人間依頼)として計画した。headlessなAI"
                                   "ワーカーでは恒常的に実行不能と判断された作業")
-                        brief, body = build_human_request(store.dir.name, t, reason)
-                        with store.lock:
-                            t.status = "awaiting_human"
-                            t.human_request = brief
-                        store.artifact(f"human_request_{t.id}.md", body)
-                        store.log("task.awaiting_human", task=t.id, brief=brief)
-                        print(f"  [awaiting_human] {t.title} — {brief}")
+                        enter_awaiting_human(store, t, reason)
                         continue
                     transition(store, t, "queued")
                     futures[t.id] = pool.submit(run_task, cfg, store, t,

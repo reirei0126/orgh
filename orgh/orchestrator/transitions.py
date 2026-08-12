@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+from ..planner import build_human_request
 from ..state import RunStore, Task
 
 
@@ -21,3 +22,21 @@ def transition(store: RunStore, t: Task, status: str, *,
             t.review_notes = notes
     if event:
         store.log(event, task=t.id, **payload)
+
+
+def enter_awaiting_human(store: RunStore, t: Task, reason: str, *,
+                         refund_attempt: bool = False) -> None:
+    """awaiting_human への遷移一式(依頼書生成・状態/human_request更新・
+    artifact・ledger記録・表示)。planner指定(worker: human)と検収
+    エスカレーション(HUMAN:)の両経路が使い、依頼書artifact名やledger
+    payloadの形を片側だけ変えてしまう乖離を防ぐ。
+    refund_attempt: HUMAN:転換はattemptを消費しない(REPLANと同型)。"""
+    brief, body = build_human_request(store.dir.name, t, reason)
+    with store.lock:
+        t.status = "awaiting_human"
+        t.human_request = brief
+        if refund_attempt:
+            t.attempts -= 1
+    store.artifact(f"human_request_{t.id}.md", body)
+    store.log("task.awaiting_human", task=t.id, brief=brief)
+    print(f"  [awaiting_human] {t.title} — {brief}")
