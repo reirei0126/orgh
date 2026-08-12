@@ -49,6 +49,10 @@ class LoopCfg:
     # ロールコストはミッション予算にのみ計上されていた)
     infra_max_retries: int = 3            # ネットワーク等インフラエラーのattempt非消費リトライ上限
     infra_retry_wait: float = 60          # 同リトライ前の待機秒
+    global_parallel: int | None = None    # 全orghプロセス横断のworker同時数上限(null=無効)。
+    # runs/_slots/ のflockセマフォで強制(R-2)。loop.parallelは1ミッション内の枠、
+    # こちらはプロセスをまたいだ総枠
+    global_role_parallel: int | None = None  # 同、ロール(planner/reviewer/persona等)の別枠(null=無効)
 
 
 @dataclass

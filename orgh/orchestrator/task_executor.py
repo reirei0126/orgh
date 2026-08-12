@@ -13,6 +13,7 @@ from pathlib import Path
 from ..adapters.base import get_adapter
 from ..planner import replan_task, worker_prompt
 from ..state import Budget, RunStore, Task
+from ..slots import SlotAborted, acquire_slot
 from ..worktree import commit_task_result, ensure_task_worktree
 from .cancellation import CancelledDuringRole, cancel_flag, cancellable_sleep
 from .review_pipeline import run_review_pipeline
@@ -130,15 +131,27 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         if flag.exists():
             transition(store, t, "cancelled")
             return t
-        with store.lock:
-            t.attempts += 1
-            t.status = "running"
-        store.log("task.start", task=t.id, worker=t.worker, attempt=t.attempts)
-        res = adapter.run(prompt, workdir=t.workdir,
-                          resume=t.session_id,
-                          timeout=lcfg.get("task_timeout", 3600),
-                          registry_key=store.dir.name,
-                          allowed_tools=t.tools)
+        # グローバル枠(R-2): 全orghプロセス横断のworker同時数上限。枠待ちの間は
+        # attemptを消費せずstatusもqueuedのまま。スロットはworker実行中のみ保持し、
+        # 後続のreviewer/persona(roles別枠)には持ち越さない
+        try:
+            with acquire_slot(cfg.get("runs_dir", "runs"),
+                              lcfg.get("global_parallel"),
+                              pool="workers", should_abort=flag.exists):
+                with store.lock:
+                    t.attempts += 1
+                    t.status = "running"
+                store.log("task.start", task=t.id, worker=t.worker,
+                          attempt=t.attempts)
+                res = adapter.run(prompt, workdir=t.workdir,
+                                  resume=t.session_id,
+                                  timeout=lcfg.get("task_timeout", 3600),
+                                  registry_key=store.dir.name,
+                                  allowed_tools=t.tools)
+        except SlotAborted:
+            # 枠待ち中のキャンセル。attemptは未消費のままcancelledで確定
+            transition(store, t, "cancelled")
+            return t
         with store.lock:
             t.last_output = res.output
             t.session_id = res.session_id or t.session_id

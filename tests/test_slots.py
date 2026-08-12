@@ -97,3 +97,97 @@ class TestAcquireSlot:
             if child.poll() is None:
                 child.kill()
                 child.wait()
+
+
+class TestGlobalParallelWiring:
+    """R-2配線: worker(attempt_loop)とrole(_ask_json)のsubprocess起動が
+    グローバル枠を尊重する。テスト側が枠を占有して起動しないことを確認し、
+    解放後に完走することで検証する(タイミング依存の計測はしない)。"""
+
+    @staticmethod
+    def _mission(ids):
+        from orgh.state import Mission
+        return Mission.new(
+            intent="slots試験", context_digest="(test)",
+            tasks=[{"id": i, "title": f"task {i}",
+                    "prompt": f"作業せよ [[MARK:{i}]]",
+                    "worker": "claude_code", "deps": [],
+                    "acceptance": ["mock acceptance"], "workdir": "."}
+                   for i in ids])
+
+    def test_worker_waits_for_global_slot(self, cfg, mock_state_dir):
+        from orgh.orchestrator import run_mission
+        from orgh.state import RunStore
+
+        from .conftest import read_calls
+        cfg["loop"]["global_parallel"] = 1
+        m = self._mission(["t1"])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+        done = threading.Event()
+
+        def run():
+            run_mission(cfg, m, store)
+            done.set()
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                acquire_slot(cfg["runs_dir"], 1, poll=0.05))
+            th = threading.Thread(target=run, daemon=True)
+            th.start()
+            time.sleep(0.8)
+            assert not read_calls(mock_state_dir), \
+                "グローバル枠占有中にsubprocessが起動した"
+            assert not done.is_set()
+        assert done.wait(timeout=30), "枠解放後にミッションが完走しない"
+        assert all(t.status == "done" for t in m.tasks)
+
+    def test_cancel_interrupts_slot_wait(self, cfg, mock_state_dir):
+        from orgh.orchestrator import run_mission
+        from orgh.state import RunStore
+
+        from .conftest import read_calls
+        cfg["loop"]["global_parallel"] = 1
+        m = self._mission(["t1"])
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.save(m)
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                acquire_slot(cfg["runs_dir"], 1, poll=0.05))
+            th = threading.Thread(
+                target=lambda: run_mission(cfg, m, store), daemon=True)
+            th.start()
+            time.sleep(0.5)
+            (store.dir / "CANCEL").touch()
+            th.join(timeout=15)
+            assert not th.is_alive(), "CANCELでスロット待機が中断しない"
+        assert m.tasks[0].status == "cancelled"
+        assert not [c for c in read_calls(mock_state_dir)
+                    if c.get("role") == "worker"], \
+            "キャンセル後にworkerが起動した"
+
+    def test_role_call_respects_role_pool(self, cfg, mock_state_dir):
+        from orgh.planner import review
+        from orgh.state import Task
+
+        from .conftest import read_calls
+        cfg["loop"]["global_role_parallel"] = 1
+        t = Task(id="t1", title="x", prompt="p [[MARK:t1]]",
+                 worker="claude_code", deps=[])
+        done = threading.Event()
+
+        def call_review():
+            review(cfg, t, workdir=".")
+            done.set()
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                acquire_slot(cfg["runs_dir"], 1, pool="roles", poll=0.05))
+            th = threading.Thread(target=call_review, daemon=True)
+            th.start()
+            time.sleep(0.5)
+            assert not read_calls(mock_state_dir), \
+                "roles枠占有中にロールsubprocessが起動した"
+            assert not done.is_set()
+        assert done.wait(timeout=15), "roles枠解放後にレビューが完了しない"

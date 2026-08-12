@@ -70,6 +70,10 @@ loop:
   task_timeout: 3600
   budget_usd: null             # ルートミッション全体のコスト上限USD(null=無制限)
   task_budget_usd: null        # 1タスクあたりの上限USD(null=無制限)
+  global_parallel: null        # 全orghプロセス横断のworker同時数上限(null=無効)。
+                               # parallelは1ミッション内の枠、こちらはwatch/CLI/GUIを
+                               # またいだ総枠(runs/_slots/のflockセマフォで強制)
+  global_role_parallel: null   # 同、ロール(planner/reviewer等)の別枠(null=無効)
 
 worktree:                      # タスクごとのgit worktree分離(並列タスクの同一リポ衝突を回避)
   enabled: false               # デフォルト無効(後方互換)

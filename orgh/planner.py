@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .adapters.base import get_adapter
 from .criteria import criteria_context
+from .slots import acquire_slot
 from .state import TERMINAL, Budget, Mission, Task
 
 _META_RE = re.compile(r"<!-- m:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
@@ -133,7 +134,15 @@ def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
         # registry_key(mission_id)を渡すとprocregへ登録され、orgh cancelの
         # terminate対象になる。ミッション実行中に走るrole(reviewer/replan)は
         # 登録しないとキャンセルが効かず、キャンセル後に成果が確定してしまう
-        res = adapter.run(ask, workdir=workdir, registry_key=registry_key)
+        # ロールのグローバル枠(R-2、workersとは別pool)。枠待ち中のキャンセルは
+        # SlotAbortedで抜け、呼び出し元のロールリトライがCANCELフラグを見て
+        # CancelledDuringRoleへ変換する
+        with acquire_slot(cfg.get("runs_dir", "runs"),
+                          (cfg.get("loop") or {}).get("global_role_parallel"),
+                          pool="roles",
+                          should_abort=(cancel_flag.exists
+                                        if cancel_flag is not None else None)):
+            res = adapter.run(ask, workdir=workdir, registry_key=registry_key)
         # budget.chargeとcost_sinkへの計上は「if not res.ok: raise」より前に置く
         # (フォローアップ4a): 失敗したロール呼び出しでもLLM側は課金済みのため、
         # raiseを先にするとそのコストがどこにも計上されず消える。
