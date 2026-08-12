@@ -15,6 +15,8 @@
   実行に影響しない)
 - テスト 362→384件(slots 9 / queue 8 / executor 5 を新設。watch完走前提の
   既存ST 8件はwatch+drain方式に更新)
+- **有効化済み**: ミッション0件の窓でwatch再起動(PID 44406 → **59563**、8/12 18:12頃)。
+  `runs/watch.log` に watch+executor 両方の起動ログを確認。R-1/R-2込みの現行コードで稼働中
 - 実装後の /code-review high(multi-agent)で確定10件を全対応:
   Ctrl-C時のプールjoinハング(daemonスレッド化)、queueのglob/stat競合・
   壊れエントリ隔離のflock順序・inode同一性claim、enqueue失敗によるノート損失
