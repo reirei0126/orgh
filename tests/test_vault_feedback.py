@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from orgh import watcher
+from orgh import executor, watcher
 
 from .conftest import age, mission_dirs
 
@@ -77,7 +77,8 @@ class TestConflictSafeWriteback:
                                                     one_pass, mock_state_dir):
         original = "やること #go\n"
         note = _post(vault, original)
-        watcher.watch(wcfg)  # ミッションはこのパス内で完走する
+        watcher.watch(wcfg)          # 検知・計画・投入(R-1分離)
+        executor.drain(wcfg)         # キュー消化でミッション完走
 
         [mdir] = mission_dirs(wcfg["runs_dir"])
         body = note.read_text()
@@ -95,6 +96,7 @@ class TestResultsNote:
         monkeypatch.setenv("MOCK_REVIEW_ALWAYS_FAIL", "w2")
         _post(vault, "やること #go\n")
         watcher.watch(wcfg)
+        executor.drain(wcfg)
 
         [mdir] = mission_dirs(wcfg["runs_dir"])
         body = _results_note(vault, mdir.name).read_text()
@@ -108,6 +110,7 @@ class TestResultsNote:
                                                    one_pass, mock_state_dir):
         _post(vault, "やること #go\n")
         watcher.watch(wcfg)
+        executor.drain(wcfg)
 
         [mdir] = mission_dirs(wcfg["runs_dir"])
         body = _results_note(vault, mdir.name).read_text()
@@ -122,6 +125,7 @@ class TestResultsNote:
                                                          mock_state_dir):
         _post(vault, "やること #go\n")
         watcher.watch(wcfg)
+        executor.drain(wcfg)
 
         [mdir] = mission_dirs(wcfg["runs_dir"])
         copied = vault / "orgh" / "artifacts" / mdir.name / "w1_attempt1.md"
@@ -150,6 +154,7 @@ class TestResultsNote:
             _plan_task("w1", workdir=str(repo), write="shared.txt")))
         _post(vault, "リポを編集 #go\n")
         watcher.watch(wcfg)
+        executor.drain(wcfg)
 
         [mdir] = mission_dirs(wcfg["runs_dir"])
         body = _results_note(vault, mdir.name).read_text()

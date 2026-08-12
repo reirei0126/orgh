@@ -19,7 +19,7 @@ import traceback
 from pathlib import Path
 
 from . import gc, planner
-from .orchestrator import run_mission
+from .queue import enqueue, pending
 from .sources.base import get_source
 from .state import RunStore
 
@@ -61,6 +61,12 @@ def watch(cfg: dict) -> None:
             for note in src.list_candidates():
                 if src.is_processed(note) or not src.should_trigger(note):
                     continue
+                if len(pending(runs_dir)) >= wcfg.get("queue_limit", 20):
+                    # キュー満杯: mark_processed前に見送る(次パスで再試行)。
+                    # Planner呼び出しのコストを無駄にしないため先に投入余地を確認。
+                    # 同一パスの残候補も満杯のため打ち切る
+                    print(f"[warn] mission queue full — 着火を見送る(次パスで再試行)")
+                    break
                 print(f"\n== new mission note: {note.title} ==")
                 src.mark_processed(note)  # 先にmark: 失敗ループでの連続着火防止
                 try:
@@ -74,21 +80,23 @@ def watch(cfg: dict) -> None:
 
                 store = RunStore(runs_dir, mission.id)
                 store.log("watch.triggered", note=str(note.path))
+                # executor(別プロセス/別スレッド)が読めるように永続化してから投入
+                # (従来はrun_mission内の初回saveに依存していた)
+                store.save(mission)
                 fb = src.feedback(mission.id)
                 fb.update(mission)  # 着火直後に進行状態を生成
                 src.writeback(note, mission)
-                try:
-                    # poll_cancel: フィードバック側のキャンセル指示(#cancelタグ等)を検知
-                    mission = run_mission(cfg, mission, store,
-                                          on_update=fb.update,
-                                          poll_cancel=fb.cancel_requested)
-                    # 承認待ちで停止したミッションを未完了のままretroしない
-                    # (決着時のみ・RETRO_DONEで二重防止。cliと共通ゲート)
-                    planner.retro_if_finished(cfg, mission, store)
-                except Exception:
-                    print(f"mission failed for {note.title}:\n{traceback.format_exc()}")
-                fb.finalize(mission, store)
-                print(f"mission {mission.id} finished")
+                # 実行はexecutor(orgh/executor.py)がキュー消化で行う(R-1分離)
+                if enqueue(runs_dir, mission.id, note_path=str(note.path),
+                           limit=wcfg.get("queue_limit", 20)):
+                    store.log("watch.enqueued")
+                    print(f"mission {mission.id} queued")
+                else:
+                    # 事前チェック後の競合等で満杯: ミッションは保存済みのため
+                    # orgh resume で手動実行できる
+                    store.log("watch.queue_full")
+                    print(f"[warn] queue full: mission {mission.id} は投入見送り"
+                          f"(orgh resume {mission.id} で実行可)")
             _maybe_gc(cfg, runs_dir, wcfg.get("gc_interval_days", 14))
             time.sleep(interval)
         except KeyboardInterrupt:

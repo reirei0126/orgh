@@ -61,6 +61,8 @@ class WatchCfg:
     stabilize_seconds: float = 20
     writeback: bool = True
     gc_interval_days: float | None = 14   # この日数ごとに自動でorgh gc相当を実行(null=無効)
+    queue_limit: int = 20                 # runs/_queue/ の有界上限(満杯時は着火見送り・次パス再試行)
+    parallel_missions: int = 2            # executorの同時ミッション消化数(R-1)
 
 
 @dataclass

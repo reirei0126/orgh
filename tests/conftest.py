@@ -105,7 +105,9 @@ def mission_dirs(runs_dir: str | Path) -> list[Path]:
     root = Path(runs_dir)
     if not root.exists():
         return []
-    return [p for p in root.iterdir() if p.is_dir()]
+    # _queue / _slots 等のアンダースコア始まりは内部ディレクトリ(ミッションではない)
+    return [p for p in root.iterdir()
+            if p.is_dir() and not p.name.startswith("_")]
 
 
 def age(p: Path, seconds: int = 60) -> None:

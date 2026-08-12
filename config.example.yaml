@@ -85,6 +85,10 @@ watch:                         # orgh watch (イベント駆動デーモン)
   stabilize_seconds: 20        # 書きかけノートを拾わない猶予
   writeback: true              # 着火直後にノート末尾へ結果ノートへのリンクを1行追記
   gc_interval_days: 14         # この日数ごとにwatcherが自動でorgh gc相当を実行(null=無効)
+  queue_limit: 20              # runs/_queue/ の有界上限(満杯時は着火見送り・次パス再試行)
+  parallel_missions: 2         # executorの同時ミッション消化数(R-1)。
+                               # orgh watch は既定でexecutorを同プロセス併走する。
+                               # 完全分離は orgh watch --watch-only + orgh executor
 
 gc:                            # orgh gc(playbookの代謝とruns保持)
   retention_days: 90           # これより古いミッションは runs/_archive/ へ退避

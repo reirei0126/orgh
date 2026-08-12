@@ -47,7 +47,10 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("scan")
-    sub.add_parser("watch")
+    wp = sub.add_parser("watch")
+    wp.add_argument("--watch-only", action="store_true",
+                    help="検知・投入のみ(実行は別プロセスの orgh executor)")
+    sub.add_parser("executor")
     dp = sub.add_parser("doctor")
     dp.add_argument("--json", action="store_true")
     sub.add_parser("gc")
@@ -118,7 +121,22 @@ def main() -> None:
         raise
 
     if args.cmd == "watch":
-        watcher.watch(cfg)
+        if args.watch_only:
+            watcher.watch(cfg)
+        else:
+            # 既定は同プロセスにexecutorを併走(単一デーモン運用の互換)。
+            # 完全な独立ライフサイクルは --watch-only + 別プロセスの orgh executor
+            import threading
+
+            from . import executor as _executor
+            threading.Thread(target=_executor.serve, args=(cfg,),
+                             daemon=True, name="orgh-executor").start()
+            watcher.watch(cfg)
+        return
+
+    if args.cmd == "executor":
+        from . import executor as _executor
+        _executor.serve(cfg)
         return
 
     if args.cmd == "doctor":

@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from orgh import cli, watcher
+from orgh import cli, executor, watcher
 from orgh.orchestrator import run_mission
 from orgh.state import Mission, RunStore
 
@@ -88,7 +88,8 @@ class TestSelfModificationGuard:
         note = vault / "inbox" / "orgh改造.md"
         note.write_text("orghを改造しろ #go\n")
         age(note)
-        watcher.watch(wcfg)
+        watcher.watch(wcfg)          # 検知・計画・投入(R-1分離)
+        executor.drain(wcfg)         # キュー消化=ミッション実行
 
         [mdir] = mission_dirs(wcfg["runs_dir"])
         data = json.loads((mdir / "mission.json").read_text())

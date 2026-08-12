@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from orgh import cli, procreg, watcher
+from orgh import cli, executor, procreg, watcher
 from orgh.orchestrator import run_mission
 from orgh.state import Mission, RunStore
 
@@ -161,7 +161,8 @@ class TestCancelFromVault:
         saboteur = threading.Thread(target=add_cancel_tag, daemon=True)
         saboteur.start()
         start = time.time()
-        watcher.watch(wcfg)
+        watcher.watch(wcfg)          # 検知・計画・投入(R-1分離)
+        executor.drain(wcfg)         # キュー消化=ミッション実行
         assert time.time() - start < 25  # SLEEP:30を待たずに戻った
 
         [mdir] = mission_dirs(wcfg["runs_dir"])
