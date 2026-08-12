@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..planner import persona_review, review
 from ..state import Budget, RunStore, Task
 from .cancellation import CancelledDuringRole, cancel_flag, cancellable_sleep
+from .transitions import transition
 
 
 def is_non_retryable_role_error(e: Exception) -> bool:
@@ -85,11 +86,10 @@ def run_review_pipeline(cfg: dict, store: RunStore, t: Task, budget: Budget,
         # レビューが繰り返し失敗してもworkerの成果(last_output/worktree)は
         # 捨てない。原因の分かる形でfailedにし、resumeでの再挑戦に委ねる
         # (実運用7307189e t6: reviewerのmax_turns死でタスクごとinternal error化した)
-        with store.lock:
-            t.status = "failed"
-            t.review_notes = (f"レビュー呼び出しが失敗(リトライ上限超過)。"
-                              f"worker成果は保持済み: {e!s:.300}")
-        store.log("task.review_exhausted", task=t.id, error=repr(e)[:500])
+        transition(store, t, "failed",
+                   notes=(f"レビュー呼び出しが失敗(リトライ上限超過)。"
+                          f"worker成果は保持済み: {e!s:.300}"),
+                   event="task.review_exhausted", error=repr(e)[:500])
         return None
     finally:
         with store.lock:
@@ -112,13 +112,12 @@ def run_review_pipeline(cfg: dict, store: RunStore, t: Task, budget: Budget,
                 raise
             except Exception as e:
                 # 証拠なし合格の連発等。reviewer枯渇と同様に成果は保持してfailed
-                with store.lock:
-                    t.status = "failed"
-                    t.review_notes = (f"ペルソナ検収({persona})の呼び出しが失敗"
-                                      f"(リトライ上限超過)。worker成果は保持済み: "
-                                      f"{e!s:.300}")
-                store.log("task.persona_exhausted", task=t.id,
-                          persona=persona, error=repr(e)[:500])
+                transition(store, t, "failed",
+                           notes=(f"ペルソナ検収({persona})の呼び出しが失敗"
+                                  f"(リトライ上限超過)。worker成果は保持済み: "
+                                  f"{e!s:.300}"),
+                           event="task.persona_exhausted",
+                           persona=persona, error=repr(e)[:500])
                 return None
             finally:
                 with store.lock:

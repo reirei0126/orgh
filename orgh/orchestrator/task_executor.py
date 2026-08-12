@@ -16,6 +16,7 @@ from ..state import Budget, RunStore, Task
 from ..worktree import commit_task_result, ensure_task_worktree
 from .cancellation import CancelledDuringRole, cancel_flag, cancellable_sleep
 from .review_pipeline import run_review_pipeline
+from .transitions import transition
 
 # インフラ(ネットワーク・接続)起因のエラー署名。workerの失敗ではないため
 # attemptを消費せずにリトライする(実運用7307189e t5: ネットワーク断で
@@ -45,15 +46,12 @@ def run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         # キャンセルのterminateが引き起こした例外(replan中のplanner死など)は
         # failedではなくcancelled: failedにすると通常resumeで復元されない
         if cancel_flag(store).exists() or isinstance(e, CancelledDuringRole):
-            with store.lock:
-                t.status = "cancelled"
-            store.log("task.cancelled_during_role", task=t.id, error=repr(e)[:300])
+            transition(store, t, "cancelled",
+                       event="task.cancelled_during_role", error=repr(e)[:300])
             return t
-        with store.lock:
-            t.status = "failed"
-            t.review_notes = f"internal error: {e!r}"
-        store.log("task.error", task=t.id, error=repr(e),
-                  trace=traceback.format_exc()[-2000:])
+        transition(store, t, "failed", notes=f"internal error: {e!r}",
+                   event="task.error", error=repr(e),
+                   trace=traceback.format_exc()[-2000:])
         return t
 
 
@@ -130,8 +128,7 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     prompt = full_worker_prompt(cfg, t)
     while t.attempts < max_attempts:
         if flag.exists():
-            with store.lock:
-                t.status = "cancelled"
+            transition(store, t, "cancelled")
             return t
         with store.lock:
             t.attempts += 1
@@ -157,32 +154,27 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         # 前attemptのロールコストも見た上で判定する
         if (budget.task_budget_usd is not None
                 and t.cost_usd >= budget.task_budget_usd):
-            with store.lock:
-                t.status = "failed"
-                t.review_notes = (f"task予算超過: {t.cost_usd:.4f} USD >= "
-                                  f"{budget.task_budget_usd} USD")
-            store.log("task.budget_exceeded", task=t.id, cost=t.cost_usd,
-                      limit=budget.task_budget_usd)
+            transition(store, t, "failed",
+                       notes=(f"task予算超過: {t.cost_usd:.4f} USD >= "
+                              f"{budget.task_budget_usd} USD"),
+                       event="task.budget_exceeded", cost=t.cost_usd,
+                       limit=budget.task_budget_usd)
             return t
 
         if not res.ok:
             if flag.exists():
                 # terminateによる異常終了は失敗ではなくキャンセル扱い
-                with store.lock:
-                    t.status = "cancelled"
+                transition(store, t, "cancelled")
                 return t
             if is_infra_error(res.output):
                 # ネットワーク断等はworkerの失敗ではない: attemptを返却して待機後に再試行。
                 # ただしセッションコストは実際に発生しうるため無限には粘らない(上限つき)
                 if infra_retries >= infra_max:
-                    with store.lock:
-                        t.status = "failed"
-                        t.review_notes = (
-                            f"インフラエラーが継続(リトライ上限{infra_max}回を消化)。"
-                            f"ネットワーク・スリープ状態を確認して resume --retry-failed せよ: "
-                            f"{res.output[:200]}")
-                    store.log("task.infra_exhausted", task=t.id,
-                              detail=res.output[:200])
+                    transition(store, t, "failed", notes=(
+                        f"インフラエラーが継続(リトライ上限{infra_max}回を消化)。"
+                        f"ネットワーク・スリープ状態を確認して resume --retry-failed せよ: "
+                        f"{res.output[:200]}"),
+                        event="task.infra_exhausted", detail=res.output[:200])
                     return t
                 infra_retries += 1
                 store.log("task.infra_retry", task=t.id, retry=infra_retries,
@@ -190,8 +182,7 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                 with store.lock:
                     t.attempts -= 1  # このattemptは消費しない
                 if cancellable_sleep(store, infra_wait):
-                    with store.lock:
-                        t.status = "cancelled"
+                    transition(store, t, "cancelled")
                     return t
                 continue  # プロンプトは変えずそのまま再試行
             prompt = retry_prompt(
@@ -199,8 +190,7 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                 f"前回の実行がエラーで終了した。原因を特定して完了させろ。\n---\n{res.output[:4000]}")
             continue
 
-        with store.lock:
-            t.status = "review"
+        transition(store, t, "review")
         verdict = run_review_pipeline(cfg, store, t, budget, infra_wait)
         if verdict is None:
             return t   # レビュー/ペルソナ枯渇でfailed確定済み(成果は保持)
@@ -209,9 +199,8 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             # レビュー中にキャンセルされていたら成果を確定させない
             # (terminateを逃れて完走したレビューがここへ到達しうる)
             if flag.exists():
-                with store.lock:
-                    t.status = "cancelled"
-                store.log("task.cancelled_after_review", task=t.id)
+                transition(store, t, "cancelled",
+                           event="task.cancelled_after_review")
                 return t
             # 合格成果をタスクブランチへコミット(依存タスク・検収への受け渡し)。
             # done確定はコミット後の最終CANCEL確認を通ってから行う: 確認→done→
@@ -222,21 +211,18 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             if flag.exists():
                 # コミット自体はブランチに残るが、タスクはキャンセル扱いにする
                 # (resumeで再実行され、ブランチは次の合格コミットで進む)
-                with store.lock:
-                    t.status = "cancelled"
-                store.log("task.cancelled_after_review", task=t.id)
+                transition(store, t, "cancelled",
+                           event="task.cancelled_after_review")
                 return t
-            with store.lock:
-                t.status = "done"
+            transition(store, t, "done")
             return t
 
         if feedback.startswith("REPLAN:"):
             # 計画自体の欠陥: Workerを回しても直らないのでPlannerへエスカレーション
             if t.replans >= 1:
-                with store.lock:
-                    t.status = "failed"
-                    t.review_notes = f"REPLAN上限超過(再設計は1回まで): {feedback[:500]}"
-                store.log("task.replan_exceeded", task=t.id)
+                transition(store, t, "failed",
+                           notes=f"REPLAN上限超過(再設計は1回まで): {feedback[:500]}",
+                           event="task.replan_exceeded")
                 return t
             redesigned = replan_task(cfg, t, feedback, budget,
                                      registry_key=store.dir.name)
@@ -270,6 +256,5 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             f"レビューで差し戻し。以下を修正して受け入れ条件を満たせ。\n"
             f"## Feedback\n{feedback}")
 
-    with store.lock:
-        t.status = "failed"
+    transition(store, t, "failed")
     return t

@@ -14,6 +14,7 @@ from ..state import Mission, RunStore, Task
 from .budget_policy import initiate_budget_stop, setup_budget
 from .cancellation import cancel_flag, initiate_cancel
 from .task_executor import run_task
+from .transitions import transition
 
 # 終端ステータス(これ以外は実行中系としてresume時にpendingへ巻き戻される)
 TERMINAL = ("done", "failed", "cancelled", "skipped")
@@ -141,10 +142,9 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                     # (watcher経由でもスキップ不可。configでも無効化不可)
                     if (needs_approval(cfg, t.workdir)
                             and not (store.dir / "APPROVED").exists()):
-                        with store.lock:
-                            t.status = "awaiting_approval"
-                        store.log("task.awaiting_approval", task=t.id,
-                                  workdir=t.workdir)
+                        transition(store, t, "awaiting_approval",
+                                   event="task.awaiting_approval",
+                                   workdir=t.workdir)
                         print(f"  [awaiting_approval] {t.title} — "
                               f"orgh approve {store.dir.name} で続行")
                         continue
@@ -166,8 +166,7 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                         store.log("task.awaiting_human", task=t.id, brief=brief)
                         print(f"  [awaiting_human] {t.title} — {brief}")
                         continue
-                    with store.lock:
-                        t.status = "queued"
+                    transition(store, t, "queued")
                     futures[t.id] = pool.submit(run_task, cfg, store, t,
                                                 budget)
             if not futures:
