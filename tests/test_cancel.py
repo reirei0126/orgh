@@ -266,6 +266,7 @@ class TestCancelRoleInteractions:
             self, cfg, mock_state_dir, monkeypatch):
         # _CancelledDuringRoleが_attempt_loopの包括exceptでfailedに化けない
         from orgh import orchestrator as orch
+        from orgh.orchestrator import review_pipeline
         from orgh.state import Budget, Mission, RunStore, Task
         m = Mission(id="mrv", intent="c", context_digest="(t)",
                     tasks=[Task(id="t1", title="x", prompt="p",
@@ -275,7 +276,8 @@ class TestCancelRoleInteractions:
         def cancelled_review(*a, **k):
             (store.dir / "CANCEL").touch()
             raise orch._CancelledDuringRole("terminated")
-        monkeypatch.setattr(orch, "_review_with_retry", cancelled_review)
+        monkeypatch.setattr(review_pipeline, "review_with_retry",
+                            cancelled_review)
         t = orch._run_task(cfg, store, m.tasks[0],
                            Budget(limit_usd=None, spent_usd=0.0))
         assert t.status == "cancelled"
