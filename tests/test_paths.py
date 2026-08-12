@@ -42,7 +42,9 @@ class TestConfigDrivenPaths:
 
     def test_no_repo_relative_file_refs_in_sources(self):
         """パッケージ相対(__file__起点)のprompts/playbooks参照の全廃を強制する。"""
-        for mod in ("planner.py", "state.py", "orchestrator.py",
-                    "watcher.py", "cli.py"):
-            src = (REPO / "orgh" / mod).read_text()
-            assert "parent.parent" not in src, f"{mod} が__file__相対参照を残している"
+        for src_path in (REPO / "orgh").rglob("*.py"):
+            if "__pycache__" in src_path.parts:
+                continue
+            src = src_path.read_text()
+            assert "parent.parent" not in src, \
+                f"{src_path.relative_to(REPO)} が__file__相対参照を残している"
