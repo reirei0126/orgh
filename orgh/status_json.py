@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .guard import approval_reason
+from .state import TERMINAL
 
 
 def _mission_dir(cfg: dict | None, mission_id: str) -> Path:
@@ -53,7 +54,6 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
     ときはキー自体を省略し、旧GUI/旧呼び出しとの後方互換を保つ。"""
     statuses = [t.status for t in mission.tasks]
     # listing._derive_status と同一の導出規則を保つこと(GUIが両方を表示する)
-    terminal = ("done", "failed", "cancelled", "skipped")
     if not statuses:
         # listは"empty"を返すのにstatusが"running"だと同一ミッションが
         # 画面間で食い違う
@@ -70,7 +70,7 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
         mission_status = "awaiting_approval"
     elif any(s == "awaiting_human" for s in statuses):
         mission_status = "awaiting_human"
-    elif statuses and all(s in terminal for s in statuses):
+    elif statuses and all(s in TERMINAL for s in statuses):
         # 全タスク終端でdone以外を含む(cancel/budget stop後)。runningのままだと
         # 停止済みミッションへ再キャンセルを誘発する
         mission_status = "cancelled"

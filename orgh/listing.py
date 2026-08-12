@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 
+from .state import TERMINAL
+
 _MAX_INTENT_LEN = 60
 
 
@@ -24,7 +26,6 @@ def _derive_status(tasks: list[dict]) -> str:
     if not tasks:
         return "empty"
     statuses = [t.get("status") for t in tasks]
-    terminal = ("done", "failed", "cancelled", "skipped")
     if all(s == "done" for s in statuses):
         return "done"
     if any(s == "failed" for s in statuses):
@@ -34,7 +35,7 @@ def _derive_status(tasks: list[dict]) -> str:
         return "awaiting_approval"
     if any(s == "awaiting_human" for s in statuses):
         return "awaiting_human"
-    if all(s in terminal for s in statuses):
+    if all(s in TERMINAL for s in statuses):
         return "cancelled"
     return "running"
 

@@ -219,6 +219,11 @@ class Budget:
         return child
 
 
+# 終端ステータスの正準定義(これ以外は実行中系としてresume時にpendingへ
+# 巻き戻される)。scheduler / cli / listing / status_json / planner が共有する
+TERMINAL = ("done", "failed", "cancelled", "skipped")
+
+
 @dataclass
 class Task:
     id: str

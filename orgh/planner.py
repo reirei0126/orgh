@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .adapters.base import get_adapter
 from .criteria import criteria_context
-from .state import Budget, Mission, Task
+from .state import TERMINAL, Budget, Mission, Task
 
 _META_RE = re.compile(r"<!-- m:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
 
@@ -276,8 +276,7 @@ def retro_if_finished(cfg: dict, mission: Mission, store,
     失敗のまま終わった時点でretroしてしまうと、後に再resumeで完走したときの
     真の教訓がRETRO_DONEに阻まれる(test_st_scenariosで固定済みの仕様)。
     """
-    terminal = ("done",) if only_if_all_done else (
-        "done", "failed", "cancelled", "skipped")
+    terminal = ("done",) if only_if_all_done else TERMINAL
     marker = store.dir / "RETRO_DONE"
     if marker.exists() or not mission.tasks or \
             not all(t.status in terminal for t in mission.tasks):

@@ -36,7 +36,7 @@ from .events_json import events_payload
 from .orchestrator import run_mission
 from .playbooks_json import playbooks_payload
 from .sources.base import get_source
-from .state import RunStore, load_config
+from .state import TERMINAL, RunStore, load_config
 from .status_json import status_payload
 from . import worktree
 
@@ -482,8 +482,7 @@ def _sync_results_note(cfg: dict, mission, store: RunStore) -> None:
         note = ResultsNote(cfg, mission.id)
         if not note.path.exists():
             return
-        terminal = ("done", "failed", "cancelled", "skipped")
-        if mission.tasks and all(t.status in terminal for t in mission.tasks):
+        if mission.tasks and all(t.status in TERMINAL for t in mission.tasks):
             note.finalize(mission, store)
         else:
             note.update(mission)
