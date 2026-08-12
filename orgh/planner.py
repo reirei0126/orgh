@@ -106,8 +106,14 @@ def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
               budget: Budget | None = None,
               registry_key: str | None = None,
               cost_sink: list | None = None) -> dict:
+    # 役割呼び出し(planner/reviewer/retro/replan/persona等)は cwd に worker が
+    # 書いた CLAUDE.md / .claude/settings.json があっても取り込まない。
+    # setting-sources を user のみに絞ることで project/local ソース(=worktree内の
+    # worker生成物)を無視し、検収役が"買収"される経路を塞ぐ。役割の指示は
+    # prompts/ から来るため、ambient なプロジェクト設定に従う必要はない。
+    role_cfg = {**cfg["roles"][role], "setting_sources": "user"}
     adapter = get_adapter("claude_code", {**cfg["workers"],
-                          "claude_code": cfg["roles"][role]})
+                          "claude_code": role_cfg})
     # LLMの長文JSON応答は確率的に壊れる(実測: mission 8bc7ce00 t3のreplanが
     # 約5KB応答の途中の書式エラーでJSONDecodeError → タスクfailed)。ロール
     # 呼び出し自体は成功しているためinfra retryでは救えない。ここで修正指示

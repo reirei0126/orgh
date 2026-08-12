@@ -34,12 +34,16 @@ personas:                    # ペルソナ検収ゲート(戦略設計書 柱1)
 
 workers:
   enabled: [claude_code, codex]
+  # 全workerに共通: 秘密パターン(KEY/TOKEN/SECRET/PASSWORD等)の環境変数は
+  # workerへ継承させない(prompt注入されたworkerによる漏洩防止)。ANTHROPIC_API_KEY等
+  # の代表的な認証変数は既定で通す。stripされて困る独自変数のみ env_secret_allow で通す。
   claude_code:
     bin: claude
     model: sonnet              # 実働はSonnet。三層フレームワークに合わせて変更可
     max_turns: 60
     allowed_tools: "Read,Write,Edit,Glob,Grep"   # Bashはデフォルト付与しない。必要なタスクにはPlannerがtoolsで明示付与
     permission_mode: acceptEdits
+    # env_secret_allow: [MY_CUSTOM_TOKEN]   # 秘密パターンでもworkerへ通したい変数
   codex:
     bin: codex
     extra_args: ["--sandbox", "workspace-write", "--skip-git-repo-check"]  # codex 0.146+。--full-autoは非推奨、git外workdirには--skip-git-repo-check必須
