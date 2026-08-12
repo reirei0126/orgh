@@ -1,6 +1,26 @@
 # orgh ハンドオフ(2026-08-12 更新)
 
-## 2026-08-12 コードヘルスレビュー対応(このセクションが最新)
+## 2026-08-12 R-3: orchestrator分割 完了(このセクションが最新)
+
+執行アーキ改修3件(`docs/refactor/execution-architecture.md`)のうち R-3 を実施。
+653行の `orgh/orchestrator.py` を挙動不変の純リファクタでパッケージ分割した
+(scheduler / task_executor / review_pipeline / cancellation / budget_policy /
+transitions + facade。構成表は execution-architecture.md 参照)。
+
+- 公開API(`run_mission`/`acquire_mission_lock`)のシグネチャ不変。cli.py/watcher.py は無修正
+- 既存テストのimport互換は `__init__` のアンダースコアaliasで維持。monkeypatch
+  2箇所のみ実参照先モジュールへpatch先を更新(tests/test_cancel.py)
+- pytest 362件全緑を各コミットで維持(計画: `docs/refactor/plans/2026-08-12-r3-orchestrator-split.md`)
+- 分割後に /code-review high(multi-agent)で挙動不変性を検証。確定4件を修正済み:
+  facadeのaliasがmonkeypatch標的として死角になる件(docstring明記+死角alias削除)、
+  awaiting_human遷移の重複(transitions.enter_awaiting_humanへ共通化)、
+  TERMINALのハードコード5箇所(state.pyへ正準化)、task_timeoutの再lookup
+- **有効化済み**: ミッション0件の窓でwatch再起動(旧PID 19676 → 新PID 44406、
+  8/12 17:47頃)。以後の出力は `runs/watch.log`(detached起動に変更、PYTHONUNBUFFERED=1)
+- 次: R-1(watch/executor分離)+ R-2(グローバル並行数制御)をセットで。
+  接合部のメモは execution-architecture.md の R-3 完了記録に記載
+
+## 2026-08-12 コードヘルスレビュー対応
 
 `/code-review high` + Codex の2系統レビューでorghコアを健診し、確定バグ+deferredを対応。
 

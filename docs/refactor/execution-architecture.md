@@ -1,9 +1,10 @@
-# 執行アーキテクチャ改修ロードマップ(残タスク)
+# 執行アーキテクチャ改修ロードマップ
 
-> **状態: 未着手(2026-08-12 起票)**。コードヘルスレビュー(/code-review high + Codex、
-> 2026-08-12)で確定した deferred 7件のうち、セキュリティ2件・性能索引2件は実装・main
-> マージ済み。**残る3件=「執行(スケジューリング)アーキテクチャ」の相互に絡む変更**を
-> ここに記録する。次にこの領域を触るセッションは、まずこのファイルを読む。
+> **状態: R-3 完了(2026-08-12)、R-1/R-2 未着手**。コードヘルスレビュー(/code-review
+> high + Codex、2026-08-12)で確定した deferred 7件のうち、セキュリティ2件・性能索引
+> 2件は実装・mainマージ済み。残る3件のうち R-3(orchestrator分割)を同日の集中
+> セッションで完了(下記に構成を記載)。次にこの領域を触るセッションは、まずこの
+> ファイルを読む。実装計画の記録: `docs/refactor/plans/2026-08-12-r3-orchestrator-split.md`
 
 ## なぜ別立てにしたか
 
@@ -77,7 +78,29 @@ subprocess を起動する唯一の経路。
 
 ---
 
-## R-3: orchestrator 分割(ヘルスレビュー deferred 中〜大)
+## R-3: orchestrator 分割(ヘルスレビュー deferred 中〜大)— **完了 2026-08-12**
+
+**実施結果**: `orgh/orchestrator.py`(653行)を挙動不変の純リファクタでパッケージ
+`orgh/orchestrator/` に分割した(pytest 362件を回帰網に、6コミットで段階実施)。
+
+| モジュール | 責務 | 行数 |
+|---|---|---|
+| `scheduler.py` | DAG解決・並列dispatch・ミッションライフサイクル(lock/prompts snapshot/cancel・予算停止の起動) | 202 |
+| `task_executor.py` | 1タスクのattemptループ・worker起動・インフラリトライ・成果コミット | 275 |
+| `review_pipeline.py` | reviewer+persona検収の直列裁定・ロールリトライ | 137 |
+| `cancellation.py` | CANCELフラグ検知・開始・待機(横断) | 52 |
+| `budget_policy.py` | 予算プール用意・超過停止(横断) | 32 |
+| `transitions.py` | 状態遷移の単一経路 `transition()`(status+review_notes+ledger記録の共通化) | 24 |
+| `__init__.py` | facade(公開API `run_mission`/`acquire_mission_lock`/`TERMINAL` + テスト互換alias) | 25 |
+
+R-1/R-2 が実装点として使う接合部: グローバルセマフォ(R-2)は
+`task_executor.attempt_loop` の adapter.run 呼び出しを囲むか `BaseAdapter.run` 内、
+executor分離(R-1)は `scheduler.run_mission` を watch から切り離してキュー消化
+プロセスに載せ替える形になる。
+
+---
+
+### (記録)分割前の問題
 
 **現状の問題**: `orgh/orchestrator.py` が 644 行の単一モジュールに、workdir 作成・worker retry・
 review/persona・予算・キャンセル・worktree・承認・人間依頼・永続化・並列 dispatch を全部
@@ -103,7 +126,7 @@ review/persona・予算・キャンセル・worktree・承認・人間依頼・�
 
 ## 着手順の推奨
 
-1. **R-3(orchestrator 分割)を先に** — 純リファクタで土台を整える。テスト全緑を維持しつつ小刻みに
+1. ~~**R-3(orchestrator 分割)を先に**~~ — **完了(2026-08-12)**
 2. **R-1 + R-2 をセットで** — 執行を watch から切り離し、キュー消化にグローバルセマフォを効かせる
 
 各段階で pytest 全緑・Codex 検証を通し、main へ載せ、ミッション0件の窓で watch 再起動により
