@@ -14,18 +14,22 @@ import fcntl
 import re
 import shutil
 import subprocess
-import time
 import traceback
 from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
-from .. import procreg
 from ..adapters.base import get_adapter
 from ..guard import needs_approval
 from ..planner import (build_human_request, persona_review, replan_task,
                        review, worker_prompt)
 from ..state import Budget, Mission, RunStore, Task
 from ..worktree import commit_task_result, ensure_task_worktree
+from .budget_policy import (initiate_budget_stop as _initiate_budget_stop,
+                            setup_budget as _setup_budget)
+from .cancellation import (CancelledDuringRole as _CancelledDuringRole,
+                           cancel_flag as _cancel_flag,
+                           cancellable_sleep as _cancellable_sleep,
+                           initiate_cancel as _initiate_cancel)
 
 # 終端ステータス(これ以外は実行中系としてresume時にpendingへ巻き戻される)
 TERMINAL = ("done", "failed", "cancelled", "skipped")
@@ -63,28 +67,6 @@ def _blocked_forever(m: Mission) -> bool:
     pend = [t for t in m.tasks if t.status == "pending"]
     return bool(dead) and all(
         any(d in dead for d in t.deps) for t in pend) if pend else False
-
-
-def _cancel_flag(store: RunStore):
-    return store.dir / "CANCEL"
-
-
-def _cancellable_sleep(store: RunStore, seconds: float) -> bool:
-    """リトライ待機。CANCEL検知で早期復帰しTrueを返す。
-
-    素のtime.sleepだと待機中のキャンセルが最大でinfra_wait(既定60秒)止まらない
-    (停止対象subprocessが存在しない区間のため、terminateでは中断できない)。"""
-    deadline = time.time() + seconds
-    while time.time() < deadline:
-        if _cancel_flag(store).exists():
-            return True
-        time.sleep(min(1.0, max(0.0, deadline - time.time())))
-    return _cancel_flag(store).exists()
-
-
-class _CancelledDuringRole(Exception):
-    """キャンセルのterminateがreviewer/planner subprocessを落とした際の内部信号。
-    包括エラーハンドラでfailedに化けさせず、cancelledとして確定させる。"""
 
 
 def _is_non_retryable_role_error(e: Exception) -> bool:
@@ -441,49 +423,6 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     with store.lock:
         t.status = "failed"
     return t
-
-
-def _initiate_cancel(mission: Mission, store: RunStore) -> None:
-    """キャンセル開始: フラグを確定し、実行中subprocessをterminate、
-    未着手タスクをcancelledにする。実行中タスクの完了(cancelled化)は
-    _attempt_loop側がフラグを見て行う。"""
-    _cancel_flag(store).touch()
-    n = procreg.terminate(store.dir.name)
-    with store.lock:
-        for t in mission.tasks:
-            if t.status == "pending":
-                t.status = "cancelled"
-    store.save(mission)
-    store.log("mission.cancelled", terminated=n)
-    print(f"  mission {store.dir.name} cancelling... ({n} proc terminated)")
-
-
-def _setup_budget(cfg: dict, mission: Mission) -> Budget:
-    """ミッションの予算プールを用意する。初回はconfigから確保、resume時は
-    消費(spent)を引き継ぎつつ上限だけconfigから更新する(予算を上げて続行
-    できるように)。split()で割当を受けた子ミッションは上限を上書きしない。"""
-    lcfg = cfg.get("loop", {})
-    if mission.budget is None:
-        mission.budget = Budget(limit_usd=lcfg.get("budget_usd"),
-                                task_budget_usd=lcfg.get("task_budget_usd"))
-    elif mission.budget._parent is None:
-        mission.budget.limit_usd = lcfg.get("budget_usd")
-        mission.budget.task_budget_usd = lcfg.get("task_budget_usd")
-    return mission.budget
-
-
-def _initiate_budget_stop(mission: Mission, store: RunStore,
-                          budget: Budget) -> None:
-    """予算超過: 実行中タスクの完了は待つが、未着手はdispatchせずskippedに。"""
-    with store.lock:
-        for t in mission.tasks:
-            if t.status == "pending":
-                t.status = "skipped"
-    store.save(mission)
-    store.log("mission.budget_exceeded", spent=budget.spent_usd,
-              limit=budget.limit_usd)
-    print(f"  mission {store.dir.name} budget exceeded "
-          f"({budget.spent_usd:.4f}/{budget.limit_usd} USD) — 未着手をskip")
 
 
 def _assign_personas(cfg: dict, mission: Mission) -> None:
