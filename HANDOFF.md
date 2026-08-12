@@ -1,6 +1,25 @@
-# orgh ハンドオフ(2026-08-11 更新)
+# orgh ハンドオフ(2026-08-12 更新)
 
-## 2026-08-11 人間依頼(awaiting_human)実装・GUI耐性確認(このセクションが最新)
+## 2026-08-12 コードヘルスレビュー対応(このセクションが最新)
+
+`/code-review high` + Codex の2系統レビューでorghコアを健診し、確定バグ+deferredを対応。
+
+**実装・mainマージ・有効化(watch再起動)済み:**
+- ハードニング10件(`25583f9`): task.id/playbook_name/artifactのパストラバーサル封鎖、
+  cancelロック、GC状態チェック、watch耐障害、cancel後課金停止、worktree preamble退行、
+  cleanup後resume、plan()クラッシュ耐性
+- セキュリティ2件(`4daab58`): 検収役の隔離(役割呼び出しに `--setting-sources user` 注入で
+  worker生成のCLAUDE.md/.claude設定を無視)、worker env の秘密パターンstrip(認証変数は既定keep)
+- 性能索引2件(`aa6a105`): vault走査のmtimeキャッシュ、runs一覧の `runs/_index.json` 終端
+  ミッションキャッシュ(GUIポーリングの全読み回避)
+- **現行watch = PID 19676(8/12 13:43起動)= 上記すべて反映済み**。テスト362件グリーン
+
+**未着手(オーナー裁定で次回集中セッションへ分離):**
+- R-1 watch/executor分離、R-2 グローバル並行数制御、R-3 orchestrator分割(644行の神モジュール)
+- この3件は執行アーキの相互依存変更。**次にこの領域を触るセッションは
+  `docs/refactor/execution-architecture.md` を最初に読む**(着手順・根拠コード・受け入れ基準を記載)
+
+## 2026-08-11 人間依頼(awaiting_human)実装・GUI耐性確認
 
 mission 3af738a2: headlessなAIワーカーでは恒常的に実行不能なタスク(保護
 パスへの書き込み・対面作業・アカウント登録等)を、人間に依頼して完了を待つ
