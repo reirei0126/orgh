@@ -257,7 +257,8 @@ class TestCancelRoleInteractions:
         (store.dir / "CANCEL").touch()
         def boom(*a, **k):
             raise RuntimeError("terminated")
-        monkeypatch.setattr(orch, "_attempt_loop", boom)
+        from orgh.orchestrator import task_executor
+        monkeypatch.setattr(task_executor, "attempt_loop", boom)
         t = orch._run_task(cfg, store, m.tasks[0],
                            Budget(limit_usd=None, spent_usd=0.0))
         assert t.status == "cancelled"

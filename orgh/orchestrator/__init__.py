@@ -11,50 +11,30 @@ Claude Codeタスクは session_id を保持し --resume でフィードバッ�
 from __future__ import annotations
 
 import fcntl
-import re
 import shutil
-import subprocess
-import traceback
 from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
-from ..adapters.base import get_adapter
 from ..guard import needs_approval
-from ..planner import build_human_request, replan_task, worker_prompt
-from ..state import Budget, Mission, RunStore, Task
-from ..worktree import commit_task_result, ensure_task_worktree
+from ..planner import build_human_request
+from ..state import Mission, RunStore, Task
 from .budget_policy import (initiate_budget_stop as _initiate_budget_stop,
                             setup_budget as _setup_budget)
 from .cancellation import (CancelledDuringRole as _CancelledDuringRole,
                            cancel_flag as _cancel_flag,
-                           cancellable_sleep as _cancellable_sleep,
                            initiate_cancel as _initiate_cancel)
-from .review_pipeline import (review_with_retry as _review_with_retry,
-                              run_review_pipeline)
+from .review_pipeline import review_with_retry as _review_with_retry
+from .task_executor import (attempt_loop as _attempt_loop,
+                            full_worker_prompt as _full_worker_prompt,
+                            is_infra_error as _is_infra_error,
+                            retry_prompt as _retry_prompt,
+                            run_task as _run_task)
 
 # 終端ステータス(これ以外は実行中系としてresume時にpendingへ巻き戻される)
 TERMINAL = ("done", "failed", "cancelled", "skipped")
 
 # キャンセル検知のポーリング間隔(秒)。タスク完了イベントもこの粒度で拾う
 _POLL_INTERVAL = 0.5
-
-# インフラ(ネットワーク・接続)起因のエラー署名。workerの失敗ではないため
-# attemptを消費せずにリトライする(実運用7307189e t5: ネットワーク断で
-# 3attempt≒6.4USD相当を浪費した事例への対処)。署名は実際に観測されたものを登録する
-_INFRA_ERROR_RE = re.compile(
-    r"Request timed out"               # claude CLI(t5 attempt1/2で実測)
-    r"|Unable to connect to API"       # claude CLI(t5 attempt3で実測)
-    r"|Connection closed mid-response" # claude CLI(7307189e t1初回で実測)
-    r"|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN"
-    r"|fetch failed",
-)
-# 注: BaseAdapter.run の task_timeout マーカー("timeout")は対象外。
-# あれは「詰まったworker」の可能性があり、attempt非消費で粘ると無限に待つため
-# 従来どおりattemptを消費する通常failure扱いにする
-
-
-def _is_infra_error(output: str) -> bool:
-    return bool(_INFRA_ERROR_RE.search(output or ""))
 
 
 def _ready(m: Mission) -> list[Task]:
@@ -68,245 +48,6 @@ def _blocked_forever(m: Mission) -> bool:
     pend = [t for t in m.tasks if t.status == "pending"]
     return bool(dead) and all(
         any(d in dead for d in t.deps) for t in pend) if pend else False
-
-
-def _run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
-    """最外周の薄いラッパ: 実処理(_attempt_loop)の全例外を1タスクのfailedに閉じ込め、
-    ミッション全体を道連れにしない。"""
-    try:
-        return _attempt_loop(cfg, store, t, budget)
-    except Exception as e:
-        # キャンセルのterminateが引き起こした例外(replan中のplanner死など)は
-        # failedではなくcancelled: failedにすると通常resumeで復元されない
-        if _cancel_flag(store).exists() or isinstance(e, _CancelledDuringRole):
-            with store.lock:
-                t.status = "cancelled"
-            store.log("task.cancelled_during_role", task=t.id, error=repr(e)[:300])
-            return t
-        with store.lock:
-            t.status = "failed"
-            t.review_notes = f"internal error: {e!r}"
-        store.log("task.error", task=t.id, error=repr(e),
-                  trace=traceback.format_exc()[-2000:])
-        return t
-
-
-def _retry_prompt(adapter, cfg: dict, t: Task, followup: str) -> str:
-    """再試行プロンプトの構築。セッションresumeできるworkerはフィードバックのみで
-    よい(セッションが文脈を保持する)が、できないworker(codex等)は元タスクの
-    文脈を全て失うため、タスク一式(preamble込み)+追記の自己完結形にする。
-    実運用7307189e t3で発見: 断片だけ受けたcodexが実装せず確認質問を返して失敗した。"""
-    if adapter.supports_resume:
-        return followup
-    # 非resume workerの再実行はworker_promptを丸ごと再構築するため、worktree
-    # 厳守preambleもここで再付与しないと初回以降落ちる(retry/REPLANで
-    # worktree外へ書き成果が失われる。mission 02a434adの退行)
-    return f"{_full_worker_prompt(cfg, t)}\n\n## 再実行の指示\n{followup}"
-
-
-def _full_worker_prompt(cfg: dict, t: Task) -> str:
-    """worker_promptに、worktree実行時の作業場所厳守preambleを付けた完全版。
-    初回・retry・REPLAN後の全経路がこれを使い、preambleの付け忘れを防ぐ。"""
-    prompt = worker_prompt(cfg, t)
-    if t.branch:
-        # Plannerがタスク指示に主リポの絶対パスを書くと、workerがworktree外へ
-        # 成果物を書いて自動コミットから漏れる(mission 02a434ad t1/t2で実測)
-        prompt = (
-            f"【作業場所の厳守】このタスクの作業ディレクトリは専用worktree "
-            f"{t.workdir} である。以降の指示に他のディレクトリパスが書かれて"
-            f"いても、ファイルの新規作成・編集は必ずこのworktree内で行うこと"
-            f"(worktree外に書いた成果物は自動コミットの対象外となり失われる)。"
-            f"git show等での他ブランチ・他パスの読み取り参照は行ってよい。\n\n"
-            + prompt)
-    return prompt
-
-
-def _ensure_workdir(store: RunStore, t: Task, wt_cfg: dict) -> None:
-    """新規プロジェクト用にPlannerが計画したworkdirが未作成だと、worker subprocess
-    の起動がFileNotFoundErrorで即死する(mission eceb49cbで実測)。ディレクトリを
-    作成し、worktree運用時はgitリポとして初期化する(worktree addは初回コミットが
-    無いと失敗するため空コミットまで行う)。"""
-    wd = Path(t.workdir)
-    if wd.exists():
-        return
-    wd.mkdir(parents=True, exist_ok=True)
-    store.log("task.workdir_created", task=t.id, workdir=str(wd))
-    print(f"  [workdir] {t.workdir} を新規作成した(新規プロジェクト)")
-    if wt_cfg.get("enabled"):
-        subprocess.run(["git", "-C", str(wd), "init", "-q", "-b", "main"],
-                       check=False, capture_output=True)
-        subprocess.run(["git", "-C", str(wd),
-                        "-c", "user.name=orgh", "-c", "user.email=orgh@local",
-                        "commit", "-q", "--allow-empty",
-                        "-m", "orgh: 新規プロジェクト初期化"],
-                       check=False, capture_output=True)
-
-
-def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
-    wt_cfg = cfg.get("worktree") or {}
-    _ensure_workdir(store, t, wt_cfg)
-    if wt_cfg.get("enabled"):
-        got = ensure_task_worktree(wt_cfg, store.dir.name, t)
-        if got:
-            path, branch = got
-            with store.lock:
-                t.workdir, t.branch = str(path), branch
-            store.log("task.worktree", task=t.id, path=str(path), branch=branch)
-
-    adapter = get_adapter(t.worker, cfg["workers"])
-    lcfg = cfg.get("loop", {})
-    max_attempts = lcfg.get("max_attempts", 3)
-    infra_max = lcfg.get("infra_max_retries", 3)
-    infra_wait = lcfg.get("infra_retry_wait", 60)
-    infra_retries = 0
-    cancel_flag = _cancel_flag(store)
-
-    prompt = _full_worker_prompt(cfg, t)
-    while t.attempts < max_attempts:
-        if cancel_flag.exists():
-            with store.lock:
-                t.status = "cancelled"
-            return t
-        with store.lock:
-            t.attempts += 1
-            t.status = "running"
-        store.log("task.start", task=t.id, worker=t.worker, attempt=t.attempts)
-        res = adapter.run(prompt, workdir=t.workdir,
-                          resume=t.session_id,
-                          timeout=cfg.get("loop", {}).get("task_timeout", 3600),
-                          registry_key=store.dir.name,
-                          allowed_tools=t.tools)
-        with store.lock:
-            t.last_output = res.output
-            t.session_id = res.session_id or t.session_id
-            t.cost_usd += res.cost_usd or 0.0
-        budget.charge(res.cost_usd)
-        store.artifact(f"{t.id}_attempt{t.attempts}.md", res.output)
-        store.log("task.output", task=t.id, ok=res.ok, cost=res.cost_usd)
-
-        # タスク上限超過: 次のattemptにもレビューにも進まない。
-        # t.cost_usdはworker+レビュー/ペルソナのロールコストを含むタスク総コスト
-        # (失敗呼び出し含む)。フォローアップ4以降、reviewer/ペルソナ呼び出し後に
-        # t.cost_usdへ加算されるため、この直後(次attempt冒頭)のチェックは
-        # 前attemptのロールコストも見た上で判定する
-        if (budget.task_budget_usd is not None
-                and t.cost_usd >= budget.task_budget_usd):
-            with store.lock:
-                t.status = "failed"
-                t.review_notes = (f"task予算超過: {t.cost_usd:.4f} USD >= "
-                                  f"{budget.task_budget_usd} USD")
-            store.log("task.budget_exceeded", task=t.id, cost=t.cost_usd,
-                      limit=budget.task_budget_usd)
-            return t
-
-        if not res.ok:
-            if cancel_flag.exists():
-                # terminateによる異常終了は失敗ではなくキャンセル扱い
-                with store.lock:
-                    t.status = "cancelled"
-                return t
-            if _is_infra_error(res.output):
-                # ネットワーク断等はworkerの失敗ではない: attemptを返却して待機後に再試行。
-                # ただしセッションコストは実際に発生しうるため無限には粘らない(上限つき)
-                if infra_retries >= infra_max:
-                    with store.lock:
-                        t.status = "failed"
-                        t.review_notes = (
-                            f"インフラエラーが継続(リトライ上限{infra_max}回を消化)。"
-                            f"ネットワーク・スリープ状態を確認して resume --retry-failed せよ: "
-                            f"{res.output[:200]}")
-                    store.log("task.infra_exhausted", task=t.id,
-                              detail=res.output[:200])
-                    return t
-                infra_retries += 1
-                store.log("task.infra_retry", task=t.id, retry=infra_retries,
-                          detail=res.output[:200])
-                with store.lock:
-                    t.attempts -= 1  # このattemptは消費しない
-                if _cancellable_sleep(store, infra_wait):
-                    with store.lock:
-                        t.status = "cancelled"
-                    return t
-                continue  # プロンプトは変えずそのまま再試行
-            prompt = _retry_prompt(
-                adapter, cfg, t,
-                f"前回の実行がエラーで終了した。原因を特定して完了させろ。\n---\n{res.output[:4000]}")
-            continue
-
-        with store.lock:
-            t.status = "review"
-        verdict = run_review_pipeline(cfg, store, t, budget, infra_wait)
-        if verdict is None:
-            return t   # レビュー/ペルソナ枯渇でfailed確定済み(成果は保持)
-        passed, feedback = verdict
-        if passed:
-            # レビュー中にキャンセルされていたら成果を確定させない
-            # (terminateを逃れて完走したレビューがここへ到達しうる)
-            if cancel_flag.exists():
-                with store.lock:
-                    t.status = "cancelled"
-                store.log("task.cancelled_after_review", task=t.id)
-                return t
-            # 合格成果をタスクブランチへコミット(依存タスク・検収への受け渡し)。
-            # done確定はコミット後の最終CANCEL確認を通ってから行う: 確認→done→
-            # コミットの順だと、その隙間のキャンセルが成果確定に化ける
-            commit = commit_task_result(t, store.dir.name)
-            if commit:
-                store.log("task.committed", task=t.id, commit=commit)
-            if cancel_flag.exists():
-                # コミット自体はブランチに残るが、タスクはキャンセル扱いにする
-                # (resumeで再実行され、ブランチは次の合格コミットで進む)
-                with store.lock:
-                    t.status = "cancelled"
-                store.log("task.cancelled_after_review", task=t.id)
-                return t
-            with store.lock:
-                t.status = "done"
-            return t
-
-        if feedback.startswith("REPLAN:"):
-            # 計画自体の欠陥: Workerを回しても直らないのでPlannerへエスカレーション
-            if t.replans >= 1:
-                with store.lock:
-                    t.status = "failed"
-                    t.review_notes = f"REPLAN上限超過(再設計は1回まで): {feedback[:500]}"
-                store.log("task.replan_exceeded", task=t.id)
-                return t
-            redesigned = replan_task(cfg, t, feedback, budget,
-                                     registry_key=store.dir.name)
-            with store.lock:
-                t.prompt = redesigned.get("prompt", t.prompt)
-                t.acceptance = redesigned.get("acceptance", t.acceptance)
-                t.replans += 1
-                t.attempts -= 1          # REPLAN再実行はattemptsを消費しない
-            store.log("task.replan", task=t.id, reason=feedback[:500])
-            prompt = _full_worker_prompt(cfg, t)  # 再設計後の指示で最初から
-            continue
-
-        if feedback.startswith("HUMAN:"):
-            # workerには解消不能な環境側の恒常的制約(オーナー裁定: 保護パスへの
-            # 書き込み・対面作業・アカウント登録等)。REPLANと同型でattemptsは
-            # 消費しない(再設計しても解消しない制約のため回数上限も設けない)
-            reason = feedback[len("HUMAN:"):].strip()
-            brief, body = build_human_request(store.dir.name, t, reason)
-            with store.lock:
-                t.status = "awaiting_human"
-                t.human_request = brief
-                t.attempts -= 1
-            store.artifact(f"human_request_{t.id}.md", body)
-            store.log("task.awaiting_human", task=t.id, brief=brief)
-            print(f"  [awaiting_human] {t.title} — {brief}")
-            return t
-
-        # 改善ループ: レビューのフィードバックを次のattemptへ
-        prompt = _retry_prompt(
-            adapter, cfg, t,
-            f"レビューで差し戻し。以下を修正して受け入れ条件を満たせ。\n"
-            f"## Feedback\n{feedback}")
-
-    with store.lock:
-        t.status = "failed"
-    return t
 
 
 def _assign_personas(cfg: dict, mission: Mission) -> None:
