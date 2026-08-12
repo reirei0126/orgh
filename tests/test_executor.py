@@ -89,3 +89,24 @@ class TestWatchExecutorSeparation:
         assert pending(cfg["runs_dir"]) == []   # エントリは落とされた
         data = json.loads((store.dir / "mission.json").read_text())
         assert data["tasks"][0]["status"] == "pending"   # 実行はしていない
+
+    def test_queued_mission_shows_queued_not_running(self, wcfg, vault,
+                                                     one_pass,
+                                                     mock_state_dir):
+        # 投入済み・executor未着手のミッションはrunningではなくqueued表示
+        # (キュー滞留時にオーナーが「実行中」と誤認しないため)
+        from orgh.listing import list_missions
+        from orgh.state import RunStore
+        from orgh.status_json import status_payload
+        _post(vault, "やること #go\n")
+        watcher.watch(wcfg)
+
+        [row] = list_missions(wcfg["runs_dir"])
+        assert row["status"] == "queued"
+        [mdir] = mission_dirs(wcfg["runs_dir"])
+        mission = RunStore(wcfg["runs_dir"], mdir.name).load()
+        assert status_payload(mission, wcfg)["status"] == "queued"
+
+        executor.drain(wcfg)                    # 消化後は通常の導出に戻る
+        [row] = list_missions(wcfg["runs_dir"])
+        assert row["status"] == "done"

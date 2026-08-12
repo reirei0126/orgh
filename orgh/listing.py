@@ -129,6 +129,12 @@ def _summarize_mission(d: Path) -> dict:
     tasks = mission.get("tasks", [])
     budget = mission.get("budget")
     status = _derive_status(tasks)
+    # 投入済み・executor未着手(全タスクpending+キューエントリ存在)は
+    # runningではなくqueued(status_json.status_payloadと導出規則を揃えること)
+    if (status == "running"
+            and all(t.get("status") == "pending" for t in tasks)
+            and (d.parent / "_queue" / f"{mission['id']}.json").exists()):
+        status = "queued"
     created_ts, finished_ts = _mission_times(d, status)
     return {
         "mission_id": mission["id"],

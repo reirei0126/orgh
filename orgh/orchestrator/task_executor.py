@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 import traceback
 from pathlib import Path
 
@@ -134,10 +135,16 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         # グローバル枠(R-2): 全orghプロセス横断のworker同時数上限。枠待ちの間は
         # attemptを消費せずstatusもqueuedのまま。スロットはworker実行中のみ保持し、
         # 後続のreviewer/persona(roles別枠)には持ち越さない
+        slot_wait_t0 = time.time()
         try:
             with acquire_slot(cfg.get("runs_dir", "runs"),
                               lcfg.get("global_parallel"),
                               pool="workers", should_abort=flag.exists):
+                waited = time.time() - slot_wait_t0
+                if waited >= 1.0:
+                    # 枠待ちを観測可能にする(非FIFOのため長い待機が起こりうる)
+                    store.log("task.slot_wait", task=t.id,
+                              seconds=round(waited, 1))
                 with store.lock:
                     t.attempts += 1
                     t.status = "running"

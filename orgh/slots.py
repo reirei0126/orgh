@@ -30,6 +30,10 @@ def acquire_slot(runs_dir: str | Path, limit: int | None, *,
 
     確保待ちのビジーウェイトは poll 秒間隔。走査のたびに should_abort を
     確認し、真なら SlotAborted を送出する(CANCELフラグの検知窓は最大poll秒)。
+
+    制約: 待機順のFIFOは保証しない(各waiterが独立にslot_0..N-1を再走査する)。
+    高競合では特定waiterが長く待ちうるため、呼び出し側で待機時間を計測して
+    ledger等に記録すること(task_executorはtask.slot_waitイベントを記録する)。
     """
     if not limit or limit <= 0:
         yield None

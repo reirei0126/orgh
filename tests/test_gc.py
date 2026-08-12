@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from orgh import cli, planner, watcher
+from orgh import cli, executor, planner, watcher
 from orgh.orchestrator import run_mission
 from orgh.state import Mission, RunStore
 
@@ -130,22 +130,26 @@ class TestInjectionCap:
         assert "古い教訓その49" not in ctx or len(ctx) <= 200
 
 
-class TestWatcherAutoGc:
+class TestExecutorAutoGc:
+    """自動gcの持ち主はexecutor(R-1分離でwatchから移設)。ミッション実行中は
+    走らない(playbooks書き換えとretro追記の排他)。"""
+
     def test_first_pass_only_records_baseline(self, wcfg, vault, pb_dir,
-                                              one_pass, mock_state_dir):
+                                              executor_one_pass,
+                                              mock_state_dir):
         wcfg["playbooks_dir"] = str(pb_dir)
-        watcher.watch(wcfg)
+        executor.serve(wcfg)
         assert not (pb_dir / "_backup").exists()   # 初回はgcを走らせない
         state = json.loads(
             (Path(wcfg["runs_dir"]) / "_gc_state.json").read_text())
         assert state["last_gc"] > 0
 
-    def test_elapsed_interval_triggers_gc(self, wcfg, vault, pb_dir, one_pass,
-                                          mock_state_dir):
+    def test_elapsed_interval_triggers_gc(self, wcfg, vault, pb_dir,
+                                          executor_one_pass, mock_state_dir):
         wcfg["playbooks_dir"] = str(pb_dir)
         runs = Path(wcfg["runs_dir"])
         runs.mkdir(parents=True, exist_ok=True)
         (runs / "_gc_state.json").write_text(json.dumps(
             {"last_gc": time.time() - 15 * 86400}))  # 既定14日を超過
-        watcher.watch(wcfg)
+        executor.serve(wcfg)
         assert (pb_dir / "_backup").exists()       # 自動gcが走った

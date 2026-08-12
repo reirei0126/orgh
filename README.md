@@ -71,8 +71,10 @@ orgh status <mission_id>
 # 実行中ミッションの停止(subprocessをterminate、未着手はcancelledに)
 orgh cancel <mission_id>
 
-# vault監視デーモン(ノート投稿で自動着火)
-orgh watch
+# vault監視デーモン(ノート投稿で自動着火。実行はexecutorが runs/_queue/ 消化で担当)
+orgh watch                 # 既定: 検知+実行(executor同プロセス併走)
+orgh watch --watch-only    # 検知・投入のみ(実行は別プロセスの orgh executor)
+orgh executor              # キュー消化デーモン(watch再起動が実行に影響しない分離運用)
 
 # 事前疎通確認(外部CLI/config/vault/書き込み権限)。「全タスク謎のfailed」の前に
 orgh doctor

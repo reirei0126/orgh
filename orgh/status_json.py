@@ -76,6 +76,14 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
         mission_status = "cancelled"
     else:
         mission_status = "running"
+    # 投入済み・executor未着手(全タスクpending+キューエントリ存在)は
+    # runningではなくqueued(listing._derive_statusと導出規則を揃えること)。
+    # cfg=None(旧呼び出し)はキュー位置が分からないため従来どおりrunning
+    if (mission_status == "running" and cfg is not None
+            and statuses and all(s == "pending" for s in statuses)
+            and (Path(cfg.get("runs_dir", "runs")) / "_queue"
+                 / f"{mission.id}.json").exists()):
+        mission_status = "queued"
 
     budget = getattr(mission, "budget", None)
     cost_usd = budget.spent_usd if budget else 0.0

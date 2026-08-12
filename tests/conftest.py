@@ -101,6 +101,22 @@ def one_pass(monkeypatch):
     monkeypatch.setattr(watcher.time, "sleep", _sleep)
 
 
+@pytest.fixture
+def executor_one_pass(monkeypatch):
+    """executor.serve()のループ末尾のsleep(interval)で抜けさせ、1パスだけ実行させる。"""
+    import time as _time
+
+    from orgh import executor
+
+    real_sleep = _time.sleep
+
+    def _sleep(seconds):
+        if seconds == INTERVAL_SENTINEL:
+            raise KeyboardInterrupt
+        real_sleep(seconds)
+    monkeypatch.setattr(executor.time, "sleep", _sleep)
+
+
 def mission_dirs(runs_dir: str | Path) -> list[Path]:
     root = Path(runs_dir)
     if not root.exists():

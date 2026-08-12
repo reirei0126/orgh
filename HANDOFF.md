@@ -1,6 +1,28 @@
 # orgh ハンドオフ(2026-08-12 更新)
 
-## 2026-08-12 R-3: orchestrator分割 完了(このセクションが最新)
+## 2026-08-12 R-1/R-2: watch/executor分離+グローバル並行数制御 完了(このセクションが最新)
+
+執行アーキ改修の残り2件を完了。詳細構成は `docs/refactor/execution-architecture.md`。
+
+- **R-2(`orgh/slots.py`)**: 全orghプロセス横断のflock計数セマフォ。
+  `loop.global_parallel`(worker)/`loop.global_role_parallel`(ロール)は
+  **既定null=無効**。有効化はconfig.yamlに設定を足すだけ(オーナー判断待ち)
+- **R-1(`orgh/queue.py` + `orgh/executor.py`)**: watchは検知・計画・
+  `runs/_queue/`への投入専任。実行はexecutorがキュー消化で行う
+- **運用の変化**: `orgh watch` は従来どおり1コマンドで完結(executorを同プロセス
+  併走)。watch停止で実行中ミッションも止まる点は従来と同じ。完全分離したい場合は
+  `orgh watch --watch-only` + 別プロセス `orgh executor`(こちらはwatch再起動が
+  実行に影響しない)
+- テスト 362→384件(slots 9 / queue 8 / executor 5 を新設。watch完走前提の
+  既存ST 8件はwatch+drain方式に更新)
+- 実装後の /code-review high(multi-agent)で確定10件を全対応:
+  Ctrl-C時のプールjoinハング(daemonスレッド化)、queueのglob/stat競合・
+  壊れエントリ隔離のflock順序・inode同一性claim、enqueue失敗によるノート損失
+  (計画後はlimit=Noneで必ず投入)、parallel_missions既定を1に(直列=旧挙動)、
+  gcをexecutorアイドル時へ移設(retro追記との排他復元)、_TYPE_MAPにint|None、
+  スロット待機のtask.slot_wait記録、queued表示の新設(listing/status_json/GUI型)
+
+## 2026-08-12 R-3: orchestrator分割 完了
 
 執行アーキ改修3件(`docs/refactor/execution-architecture.md`)のうち R-3 を実施。
 653行の `orgh/orchestrator.py` を挙動不変の純リファクタでパッケージ分割した

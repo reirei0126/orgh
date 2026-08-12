@@ -62,7 +62,8 @@ class WatchCfg:
     writeback: bool = True
     gc_interval_days: float | None = 14   # この日数ごとに自動でorgh gc相当を実行(null=無効)
     queue_limit: int = 20                 # runs/_queue/ の有界上限(満杯時は着火見送り・次パス再試行)
-    parallel_missions: int = 2            # executorの同時ミッション消化数(R-1)
+    parallel_missions: int = 1            # executorの同時ミッション消化数(R-1)。
+    # 既定1=旧watchの直列実行と同一挙動(並列消化はopt-in)
 
 
 @dataclass
@@ -118,6 +119,7 @@ _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,
     "float | None": (int, float),
+    "int | None": int,
     "list[str]": list,   # 要素型はisinstanceでは表現できないため_check_sectionで別途検査
 }
 _LIST_ELEM_TYPE_MAP: dict[str, type] = {

@@ -1,10 +1,11 @@
 # 執行アーキテクチャ改修ロードマップ
 
-> **状態: R-3 完了(2026-08-12)、R-1/R-2 未着手**。コードヘルスレビュー(/code-review
+> **状態: R-1 / R-2 / R-3 すべて完了(2026-08-12)**。コードヘルスレビュー(/code-review
 > high + Codex、2026-08-12)で確定した deferred 7件のうち、セキュリティ2件・性能索引
-> 2件は実装・mainマージ済み。残る3件のうち R-3(orchestrator分割)を同日の集中
-> セッションで完了(下記に構成を記載)。次にこの領域を触るセッションは、まずこの
-> ファイルを読む。実装計画の記録: `docs/refactor/plans/2026-08-12-r3-orchestrator-split.md`
+> 2件は実装・mainマージ済み。残る3件(執行アーキテクチャ)も同日の集中セッションで
+> R-3 → R-2 → R-1 の順に完了した。各節の「完了」記録に実装構成を残す。
+> 実装計画の記録: `docs/refactor/plans/2026-08-12-r3-orchestrator-split.md` /
+> `docs/refactor/plans/2026-08-12-r1-r2-executor-and-slots.md`
 
 ## なぜ別立てにしたか
 
@@ -17,7 +18,22 @@
 
 ---
 
-## R-1: watch/executor 分離(ヘルスレビュー deferred 大)
+## R-1: watch/executor 分離(ヘルスレビュー deferred 大)— **完了 2026-08-12**
+
+**実施結果**:
+- `orgh/queue.py` — 永続有界キュー `runs/_queue/<mission_id>.json`(tmp→renameの
+  原子的enqueue・flock claim・クラッシュはOSのflock解放でclaim自動解除)
+- `orgh/watcher.py` — 検知・計画・投入専任に。キュー満杯(`watch.queue_limit`、
+  既定20)は mark_processed 前に見送り、次パスで再試行
+- `orgh/executor.py` — キュー消化デーモン(`watch.parallel_missions` 並列、既定2)。
+  feedback は mission_id から再構築。mission lock 衝突は消化済み扱い。実行系
+  ステータスは `store.load()` の巻き戻しで再開
+- **起動形態**: `orgh watch` は既定で executor を同プロセス併走(単一デーモン運用の
+  互換)。完全な独立ライフサイクルは `orgh watch --watch-only` + 別プロセス
+  `orgh executor`
+- 受け入れ基準3点はテストで担保(tests/test_executor.py / test_queue.py)
+
+### (記録)分割前の問題
 
 **現状の問題**: `orgh/watcher.py` の `watch()` が候補走査ループ内で `run_mission()` を
 **同期実行**する。1件が1時間かかればその間は新規ノートを検知しない。複数候補も直列で、
@@ -48,7 +64,19 @@
 
 ---
 
-## R-2: グローバル並行数制御(ヘルスレビュー deferred 中)
+## R-2: グローバル並行数制御(ヘルスレビュー deferred 中)— **完了 2026-08-12**
+
+**実施結果**:
+- `orgh/slots.py` — `runs/_slots/<pool>/slot_<i>.lock` への flock(EX|NB) による
+  計数セマフォ。プロセス死(kill -9含む)でOSが自動解放(受け入れ基準)
+- 設定: `loop.global_parallel`(worker総枠)/ `loop.global_role_parallel`
+  (planner/reviewer等の別枠)。**いずれも既定 null=無効(挙動不変)**
+- 注入点: worker は `task_executor.attempt_loop`(枠待ち中はattempt未消費・
+  queuedのまま・CANCELで中断)、ロールは `planner._ask_json`(SlotAborted→
+  ロールリトライ層がCancelledDuringRoleへ変換)
+- テスト: tests/test_slots.py 9件(セマフォ特性+配線)
+
+### (記録)導入前の問題
 
 **現状の問題**: `loop.parallel` は**1ミッション内**の同時タスク数上限でしかない。プロセスを
 またいだ枠が無い。`parallel=3` で 10 ミッションを別々の CLI から同時起動すると、最大 30 の
@@ -124,10 +152,12 @@ review/persona・予算・キャンセル・worktree・承認・人間依頼・�
 
 ---
 
-## 着手順の推奨
+## 着手順の推奨(すべて完了)
 
 1. ~~**R-3(orchestrator 分割)を先に**~~ — **完了(2026-08-12)**
-2. **R-1 + R-2 をセットで** — 執行を watch から切り離し、キュー消化にグローバルセマフォを効かせる
+2. ~~**R-1 + R-2 をセットで**~~ — **完了(2026-08-12)**。R-2はconfig未設定なら無効の
+   opt-in。有効化する場合は `loop.global_parallel` を設定する(worker総枠の目安:
+   マシンのメモリとAPIレート制限から。単一マシンなら 4〜6 程度から様子見)
 
 各段階で pytest 全緑・Codex 検証を通し、main へ載せ、ミッション0件の窓で watch 再起動により
 有効化する(このリポの標準運用)。

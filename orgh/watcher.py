@@ -13,40 +13,14 @@
 """
 from __future__ import annotations
 
-import json
 import time
 import traceback
 from pathlib import Path
 
-from . import gc, planner
+from . import planner
 from .queue import enqueue, pending
 from .sources.base import get_source
 from .state import RunStore
-
-
-def _maybe_gc(cfg: dict, runs_dir: str, gc_interval_days) -> None:
-    """playbookの代謝を定期的に自動実行する(HANDOFF タスク6)。
-
-    stateファイルが無ければ現在時刻をベースラインとして書き込むだけで、
-    gcは走らせない(初回パスでいきなり実playbooksを書き換えないため)。
-    """
-    if not gc_interval_days:
-        return
-    state_fp = Path(runs_dir) / "_gc_state.json"
-    now = time.time()
-    if not state_fp.exists():
-        state_fp.parent.mkdir(parents=True, exist_ok=True)
-        state_fp.write_text(json.dumps({"last_gc": now}))
-        return
-    last_gc = json.loads(state_fp.read_text()).get("last_gc", now)
-    if now - last_gc < gc_interval_days * 86400:
-        return
-    try:
-        for line in gc.run_gc(cfg):
-            print(line)
-    except Exception as e:
-        print(f"gc failed: {e!r}")
-    state_fp.write_text(json.dumps({"last_gc": now}))
 
 
 def watch(cfg: dict) -> None:
@@ -86,18 +60,15 @@ def watch(cfg: dict) -> None:
                 fb = src.feedback(mission.id)
                 fb.update(mission)  # 着火直後に進行状態を生成
                 src.writeback(note, mission)
-                # 実行はexecutor(orgh/executor.py)がキュー消化で行う(R-1分離)
-                if enqueue(runs_dir, mission.id, note_path=str(note.path),
-                           limit=wcfg.get("queue_limit", 20)):
-                    store.log("watch.enqueued")
-                    print(f"mission {mission.id} queued")
-                else:
-                    # 事前チェック後の競合等で満杯: ミッションは保存済みのため
-                    # orgh resume で手動実行できる
-                    store.log("watch.queue_full")
-                    print(f"[warn] queue full: mission {mission.id} は投入見送り"
-                          f"(orgh resume {mission.id} で実行可)")
-            _maybe_gc(cfg, runs_dir, wcfg.get("gc_interval_days", 14))
+                # 実行はexecutor(orgh/executor.py)がキュー消化で行う(R-1分離)。
+                # 有界性は計画前の事前チェックで担保済み。計画コストを支払った後は
+                # limit=Noneで必ず投入する(ここでFalse見送りにすると、計画中に別
+                # プロデューサがキューを埋めた場合にmark_processed済みノートが
+                # 実行されないまま消費される=サイレントなミッション損失)
+                enqueue(runs_dir, mission.id, note_path=str(note.path),
+                        limit=None)
+                store.log("watch.enqueued")
+                print(f"mission {mission.id} queued")
             time.sleep(interval)
         except KeyboardInterrupt:
             print("\nstopped.")

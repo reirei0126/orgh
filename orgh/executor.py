@@ -9,16 +9,19 @@ watch(検知・計画・キュー投入)から実行を分離する:
 
 起動形態: `orgh executor`(独立デーモン)。`orgh watch` は既定で本モジュールを
 同プロセスの別スレッドに併走させる(単一デーモン運用の互換。この形態では
-watch停止で実行中ミッションも止まる — 完全な独立ライフサイクルが必要なら
-`orgh watch --watch-only` + 別プロセスの `orgh executor` で運用する)。
+watch停止で実行中ミッションも中断される — 中断分はキューに残り再起動で再開。
+完全な独立ライフサイクルが必要なら `orgh watch --watch-only` + 別プロセスの
+`orgh executor` で運用する)。
 """
 from __future__ import annotations
 
+import json
+import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
-from . import planner
+from . import gc, planner
 from .orchestrator import run_mission
 from .queue import claim_next
 from .sources.base import get_source
@@ -76,33 +79,75 @@ def drain(cfg: dict) -> int:
     return n
 
 
+def _maybe_gc(cfg: dict, runs_dir: str, gc_interval_days) -> None:
+    """playbookの代謝を定期的に自動実行する(HANDOFF タスク6)。
+
+    stateファイルが無ければ現在時刻をベースラインとして書き込むだけで、
+    gcは走らせない(初回パスでいきなり実playbooksを書き換えないため)。
+    呼び出し側はミッション非実行時(アイドル)に限定すること: gcのplaybooks
+    書き換えと実行中ミッションのretro追記が競合するとlost updateになる
+    (旧watchは単一スレッドの直列実行でこの排他を暗黙に担保していた)。"""
+    if not gc_interval_days:
+        return
+    state_fp = Path(runs_dir) / "_gc_state.json"
+    now = time.time()
+    if not state_fp.exists():
+        state_fp.parent.mkdir(parents=True, exist_ok=True)
+        state_fp.write_text(json.dumps({"last_gc": now}))
+        return
+    last_gc = json.loads(state_fp.read_text()).get("last_gc", now)
+    if now - last_gc < gc_interval_days * 86400:
+        return
+    try:
+        for line in gc.run_gc(cfg):
+            print(line)
+    except Exception as e:
+        print(f"gc failed: {e!r}")
+    state_fp.write_text(json.dumps({"last_gc": now}))
+
+
 def serve(cfg: dict) -> None:
-    """デーモンループ: watch.parallel_missions 並列でキューを消化し続ける。"""
+    """デーモンループ: watch.parallel_missions 並列でキューを消化し続ける。
+
+    ミッションはdaemonスレッドで実行する(ThreadPoolExecutorは使わない:
+    インタプリタ終了フックがworkerスレッドをjoinするため、Ctrl-C後も
+    実行中ミッションが完了するまでプロセスが終了しない)。Ctrl-C/プロセス
+    終了で実行中ミッションは中断されるが、claimはflock解放で自動的に戻り、
+    再起動時にキューから再開する(store.load()の実行中系巻き戻し)。"""
     wcfg = cfg.get("watch", {})
     interval = wcfg.get("interval", 5)
-    workers = wcfg.get("parallel_missions", 2)
+    workers = wcfg.get("parallel_missions", 1)
     runs_dir = cfg.get("runs_dir", "runs")
     print(f"executor: runs/_queue を消化する (parallel_missions={workers}, "
           f"interval={interval}s). Ctrl-C to stop.")
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        inflight: dict = {}
-        while True:
-            try:
-                for key, fut in list(inflight.items()):
-                    if fut.done():
-                        inflight.pop(key)
-                while len(inflight) < workers:
-                    got = claim_next(runs_dir)
-                    if got is None:
-                        break
-                    entry, release = got
-                    inflight[entry["mission_id"]] = pool.submit(
-                        _consume, cfg, entry, release)
-                time.sleep(interval)
-            except KeyboardInterrupt:
-                print("\nexecutor stopping — 実行中ミッションの完了を待つ")
-                return   # withブロックのexitがinflightの完了を待つ
-            except Exception:
-                # デーモンは死なせない(watchと同じ方針)
-                print(f"executor loop error(継続する):\n{traceback.format_exc()}")
-                time.sleep(interval)
+    inflight: dict[str, threading.Thread] = {}
+    while True:
+        try:
+            for key, th in list(inflight.items()):
+                if not th.is_alive():
+                    inflight.pop(key)
+            while len(inflight) < workers:
+                got = claim_next(runs_dir)
+                if got is None:
+                    break
+                entry, release = got
+                th = threading.Thread(
+                    target=_consume, args=(cfg, entry, release),
+                    daemon=True, name=f"orgh-mission-{entry['mission_id']}")
+                inflight[entry["mission_id"]] = th
+                th.start()
+            if not inflight:
+                # gcはミッション非実行時のみ(playbooks書き換えとretro追記の排他)
+                _maybe_gc(cfg, runs_dir, wcfg.get("gc_interval_days", 14))
+            time.sleep(interval)
+        except KeyboardInterrupt:
+            if inflight:
+                print(f"\nexecutor stopped — 実行中 {len(inflight)} 件は中断"
+                      f"(claimはflock解放で戻り、再起動でキューから再開する)")
+            else:
+                print("\nexecutor stopped.")
+            return
+        except Exception:
+            # デーモンは死なせない(watchと同じ方針)
+            print(f"executor loop error(継続する):\n{traceback.format_exc()}")
+            time.sleep(interval)

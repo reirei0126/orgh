@@ -31,6 +31,7 @@ export interface MissionSummary {
  * それ以外(pending/running混在)="running"。 */
 export type MissionListStatus =
   | "empty"
+  | "queued"
   | "running"
   | "done"
   | "failed"
@@ -103,6 +104,7 @@ export interface GatedTask {
  * listing._derive_status と完全に同一規則(0タスクなら "empty")。 */
 export type MissionRunStatus =
   | "empty"
+  | "queued"
   | "running"
   | "done"
   | "failed"
