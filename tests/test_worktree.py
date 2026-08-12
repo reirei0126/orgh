@@ -317,3 +317,20 @@ class TestNewProjectBootstrap:
         assert m.tasks[0].status == "done"
         assert (target / "out1.txt").exists()
         assert not (target / ".git").exists()  # worktree無効時はgit初期化しない
+
+
+class TestCleanupClearsStaleRefs:
+    """cleanup後のresumeが削除済みworktreeを再利用しないこと(ヘルスレビュー
+    2026-08-12: cleanup後のresumeが空の孤立リポで実行される問題の回帰)。"""
+
+    def test_cleanup_resets_branch_and_workdir(self, wt_cfg, repo, mock_state_dir):
+        from orgh.worktree import cleanup_mission_worktrees
+        m = _mission([_task("t1", str(repo), write="out1.txt")])
+        run_mission(wt_cfg, m, RunStore(wt_cfg["runs_dir"], m.id))
+        # マージしてからcleanup(未マージは保持ガードで消えない)
+        _git(repo, "merge", "-q", "--no-ff", "-m", "merge t1",
+             f"orgh/{m.id}/t1")
+        cleanup_mission_worktrees(m)
+        # 参照が主リポへリセットされ、後続resumeがworktreeを作り直せる
+        assert m.tasks[0].branch is None
+        assert m.tasks[0].workdir == str(repo)

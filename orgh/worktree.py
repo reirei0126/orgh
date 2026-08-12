@@ -148,4 +148,10 @@ def cleanup_mission_worktrees(mission) -> list[str]:
         else:
             logs.append(f"{t.id}: branch削除に失敗 ({br.stderr.strip()})")
 
+        # 削除したworktree/branchへの参照をmission.jsonから外す。残すと後続の
+        # resumeが「既存worktree」と誤認して空の孤立リポで実行してしまう。
+        # workdirは主リポへ戻す(resumeがそこにworktreeを作り直せるように)
+        t.branch = None
+        t.workdir = str(main_repo)
+
     return logs

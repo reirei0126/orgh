@@ -94,3 +94,9 @@ def watch(cfg: dict) -> None:
         except KeyboardInterrupt:
             print("\nstopped.")
             return
+        except Exception:
+            # デーモンは死なせない: gc状態ファイル破損・入力ソースのI/O一時失敗
+            # などの未捕捉例外でwatchが停止すると、以降ノート等を投稿しても自動
+            # 着火しなくなる(サイレント運用停止)。ログを残し次ループへ継続する
+            print(f"watch loop error(継続する):\n{traceback.format_exc()}")
+            time.sleep(interval)

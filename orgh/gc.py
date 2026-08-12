@@ -105,6 +105,14 @@ def _gc_runs(cfg: dict) -> list[str]:
             created_at = data["created_at"]
         except (OSError, KeyError, json.JSONDecodeError):
             continue  # 読めなければスキップ
+        # 未決着(承認待ち・人間依頼待ち・未着手/実行中残り)ミッションは古くても
+        # 保持する。移動するとapprove/humandone/resumeがFileNotFoundErrorで拾えず
+        # 作業が孤立する。終端(done/failed/cancelled)と空(タスク0件で孤立作業
+        # なし)のみアーカイブ対象(created_at基準だけの誤判定を防ぐ)
+        from .listing import _derive_status
+        status = _derive_status(data.get("tasks", []))
+        if status not in ("done", "failed", "cancelled", "empty"):
+            continue
         if created_at < cutoff:
             archive_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(d), str(archive_dir / d.name))

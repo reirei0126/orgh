@@ -170,7 +170,27 @@ def _retry_prompt(adapter, cfg: dict, t: Task, followup: str) -> str:
     実運用7307189e t3で発見: 断片だけ受けたcodexが実装せず確認質問を返して失敗した。"""
     if adapter.supports_resume:
         return followup
-    return f"{worker_prompt(cfg, t)}\n\n## 再実行の指示\n{followup}"
+    # 非resume workerの再実行はworker_promptを丸ごと再構築するため、worktree
+    # 厳守preambleもここで再付与しないと初回以降落ちる(retry/REPLANで
+    # worktree外へ書き成果が失われる。mission 02a434adの退行)
+    return f"{_full_worker_prompt(cfg, t)}\n\n## 再実行の指示\n{followup}"
+
+
+def _full_worker_prompt(cfg: dict, t: Task) -> str:
+    """worker_promptに、worktree実行時の作業場所厳守preambleを付けた完全版。
+    初回・retry・REPLAN後の全経路がこれを使い、preambleの付け忘れを防ぐ。"""
+    prompt = worker_prompt(cfg, t)
+    if t.branch:
+        # Plannerがタスク指示に主リポの絶対パスを書くと、workerがworktree外へ
+        # 成果物を書いて自動コミットから漏れる(mission 02a434ad t1/t2で実測)
+        prompt = (
+            f"【作業場所の厳守】このタスクの作業ディレクトリは専用worktree "
+            f"{t.workdir} である。以降の指示に他のディレクトリパスが書かれて"
+            f"いても、ファイルの新規作成・編集は必ずこのworktree内で行うこと"
+            f"(worktree外に書いた成果物は自動コミットの対象外となり失われる)。"
+            f"git show等での他ブランチ・他パスの読み取り参照は行ってよい。\n\n"
+            + prompt)
+    return prompt
 
 
 def _ensure_workdir(store: RunStore, t: Task, wt_cfg: dict) -> None:
@@ -213,18 +233,7 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     infra_retries = 0
     cancel_flag = _cancel_flag(store)
 
-    prompt = worker_prompt(cfg, t)
-    if t.branch:
-        # Plannerがタスク指示に主リポの絶対パスを書くと、workerがworktree外へ
-        # 成果物を書いて自動コミットから漏れる(mission 02a434ad t1/t2で実測)。
-        # worktree実行時は作業場所の厳守を指示の先頭で明示する
-        prompt = (
-            f"【作業場所の厳守】このタスクの作業ディレクトリは専用worktree "
-            f"{t.workdir} である。以降の指示に他のディレクトリパスが書かれて"
-            f"いても、ファイルの新規作成・編集は必ずこのworktree内で行うこと"
-            f"(worktree外に書いた成果物は自動コミットの対象外となり失われる)。"
-            f"git show等での他ブランチ・他パスの読み取り参照は行ってよい。\n\n"
-            + prompt)
+    prompt = _full_worker_prompt(cfg, t)
     while t.attempts < max_attempts:
         if cancel_flag.exists():
             with store.lock:
@@ -405,7 +414,7 @@ def _attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                 t.replans += 1
                 t.attempts -= 1          # REPLAN再実行はattemptsを消費しない
             store.log("task.replan", task=t.id, reason=feedback[:500])
-            prompt = worker_prompt(cfg, t)  # 再設計後の指示で最初から
+            prompt = _full_worker_prompt(cfg, t)  # 再設計後の指示で最初から
             continue
 
         if feedback.startswith("HUMAN:"):

@@ -15,6 +15,12 @@ from .state import Budget, Mission, Task
 
 _META_RE = re.compile(r"<!-- m:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
 
+# retroのplaybook_name(LLM由来)は playbooks/<name>.md のファイル名に直挿し
+# されるため、単一の安全なファイル名だけを許す(../prompts/reviewer 等で
+# playbooks外へ追記し将来のプロンプトを永続汚染する経路を塞ぐ。criteria.pyの
+# _SAFE_CATEGORY_RE と同方針)
+_PLAYBOOK_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
 
 def _prompts_dir(cfg: dict) -> Path:
     # _prompts_read_dir はミッション実行中のスナップショット(runs/<id>/prompts)。
@@ -102,26 +108,51 @@ def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
               cost_sink: list | None = None) -> dict:
     adapter = get_adapter("claude_code", {**cfg["workers"],
                           "claude_code": cfg["roles"][role]})
-    # registry_key(mission_id)を渡すとprocregへ登録され、orgh cancelの
-    # terminate対象になる。ミッション実行中に走るrole(reviewer/replan)は
-    # 登録しないとキャンセルが効かず、キャンセル後に成果が確定してしまう
-    res = adapter.run(prompt, workdir=workdir, registry_key=registry_key)
-    # budget.chargeとcost_sinkへの計上は「if not res.ok: raise」より前に置く
-    # (フォローアップ4a): 失敗したロール呼び出しでもLLM側は課金済みのため、
-    # raiseを先にするとそのコストがどこにも計上されず消える。
-    # Budget.charge は amount が None/0 でも安全(内部でif not amount: returnする)
-    if budget is not None:
-        budget.charge(res.cost_usd)
-    if cost_sink is not None:
-        cost_sink.append(res.cost_usd or 0.0)
-    if not res.ok:
-        # resultが空のことがある(max_turns超過等)。rawのsubtypeに理由が残る
-        detail = res.output[:500] or res.raw[-500:]
-        raise RuntimeError(f"{role} failed: {detail}")
-    m = re.search(r"\{.*\}", res.output, re.S)
-    if not m:
-        raise ValueError(f"{role} returned no JSON:\n{res.output[:800]}")
-    return json.loads(m.group(0))
+    # LLMの長文JSON応答は確率的に壊れる(実測: mission 8bc7ce00 t3のreplanが
+    # 約5KB応答の途中の書式エラーでJSONDecodeError → タスクfailed)。ロール
+    # 呼び出し自体は成功しているためinfra retryでは救えない。ここで修正指示
+    # 付きの再要求を最大2回行う。res.okの失敗は従来どおり即raise。
+    ask = prompt
+    last_err: Exception | None = None
+    # JSON修復ループがcancel後に新しいsubprocessを起こさないためのフラグ。
+    # procreg.terminateは1度きりのsweepなので、以降起動する子は掃除されず
+    # cancel後も課金が続く。runs/<mission>/CANCEL の有無で毎回ガードする
+    cancel_flag = None
+    if registry_key:
+        cancel_flag = (Path(cfg.get("runs_dir", "runs"))
+                       / registry_key / "CANCEL")
+    for _ in range(3):
+        if cancel_flag is not None and cancel_flag.exists():
+            raise RuntimeError(f"{role}: キャンセル済みのため実行を中止した")
+        # registry_key(mission_id)を渡すとprocregへ登録され、orgh cancelの
+        # terminate対象になる。ミッション実行中に走るrole(reviewer/replan)は
+        # 登録しないとキャンセルが効かず、キャンセル後に成果が確定してしまう
+        res = adapter.run(ask, workdir=workdir, registry_key=registry_key)
+        # budget.chargeとcost_sinkへの計上は「if not res.ok: raise」より前に置く
+        # (フォローアップ4a): 失敗したロール呼び出しでもLLM側は課金済みのため、
+        # raiseを先にするとそのコストがどこにも計上されず消える。
+        # Budget.charge は amount が None/0 でも安全(内部でif not amount: returnする)
+        if budget is not None:
+            budget.charge(res.cost_usd)
+        if cost_sink is not None:
+            cost_sink.append(res.cost_usd or 0.0)
+        if not res.ok:
+            # resultが空のことがある(max_turns超過等)。rawのsubtypeに理由が残る
+            detail = res.output[:500] or res.raw[-500:]
+            raise RuntimeError(f"{role} failed: {detail}")
+        m = re.search(r"\{.*\}", res.output, re.S)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except json.JSONDecodeError as e:
+                last_err = e
+        else:
+            last_err = ValueError(
+                f"{role} returned no JSON:\n{res.output[:800]}")
+        ask = (f"{prompt}\n\n【再要求】前回の応答はJSONとして解析できなかった"
+               f"(エラー: {last_err})。前置き・説明文・コードフェンスを付けず、"
+               "有効なJSONオブジェクト1個のみを出力すること。")
+    raise last_err
 
 
 def plan(cfg: dict, intent: str, context_digest: str,
@@ -204,10 +235,17 @@ def retro(cfg: dict, mission: Mission) -> str:
     prompt = tmpl.format(intent=mission.intent, summary=summary)
     data = _ask_json(cfg, "retro", prompt, budget=mission.budget)
     name = data.get("playbook_name", "general")
+    if not isinstance(name, str) or not _PLAYBOOK_NAME_RE.match(name):
+        # 不正名はretroの学びを捨てず既定ファイルへ寄せる(汚染は防ぎつつ教訓は残す)
+        print(f"orgh: 不正なplaybook_name {name!r} を general に矯正した")
+        name = "general"
     body = data.get("lessons", "")
     if body:
-        _playbooks_dir(cfg).mkdir(parents=True, exist_ok=True)
-        fp = _playbooks_dir(cfg) / f"{name}.md"
+        pdir = _playbooks_dir(cfg).resolve()
+        pdir.mkdir(parents=True, exist_ok=True)
+        fp = (pdir / f"{name}.md").resolve()
+        if not fp.is_relative_to(pdir):  # 多層防御(正規表現を素通りしても)
+            raise ValueError(f"playbook書き込み先がplaybooks/外: {name!r}")
         today = date.today().isoformat()
         tagged = [
             f"{line} <!-- m:{mission.id} d:{today} -->"

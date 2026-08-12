@@ -256,8 +256,32 @@ class Mission:
             id=uuid.uuid4().hex[:8],
             intent=intent,
             context_digest=context_digest,
-            tasks=[Task(**t) for t in tasks],
+            tasks=[build_task(t) for t in tasks],
         )
+
+
+# task.id はartifact名・worktreeパス・gitブランチに直挿しされるため、
+# パストラバーサル(../)やシェル・git参照メタ文字を含めない形式に限定する。
+# LLM(Planner)由来の値を信頼せず、Mission生成・load時に強制する。
+_TASK_ID_RE = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+# Taskデータクラスの既知フィールド名(LLM由来のdictから未知キーを除去する)
+_TASK_FIELDS = frozenset(f.name for f in fields(Task))
+
+
+def build_task(data: dict) -> Task:
+    """LLM(Planner/REPLAN)由来のtask dictを検証してTaskにする。
+
+    - 未知キー(priority/description等のスキーマ揺れ)は黙って落とす
+      (従来はTask(**t)がTypeErrorで即死し、runs/もコスト記録も残らなかった)
+    - id は _TASK_ID_RE で強制(パストラバーサル・git参照汚染の防止)
+    """
+    known = {k: v for k, v in data.items() if k in _TASK_FIELDS}
+    tid = known.get("id")
+    if not isinstance(tid, str) or not _TASK_ID_RE.match(tid):
+        raise ValueError(
+            f"不正なtask.id: {tid!r}(英数字始まり・[A-Za-z0-9_-]・64字以内が必須)")
+    return Task(**known)
 
 
 # 実行中にクラッシュした場合、ロード時にpendingへ巻き戻す(デッドロック解消)
@@ -285,7 +309,9 @@ class RunStore:
 
     def load(self, reset_inflight: bool = True) -> Mission:
         data = json.loads((self.dir / "mission.json").read_text())
-        data["tasks"] = [Task(**t) for t in data["tasks"]]
+        # 永続化済みmission.jsonのtaskも同じ検証を通す。id検証は書き込み時に
+        # 済んでいるが、手編集・旧形式・未知キー混入への防御を読み取りにも掛ける
+        data["tasks"] = [build_task(t) for t in data["tasks"]]
         if data.get("budget"):
             data["budget"] = Budget(**data["budget"])
         mission = Mission(**data)
@@ -305,8 +331,13 @@ class RunStore:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     def artifact(self, name: str, content: str) -> Path:
-        p = self.dir / "artifacts"
+        p = (self.dir / "artifacts").resolve()
         p.mkdir(exist_ok=True)
-        fp = p / name
+        # nameにtask.id等が埋め込まれるため、resolve後にartifacts配下から
+        # 外れる名前(../を含む等)は拒否する(パストラバーサルの多層防御)
+        fp = (p / name).resolve()
+        if not fp.is_relative_to(p):
+            raise ValueError(f"artifact名がartifacts/外を指す: {name!r}")
+        fp.parent.mkdir(parents=True, exist_ok=True)
         fp.write_text(content)
         return fp

@@ -358,6 +358,9 @@ def main() -> None:
     elif args.cmd == "cleanup":
         for line in worktree.cleanup_mission_worktrees(mission):
             print(line)
+        # cleanupが削除したworktree/branch参照の除去をmission.jsonへ永続化する
+        # (保存しないと後続resumeが古い参照で孤立リポを再作成する)
+        store.save(mission)
     elif args.cmd == "approve":
         # 自己改変ガードの解除はこのコマンドのみ(watcher/configからは不可)。
         # 承認待ちタスクが無いのにAPPROVEDを先置きするとガード発火前のミッションを
@@ -407,16 +410,32 @@ def main() -> None:
         _summary(mission, store)
     elif args.cmd == "cancel":
         # フラグが唯一の停止信号: 実行中プロセス側がループごとに検知して
-        # subprocessをterminateする。ここでは未着手をcancelledに確定するだけ
+        # subprocessをterminateする。フラグ設置は常に行う。
         (store.dir / "CANCEL").touch()
-        for t in mission.tasks:
-            # awaiting_approvalは実行プロセスが既に終了しているため、ここで
-            # 確定させないと永遠に承認待ち表示のまま残る
-            if t.status in ("pending", "awaiting_approval"):
-                t.status = "cancelled"
-        store.save(mission)
-        print(f"mission {mission.id} にCANCELフラグを置いた。"
-              f"実行中のプロセスがあればまもなく停止する")
+        # 状態の確定は実行ロックが取れたとき(=executorが走っていない)だけ行う。
+        # ロックを取らずにload→mutate→saveすると、executorの最終保存を古い
+        # スナップショットで上書きし、完了タスクをrunning表示のまま固定してしまう
+        from .orchestrator import acquire_mission_lock
+        lock_fp = acquire_mission_lock(store)
+        if lock_fp is None:
+            print(f"mission {mission.id} にCANCELフラグを置いた。"
+                  f"実行中プロセスが検知してまもなく停止する"
+                  f"(状態の確定は実行側に委ねる)")
+        else:
+            try:
+                # reset_inflight=False: 実行中(running/review)タスクはここで
+                # 触らず実行側の最終確定に委ねる。cancelが確定するのは未着手系のみ
+                mission = store.load(reset_inflight=False)
+                for t in mission.tasks:
+                    # 実行プロセスは居ないので、未着手・承認待ちをここで確定する
+                    if t.status in ("pending", "awaiting_approval",
+                                    "awaiting_human"):
+                        t.status = "cancelled"
+                store.save(mission)
+            finally:
+                lock_fp.close()
+            print(f"mission {mission.id} にCANCELフラグを置き、未着手を"
+                  f"cancelledに確定した")
         _sync_results_note(cfg, mission, store)
         _summary(mission, store)
     else:  # resume
