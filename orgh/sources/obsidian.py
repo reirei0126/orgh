@@ -38,20 +38,48 @@ def _parse(p: Path) -> Note:
 
 
 def scan_vault(vault: str | Path, inbox: str = "inbox",
-               mission_tag: str = "mission") -> tuple[list[Note], dict[str, Note]]:
-    """returns (mission candidate notes, title->Note index of whole vault)"""
+               mission_tag: str = "mission",
+               cache: dict | None = None) -> tuple[list[Note], dict[str, Note]]:
+    """returns (mission candidate notes, title->Note index of whole vault)
+
+    cache(path文字列 -> (mtime, size, Note))を渡すと、mtime・sizeが変わって
+    いないファイルは再読込・再parseせずキャッシュを再利用する。watchは5秒ごとに
+    全vaultを走査するため、これが無いと1万ノート規模で全文再読込が毎回走る
+    (論理読込量が1日TB級になる。ヘルスレビュー deferred: vault再読込)。
+    """
     vault = Path(vault).expanduser()
     index: dict[str, Note] = {}
     candidates: list[Note] = []
+    seen: set[str] = set()
     for p in vault.rglob("*.md"):
         if any(part.startswith(".") for part in p.parts):
             continue
-        n = _parse(p)
+        key = str(p)
+        seen.add(key)
+        n = None
+        if cache is not None:
+            try:
+                st = p.stat()
+            except OSError:
+                st = None
+            hit = cache.get(key)
+            if st is not None and hit is not None \
+                    and hit[0] == st.st_mtime and hit[1] == st.st_size:
+                n = hit[2]  # 変更なし: 再parseしない
+            elif st is not None:
+                n = _parse(p)
+                cache[key] = (st.st_mtime, st.st_size, n)
+        if n is None:
+            n = _parse(p)
         index[n.title] = n
         # パス部品と同様にinbox名も小文字化する("00-Inbox"等の大文字入りに対応)
         in_inbox = inbox.lower() in (part.lower() for part in p.parts)
         if in_inbox or mission_tag in n.tags:
             candidates.append(n)
+    if cache is not None:
+        # 消えたファイルのキャッシュは落とす(vault縮小時のメモリ肥大防止)
+        for stale in [k for k in cache if k not in seen]:
+            del cache[stale]
     return candidates, index
 
 
@@ -134,10 +162,12 @@ class ObsidianAdapter(SourceAdapter):
         self.ws = WatchState(cfg.get("runs_dir", "runs"))
         self._index: dict[str, Note] = {}  # 直近scanのtitle->Note(build_context/find用)
         self._candidates: list[Note] = []  # 直近scanの候補一覧(find用)
+        self._scan_cache: dict = {}  # path -> (mtime, size, Note): poll間で再parse省略
 
     # --- ミッション候補 -----------------------------------------------------
     def list_candidates(self) -> list[Note]:
-        cands, index = scan_vault(self.vault, self.inbox, self.mission_tag)
+        cands, index = scan_vault(self.vault, self.inbox, self.mission_tag,
+                                  cache=self._scan_cache)
         self._index = index
         self._candidates = cands
         return cands

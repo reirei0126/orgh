@@ -6,6 +6,7 @@ report.py と同様、RunStore.load()(実行中系ステータスの巻き戻し
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 _MAX_INTENT_LEN = 60
@@ -108,43 +109,104 @@ def list_missions(runs_dir: str | Path) -> list[dict]:
     return list_missions_report(runs_dir)["missions"]
 
 
+def _dir_signature(d: Path) -> str:
+    """mission.json と ledger.jsonl の mtime/size からキャッシュ鍵を作る。
+    どちらかが変われば鍵が変わり、キャッシュは自動失効する。"""
+    parts = []
+    for name in ("mission.json", "ledger.jsonl"):
+        try:
+            st = (d / name).stat()
+            parts.append(f"{st.st_mtime_ns}:{st.st_size}")
+        except OSError:
+            parts.append("-")
+    return "|".join(parts)
+
+
+def _summarize_mission(d: Path) -> dict:
+    """1ミッションディレクトリの一覧用サマリを組み立てる(全読み経路)。"""
+    mission = json.loads((d / "mission.json").read_text())
+    tasks = mission.get("tasks", [])
+    budget = mission.get("budget")
+    status = _derive_status(tasks)
+    created_ts, finished_ts = _mission_times(d, status)
+    return {
+        "mission_id": mission["id"],
+        "intent": _summarize_intent(mission.get("intent", "")),
+        "status": status,
+        "cost_usd": (budget or {}).get("spent_usd", 0.0) or 0.0,
+        "tasks_done": sum(1 for t in tasks if t.get("status") == "done"),
+        "tasks_total": len(tasks),
+        "created_ts": created_ts,
+        "finished_ts": finished_ts,
+    }
+
+
+# 終端(以降サマリが変わらない)ミッションのみキャッシュ対象にする。
+# 実行中・承認待ちは毎回集計(件数が少なく、鍵も変わり続けるため)
+_CACHEABLE = ("done", "failed", "cancelled", "empty")
+
+
+def _load_index(root: Path) -> dict:
+    try:
+        data = json.loads((root / "_index.json").read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_index(root: Path, index: dict) -> None:
+    # ベストエフォート: 索引は高速化のためだけの派生データ。書けなくても
+    # 一覧自体は成立する(次回また全読みするだけ)。atomicに置換する
+    try:
+        # pid付きtmpで並行writer(GUIポーリング+watch)のクロバーを避ける
+        tmp = root / f"._index.json.{os.getpid()}.tmp"
+        tmp.write_text(json.dumps(index, ensure_ascii=False))
+        tmp.replace(root / "_index.json")
+    except OSError:
+        pass
+
+
 def list_missions_report(runs_dir: str | Path) -> dict:
     """一覧に加え、読めなかったミッションを skipped として明示的に返す。
 
     破損mission.jsonを黙って読み飛ばすと、GUI/CLIが「0件」と「データ破損」を
     区別できず、データ消失を「まだミッションがありません」と誤表示する。
+
+    runs/_index.json に終端ミッションのサマリをmtime署名つきで永続キャッシュし、
+    GUIの数秒ポーリング(サブプロセス起動のため毎回全読み)での全runs線形走査を
+    避ける(ヘルスレビュー deferred: list/report線形走査)。索引は派生データで、
+    壊れても/消えても一覧は全読みで正しく再構築される。
     """
     root = Path(runs_dir)
     if not root.exists():
         return {"missions": [], "skipped": []}
 
+    old_index = _load_index(root)
+    new_index: dict = {}
     out: list[dict] = []
     skipped: list[dict] = []
     for d in sorted(root.iterdir()):
-        if not d.is_dir():
-            continue
+        if not d.is_dir() or d.name.startswith("_"):
+            continue  # _archive 等の内部ディレクトリは対象外
         mp = d / "mission.json"
         if not mp.exists():
             continue
-        try:
-            mission = json.loads(mp.read_text())
-            tasks = mission.get("tasks", [])
-            budget = mission.get("budget")
-            status = _derive_status(tasks)
-            created_ts, finished_ts = _mission_times(d, status)
-            out.append({
-                "mission_id": mission["id"],
-                "intent": _summarize_intent(mission.get("intent", "")),
-                "status": status,
-                "cost_usd": (budget or {}).get("spent_usd", 0.0) or 0.0,
-                "tasks_done": sum(1 for t in tasks if t.get("status") == "done"),
-                "tasks_total": len(tasks),
-                "created_ts": created_ts,
-                "finished_ts": finished_ts,
-            })
-        except Exception as e:
-            skipped.append({"path": str(mp), "reason": f"{type(e).__name__}: {e}"})
-            continue
+        sig = _dir_signature(d)
+        cached = old_index.get(d.name)
+        if cached and cached.get("sig") == sig and "summary" in cached:
+            summary = cached["summary"]  # 署名一致: 再読込しない
+        else:
+            try:
+                summary = _summarize_mission(d)
+            except Exception as e:
+                skipped.append({"path": str(mp),
+                                "reason": f"{type(e).__name__}: {e}"})
+                continue
+        out.append(summary)
+        if summary["status"] in _CACHEABLE:
+            new_index[d.name] = {"sig": sig, "summary": summary}
+
+    _save_index(root, new_index)
 
     # 起票日時の新しい順(idは16進乱数で並び順に意味が無い)。
     # ledgerが無くcreated_ts不明のものは末尾、同点はid順で安定させる
