@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -43,11 +44,21 @@ def mock_state_dir(tmp_path, monkeypatch) -> Path:
 
 
 @pytest.fixture
-def cfg(tmp_path, mock_state_dir) -> dict:
+def playbooks_dir(tmp_path) -> Path:
+    """リポジトリのplaybooksをtmpへ複製する。retro/gcは実際に追記・統合・
+    バックアップを行うため、REPO/playbooks を直接指すとテストが作業ツリーを
+    書き換えてしまう。"""
+    d = tmp_path / "_playbooks"
+    shutil.copytree(REPO / "playbooks", d)
+    return d
+
+
+@pytest.fixture
+def cfg(tmp_path, mock_state_dir, playbooks_dir) -> dict:
     return {
         "runs_dir": str(tmp_path / "runs"),
         "prompts_dir": str(REPO / "prompts"),
-        "playbooks_dir": str(REPO / "playbooks"),
+        "playbooks_dir": str(playbooks_dir),
         "workers": {
             "enabled": ["claude_code", "codex"],
             "claude_code": {"bin": MOCK_CLAUDE, "model": "sonnet",

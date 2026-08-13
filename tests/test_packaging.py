@@ -16,7 +16,8 @@ REPO = Path(__file__).resolve().parent.parent
 
 class TestPackaging:
     def test_pip_install_noneditable_then_orgh_run(self, tmp_path,
-                                                   mock_state_dir):
+                                                   mock_state_dir,
+                                                   playbooks_dir):
         venv = tmp_path / "venv"
         subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True,
                        capture_output=True)
@@ -31,7 +32,7 @@ class TestPackaging:
         cfg = {
             "runs_dir": str(workdir / "runs"),
             "prompts_dir": str(REPO / "prompts"),
-            "playbooks_dir": str(REPO / "playbooks"),
+            "playbooks_dir": str(playbooks_dir),
             "workers": {"enabled": ["claude_code"],
                         "claude_code": {"bin": MOCK_CLAUDE}},
             "roles": {"planner": {"bin": MOCK_CLAUDE},
