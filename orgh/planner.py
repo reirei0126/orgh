@@ -8,11 +8,12 @@ import json
 import re
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from .adapters.base import get_adapter
 from .criteria import criteria_context
 from .slots import acquire_slot
-from .state import TERMINAL, Budget, Mission, Task
+from .state import TERMINAL, Budget, Mission, Task, acceptance_lines
 
 _META_RE = re.compile(r"<!-- m:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
 
@@ -192,19 +193,56 @@ def build_review_prompt(cfg: dict, task: Task) -> str:
     """プロンプトテンプレートへ判断基準を注入してReviewerプロンプトを構築する。"""
     tmpl = _read_prompt(cfg, "reviewer.md")
     return tmpl.format(title=task.title, prompt=task.prompt,
-                       acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                       acceptance=acceptance_lines(task),
                        output=task.last_output[:12000],
                        criteria=criteria_context(cfg))
+
+
+_AC_VERDICT_VALUES = frozenset({"pass", "fail", "not_applicable"})
+
+
+def _sanitize_ac_verdicts(raw: Any, task: Task) -> tuple[list[dict], int]:
+    """ReviewerがLLM由来で返す ac_verdicts を検証・矯正する(信用しない)。
+
+    - リストでなければ何も無かったものとして扱う(([], 0))
+    - 各要素はdictで id/verdict/reason を持つこと。id はtask.acceptanceに
+      実在するACのidであること。verdictはpass|fail|not_applicableのみ。
+      reasonは空でない文字列であること。1つでも欠ければその要素を落とす
+    - 例外は投げない。戻り値は (サニタイズ済み配列, 落とした要素数)
+    """
+    if not isinstance(raw, list):
+        return [], 0
+    valid_ids = {ac["id"] for ac in task.acceptance
+                if isinstance(ac, dict) and isinstance(ac.get("id"), str)}
+    out: list[dict] = []
+    dropped = 0
+    for item in raw:
+        if not isinstance(item, dict):
+            dropped += 1
+            continue
+        ac_id = item.get("id")
+        verdict = item.get("verdict")
+        reason = item.get("reason")
+        if (not isinstance(ac_id, str) or ac_id not in valid_ids
+                or verdict not in _AC_VERDICT_VALUES
+                or not isinstance(reason, str) or not reason.strip()):
+            dropped += 1
+            continue
+        out.append({"id": ac_id, "verdict": verdict, "reason": reason[:500]})
+    return out, dropped
 
 
 def review(cfg: dict, task: Task, workdir: str,
           budget: Budget | None = None,
           registry_key: str | None = None,
-          cost_sink: list | None = None) -> tuple[bool, str]:
+          cost_sink: list | None = None) -> tuple[bool, str, list[dict], int]:
     data = _ask_json(cfg, "reviewer", build_review_prompt(cfg, task),
                      workdir=workdir, budget=budget, registry_key=registry_key,
                      cost_sink=cost_sink)
-    return bool(data.get("pass")), data.get("feedback", "")
+    ac_verdicts, ac_verdicts_dropped = _sanitize_ac_verdicts(
+        data.get("ac_verdicts"), task)
+    return (bool(data.get("pass")), data.get("feedback", ""),
+           ac_verdicts, ac_verdicts_dropped)
 
 
 _PERSONA_ROLE_DEFAULT = {"model": "sonnet", "max_turns": 30,
@@ -227,7 +265,7 @@ def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
     cfg = role_with_default(cfg, role, _PERSONA_ROLE_DEFAULT)
     tmpl = _read_prompt(cfg, f"{role}.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
-                         acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                         acceptance=acceptance_lines(task),
                          output=task.last_output[:12000],
                          criteria=criteria_context(cfg))
     data = _ask_json(cfg, role, prompt, workdir=workdir, budget=budget,
@@ -310,7 +348,7 @@ def replan_task(cfg: dict, task: Task, reason: str,
     Plannerに再設計させる(HANDOFF タスク5)。"""
     tmpl = _read_prompt(cfg, "replan.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
-                         acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                         acceptance=acceptance_lines(task),
                          reason=reason)
     return _ask_json(cfg, "planner", prompt, budget=budget,
                      registry_key=registry_key)
@@ -339,7 +377,7 @@ def build_human_request(mission_id: str, task: Task, reason: str) -> tuple[str, 
     """
     reason_flat = " ".join(reason.split())
     brief = _elide(f"「{task.title}」の完了に人間の対応が必要: {reason_flat}", 100)
-    acceptance = "\n".join(f"- {a}" for a in task.acceptance) or "- (未指定)"
+    acceptance = acceptance_lines(task) or "- (未指定)"
     body = (
         f"{brief}\n\n"
         f"## 何をするか\n{task.prompt}\n\n"
@@ -355,5 +393,5 @@ def build_human_request(mission_id: str, task: Task, reason: str) -> tuple[str, 
 def worker_prompt(cfg: dict, task: Task) -> str:
     tmpl = _read_prompt(cfg, "worker_preamble.md")
     return tmpl.format(title=task.title, prompt=task.prompt,
-                       acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                       acceptance=acceptance_lines(task),
                        playbooks=_playbook_context(cfg, 4000))

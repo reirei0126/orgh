@@ -71,4 +71,6 @@ class TestReplan:
         t = m.tasks[0]
         assert t.status == "done"
         assert t.attempts == 2                      # 通常差し戻しはattempt消費
-        assert t.acceptance == ["いい感じにする"]     # 再設計されない
+        # 再設計されない(build_task正規化後のAC最小構造のまま)
+        assert t.acceptance == [{"id": "AC-1", "text": "いい感じにする",
+                                 "verify": None, "evidence": None}]

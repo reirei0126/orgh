@@ -331,12 +331,17 @@ def main() -> None:
         task.last_output = args.note
         store.log("task.human_report", task=task.id, note=args.note[:500])
         cost_sink: list[float] = []
-        passed, feedback = planner.review(
+        passed, feedback, ac_verdicts, ac_verdicts_dropped = planner.review(
             cfg, task, workdir=task.workdir, budget=mission.budget,
             registry_key=store.dir.name, cost_sink=cost_sink)
         task.cost_usd += sum(cost_sink)
         task.review_notes = feedback
-        store.log("task.review", task=task.id, passed=passed)
+        log_kw: dict = {"task": task.id, "passed": passed}
+        if ac_verdicts:
+            log_kw["ac_verdicts"] = ac_verdicts
+        if ac_verdicts_dropped:
+            log_kw["ac_verdicts_dropped"] = ac_verdicts_dropped
+        store.log("task.review", **log_kw)
 
         if passed:
             commit = worktree.commit_task_result(task, store.dir.name)
