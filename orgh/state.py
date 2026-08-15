@@ -19,6 +19,8 @@ from typing import Any
 
 import yaml
 
+from . import lease
+
 
 class ConfigError(ValueError):
     """必須キー欠落・型不一致など、続行不能なconfig欠陥。"""
@@ -330,8 +332,12 @@ class RunStore:
         mission = Mission(**data)
         # 実行中系→pendingの巻き戻しはクラッシュ後の再実行(run/resume/approve)用。
         # 読み取り専用の照会(status等)でこれを適用すると実行中タスクを
-        # pendingと偽るため、reset_inflight=Falseで生の永続状態を返せるようにする
-        if reset_inflight:
+        # pendingと偽るため、reset_inflight=Falseで生の永続状態を返せるようにする。
+        # reset_inflight=Trueでも、永続lease(orgh/lease.py)が生きている場合は
+        # 別プロセスが実際に走っている証拠なので巻き戻さない(生きている
+        # プロセスの状態を偽らない)。leaseが無い/失効している場合のみ、
+        # 従来どおりクラッシュ復旧として巻き戻す
+        if reset_inflight and not lease.is_alive(self.dir):
             for t in mission.tasks:
                 if t.status in _INFLIGHT_STATUSES:
                     t.status = "pending"

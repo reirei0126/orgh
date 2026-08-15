@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import fcntl
 import shutil
+import time
 from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
+from .. import lease
 from ..guard import needs_approval
 from ..state import TERMINAL, Mission, RunStore, Task
 from .budget_policy import initiate_budget_stop, setup_budget
@@ -117,11 +119,21 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
     assign_personas(cfg, mission)
     store.save(mission)
     store.artifact("context_digest.md", mission.context_digest)
+    # 永続lease(orgh/lease.py): 実行開始時に起動世代を取得し、以後
+    # HEARTBEAT_INTERVAL_SECごとに更新する。再起動後の他プロセス(GUI/CLI)が
+    # 「表示上は実行中系のタスクの背後で本当にプロセスが生きているか」を
+    # 判定できるようにする(RunStore.load(reset_inflight=True)が参照する)
+    lease.acquire(store.dir)
+    last_heartbeat = time.time()
     cancelling = False
     budget_stopped = False
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {}
         while True:
+            now = time.time()
+            if now - last_heartbeat >= lease.HEARTBEAT_INTERVAL_SEC:
+                lease.heartbeat(store.dir, now=now)
+                last_heartbeat = now
             if not cancelling and (
                     cancel_flag(store).exists()
                     or (poll_cancel and poll_cancel())):
@@ -177,6 +189,7 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
             if blocked_forever(mission) and not futures:
                 break
     store.save(mission)
+    lease.release(store.dir)
     # 完了直前(最後のタスクのdone確定後)に届いたCANCELは、もう止める対象が
     # 無いため完了扱いになる。残存する数ms級の競合窓は仕様として受容し、
     # 「キャンセルは間に合わなかった」ことをledgerに明示して観測可能にする

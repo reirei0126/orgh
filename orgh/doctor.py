@@ -11,12 +11,18 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
+
+from . import lease, listing
 
 _REQUIRED_PROMPTS = ("planner.md", "reviewer.md", "retro.md",
                      "worker_preamble.md", "replan.md", "gc.md")
 
 _AUTH_CHECK_TIMEOUT = 15
+
+# unknown_mission診断のledger末尾に含める件数(全読みを避ける目安)
+_LEDGER_TAIL_LINES = 5
 
 
 def _check_worker_auth(worker_kind: str, bin_path: str) -> tuple[str, str]:
@@ -139,6 +145,115 @@ def _augment_worker_auth(check: dict, worker_kind: str, bin_path: str) -> None:
         check["ok"] = False
 
 
+def _read_ledger_tail(mission_dir: Path, n: int = _LEDGER_TAIL_LINES) -> list[dict]:
+    """ledger.jsonl末尾n件を人間の突合材料として返す。壊れた行は無視する。"""
+    fp = mission_dir / "ledger.jsonl"
+    if not fp.exists():
+        return []
+    try:
+        lines = [ln for ln in fp.read_text(errors="replace").splitlines()
+                 if ln.strip()]
+    except OSError:
+        return []
+    out: list[dict] = []
+    for ln in lines[-n:]:
+        try:
+            ev = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(ev, dict):
+            out.append(ev)
+    return out
+
+
+def _branch_exists(workdir: str | None, branch: str) -> bool | None:
+    """workdir(gitリポ)にbranchが存在するか。判定不能(workdir欠損等)はNone。"""
+    if not workdir or not Path(workdir).is_dir():
+        return None
+    try:
+        r = subprocess.run(
+            ["git", "-C", workdir, "rev-parse", "--verify", "--quiet",
+             f"refs/heads/{branch}"],
+            capture_output=True, text=True, timeout=15)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if r.returncode not in (0, 1):
+        return None
+    return r.returncode == 0
+
+
+def _unknown_mission_checks(cfg: dict) -> list[dict]:
+    """unknown(実行中系タスクを抱えたままleaseが失効)ミッションの復旧導線。
+
+    orgh/listing.py(orgh list と同一の"unknown"導出規則)が拾ったミッション
+    それぞれについて、人間が復旧を判断するための突合情報 — 成果物(タスク
+    ブランチ)の有無、ledger末尾のイベント、leaseに記録されたpid/generation
+    のプロセスが実在するか — を並べて提示するだけの読み取り専用チェック。
+    自動での再実行・状態変更は一切行わない(判断と実行は人間が行う)。
+    """
+    runs_dir = cfg.get("runs_dir", "runs")
+    try:
+        report = listing.list_missions_report(runs_dir)
+    except OSError:
+        return []
+
+    checks: list[dict] = []
+    for m in report["missions"]:
+        if m["status"] != "unknown":
+            continue
+        mission_id = m["mission_id"]
+        mission_dir = Path(runs_dir) / mission_id
+        try:
+            mission_json = json.loads(
+                (mission_dir / "mission.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            mission_json = {}
+
+        tasks_info = []
+        for t in mission_json.get("tasks", []):
+            branch = t.get("branch")
+            tasks_info.append({
+                "id": t.get("id"), "status": t.get("status"),
+                "branch": branch,
+                "branch_exists": (_branch_exists(t.get("workdir"), branch)
+                                  if branch else None),
+            })
+
+        lease_rec = lease.read(mission_dir)
+        lease_info = None
+        if lease_rec is not None:
+            lease_info = {
+                "pid": lease_rec.pid,
+                "generation": lease_rec.generation,
+                "heartbeat_at": lease_rec.heartbeat_at,
+                "process_alive": lease.pid_alive(lease_rec.pid),
+            }
+
+        checks.append({
+            "name": f"unknown_mission:{mission_id}",
+            # 環境異常(認証切れ・バイナリ欠損等)と同列の"NG"にはしない:
+            # これは復旧要否を人間が判断するための情報提示であって、doctor
+            # 自体が失敗しているわけではない。vaultチェックの「未設定」と
+            # 同じ prefix="--" 規約(ok=Trueのまま非OK/NGの中立表示)を使う
+            # (designerペルソナ実機レビュー2026-08-15: "NG"表示だと本当の
+            # 環境異常と見分けがつかないという指摘の是正)
+            "ok": True,
+            "prefix": "--",
+            "detail": (
+                "実行中系タスクを抱えたままleaseが失効(unknown)。"
+                "自動再実行はしない — diagnosticsの成果物・ledger・"
+                "lease pidを見て人間が復旧を判断すること"),
+            "kind": "recovery",
+            "auth_state": "n/a",
+            "diagnostics": {
+                "tasks": tasks_info,
+                "ledger_tail": _read_ledger_tail(mission_dir),
+                "lease": lease_info,
+            },
+        })
+    return checks
+
+
 def _run_checks(cfg: dict) -> list[dict]:
     """全チェックを {name, ok, detail, kind, auth_state, prefix?} のリストで返す。
 
@@ -243,6 +358,10 @@ def _run_checks(cfg: dict) -> list[dict]:
         c.setdefault("auth_state", "n/a")
         c["kind"] = "connectivity"
 
+    # unknown状態ミッションの復旧導線は上のconnectivity一括設定の対象外
+    # (kind="recovery"のまま出す)なので、ループの後に追加する
+    checks.extend(_unknown_mission_checks(cfg))
+
     return checks
 
 
@@ -251,11 +370,76 @@ def _format_line(check: dict) -> str:
     return f"{prefix} {check['name']}: {check['detail']}"
 
 
+def _fmt_ts(ts) -> str:
+    """epoch秒を人間可読な日時へ整形する。orgh/cli.py の `list` テキスト出力
+    (`_dt()`、`%m-%d %H:%M`)と表記を揃えること — 同一CLI内で時刻表示の
+    書式が割れていると読み手が混乱する(designerペルソナ実機レビューで指摘)。
+    ts欠損・型不正はraw値そのままを返す(隠さず見せる)。"""
+    if not isinstance(ts, (int, float)) or isinstance(ts, bool):
+        return str(ts)
+    try:
+        return datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
+    except (OverflowError, OSError, ValueError):
+        return str(ts)
+
+
+def _format_diagnostics_lines(check: dict) -> list[str]:
+    """unknown_missionチェックの突合情報をテキスト出力向けに整形する。
+    人間が復旧を判断するための材料を並べるだけで、判断や実行はしない。
+
+    --json では生epoch秒(diagnostics.lease.heartbeat_at / ledger_tail[].ts)
+    をそのまま返すが、ここ(テキスト表示)では人間可読な日時に整形する。
+    """
+    diag = check.get("diagnostics")
+    if not diag:
+        return []
+    lines = []
+    lease_info = diag.get("lease")
+    if lease_info is None:
+        lines.append("    lease: なし(記録が残っていない)")
+    else:
+        lines.append(
+            f"    lease: pid={lease_info['pid']} "
+            f"generation={lease_info['generation']} "
+            f"heartbeat_at={_fmt_ts(lease_info['heartbeat_at'])} "
+            f"process_alive={lease_info['process_alive']}")
+    for t in diag.get("tasks", []):
+        if t.get("branch"):
+            lines.append(
+                f"    task {t['id']} [{t['status']}]: "
+                f"branch={t['branch']} exists={t['branch_exists']}")
+        else:
+            lines.append(f"    task {t['id']} [{t['status']}]: "
+                         "branch=(worktree未使用)")
+    tail = diag.get("ledger_tail") or []
+    if tail:
+        lines.append("    ledger末尾:")
+        for ev in tail:
+            lines.append(
+                f"      {ev.get('event')} task={ev.get('task', '-')} "
+                f"ts={_fmt_ts(ev.get('ts'))}")
+    return lines
+
+
 def run_doctor(cfg: dict) -> tuple[list[str], bool]:
     checks = _run_checks(cfg)
-    lines = [_format_line(c) for c in checks]
+    lines: list[str] = []
+    for c in checks:
+        lines.append(_format_line(c))
+        lines.extend(_format_diagnostics_lines(c))
     ok = all(c["ok"] for c in checks)
     return lines, ok
+
+
+def _check_to_json(c: dict) -> dict:
+    """checkをJSON出力形式へ。既存キー(name/ok/detail/kind/auth_state)は
+    従来どおり固定で出す。diagnostics(unknown_mission復旧情報)は存在する
+    checkのみ追加で含める(既存checkの形は変えない、追加のみ)。"""
+    out = {"name": c["name"], "ok": c["ok"], "detail": c["detail"],
+           "kind": c["kind"], "auth_state": c["auth_state"]}
+    if "diagnostics" in c:
+        out["diagnostics"] = c["diagnostics"]
+    return out
 
 
 def doctor_payload(cfg: dict) -> dict:
@@ -263,7 +447,5 @@ def doctor_payload(cfg: dict) -> dict:
     checks = _run_checks(cfg)
     return {
         "ok": all(c["ok"] for c in checks),
-        "checks": [{"name": c["name"], "ok": c["ok"], "detail": c["detail"],
-                    "kind": c["kind"], "auth_state": c["auth_state"]}
-                   for c in checks],
+        "checks": [_check_to_json(c) for c in checks],
     }

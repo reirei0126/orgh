@@ -29,7 +29,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import doctor, gc, listing, planner, report, watcher
+from . import doctor, gc, lease, listing, planner, report, watcher
 from .criteria import (approve_draft, criteria_context, criteria_list_payload,
                        distill_verdict, list_drafts, reject_draft)
 from .events_json import events_payload
@@ -39,6 +39,11 @@ from .sources.base import get_source
 from .state import TERMINAL, RunStore, load_config
 from .status_json import status_payload
 from . import worktree
+
+# 実行中系タスクステータス。state._INFLIGHT_STATUSESと同期を保つこと
+# (listing._INFLIGHT_TASK_STATUSES / status_json._INFLIGHT_TASK_STATUSESと
+# 同じ理由でテキスト表示経路(_summary)にも複製している)。
+_INFLIGHT_TASK_STATUSES = ("queued", "running", "review")
 
 
 def main() -> None:
@@ -510,10 +515,22 @@ def _sync_results_note(cfg: dict, mission, store: RunStore) -> None:
 
 def _summary(m, store: RunStore | None = None) -> None:
     print(f"\nmission {m.id}: {m.intent}")
+    # 実行中系タスクを抱えたままプロセスのleaseが失効している場合、テキスト
+    # 表示でも(status --json / orgh listと同じく)pending/failedに丸めず
+    # unknownとして出す(orgh/lease.py の公開APIのみ使用)。
+    # is_alive_lenient()(heartbeat鮮度のみ)を使うこと: is_alive()(heartbeat+
+    # pid生存のAND、RunStore.load専用)を使うと、kill -9直後はpidが即座に
+    # OSから消えるため失効猶予(LEASE_EXPIRY_SEC)内でもunknownと誤判定し、
+    # orgh list(is_alive_lenient採用)とorgh status(プレーンテキスト)の
+    # 表示が食い違う(2026-08-15 consumerペルソナ実機レビューで指摘)。
+    lease_dead = (store is not None and lease.read(store.dir) is not None
+                  and not lease.is_alive_lenient(store.dir))
     for t in m.tasks:
+        status = ("unknown" if (lease_dead and t.status in _INFLIGHT_TASK_STATUSES)
+                  else t.status)
         mark = {"done": "✓", "failed": "✗", "cancelled": "⊘",
-                "skipped": "⊘"}.get(t.status, "…")
-        print(f"  {mark} {t.title} [{t.status}] attempts={t.attempts}")
+                "skipped": "⊘"}.get(status, "…")
+        print(f"  {mark} {t.title} [{status}] attempts={t.attempts}")
     b = getattr(m, "budget", None)
     if b and b.spent_usd:
         line = f"  cost: {b.spent_usd:.4f} USD"
