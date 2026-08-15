@@ -121,6 +121,10 @@ def main() -> None:
     g.add_argument("--pass", dest="passed", action="store_true", default=None)
     g.add_argument("--fail", dest="passed", action="store_false", default=None)
     vp.add_argument("--reason")
+    # --fail時のescape記録に使う欠陥カテゴリ(方向性文書2026-08 §3.4 A4)。
+    # 率の算出はしない・件数の元データのみを記録する
+    vp.add_argument("--category", choices=["visual", "factual", "premise", "other"],
+                    default="other")
 
     hd = sub.add_parser("humandone")  # awaiting_human タスクの人間完了報告
     hd.add_argument("mission_id")
@@ -299,6 +303,16 @@ def main() -> None:
                                 "reason": args.reason}, ensure_ascii=False) + "\n")
         store.log("mission.owner_verdict", passed=args.passed,
                   reason=args.reason[:500])
+        if not args.passed:
+            done_tasks = [t.id for t in mission.tasks]
+            gate_passed = bool(mission.tasks) and all(
+                t.status == "done" for t in mission.tasks)
+            if gate_passed:
+                # 機械ゲート通過後の不合格=escape(方向性文書2026-08 §3.4 A4)。
+                # 記録は件数の元データのみ。率の算出・失効候補提示はしない
+                store.log("escape", mission_id=args.mission_id,
+                          reason=args.reason[:500], tasks=done_tasks,
+                          category=args.category)
         drafts = distill_verdict(cfg, args.mission_id, mission.intent,
                                  args.passed, args.reason)
         for fp in drafts:
