@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+from .. import notify
 from ..planner import build_human_request
 from ..state import RunStore, Task
 
@@ -24,7 +25,7 @@ def transition(store: RunStore, t: Task, status: str, *,
         store.log(event, task=t.id, **payload)
 
 
-def enter_awaiting_human(store: RunStore, t: Task, reason: str, *,
+def enter_awaiting_human(store: RunStore, cfg: dict, t: Task, reason: str, *,
                          refund_attempt: bool = False) -> None:
     """awaiting_human への遷移一式(依頼書生成・状態/human_request更新・
     artifact・ledger記録・表示)。planner指定(worker: human)と検収
@@ -40,3 +41,8 @@ def enter_awaiting_human(store: RunStore, t: Task, reason: str, *,
     store.artifact(f"human_request_{t.id}.md", body)
     store.log("task.awaiting_human", task=t.id, brief=brief)
     print(f"  [awaiting_human] {t.title} — {brief}")
+    try:
+        event = notify.human_task_requested_event(store.dir.name, t, reason)
+        notify.emit(store, cfg, event)
+    except Exception:
+        pass  # 通知処理の失敗でミッション進行を止めない

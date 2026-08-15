@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
-from .. import lease
+from .. import lease, notify
 from ..guard import needs_approval
 from ..state import TERMINAL, Mission, RunStore, Task
 from .budget_policy import initiate_budget_stop, setup_budget
@@ -155,6 +155,12 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                                    workdir=t.workdir)
                         print(f"  [awaiting_approval] {t.title} — "
                               f"orgh approve {store.dir.name} で続行")
+                        try:
+                            event = notify.approval_requested_event(
+                                cfg, store.dir.name, t)
+                            notify.emit(store, cfg, event)
+                        except Exception:
+                            pass  # 通知処理の失敗でミッション進行を止めない
                         continue
                     # worker: "human"(人間依頼): サブプロセスを一切起動せず、
                     # 依頼書を生成してawaiting_humanで停止する。poolにsubmitしない
@@ -166,7 +172,7 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                         reason = ("Plannerがこのタスクをworker: human"
                                   "(人間依頼)として計画した。headlessなAI"
                                   "ワーカーでは恒常的に実行不能と判断された作業")
-                        enter_awaiting_human(store, t, reason)
+                        enter_awaiting_human(store, cfg, t, reason)
                         continue
                     transition(store, t, "queued")
                     futures[t.id] = pool.submit(run_task, cfg, store, t,
@@ -201,4 +207,9 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
               failed=[t.id for t in mission.tasks if t.status == "failed"],
               cancelled=[t.id for t in mission.tasks
                          if t.status == "cancelled"])
+    try:
+        event = notify.mission_completed_event(mission)
+        notify.emit(store, cfg, event)
+    except Exception:
+        pass  # 通知処理の失敗でミッション進行を止めない
     return mission
