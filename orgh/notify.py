@@ -62,11 +62,19 @@ def human_task_requested_event(mission_id: str, task: Task, reason: str) -> dict
     return _build_event("human_task.requested", mission_id, task.id, brief)
 
 
-def mission_completed_event(mission: Mission) -> dict:
-    """全タスク終端後のミッション完了通知。"""
+def mission_completed_event(mission: Mission,
+                             pending_verdict_count: int | None = None) -> dict:
+    """全タスク終端後のミッション完了通知。
+
+    pending_verdict_count指定時は「verdict未実施のdoneミッションがN件ある」
+    ことを一言添える(通知が届かずverdictされないまま埋もれる事態への
+    再発見導線。docs/strategy/direction-2026-08.md §3.4 A4)。強制はしない
+    (裁定なしでの完了自体は止めない)。"""
     done = sum(1 for t in mission.tasks if t.status == "done")
     total = len(mission.tasks)
     summary = f"ミッション「{mission.intent}」完了: done {done}/{total}"
+    if pending_verdict_count is not None:
+        summary += f"。未裁定のミッションが{pending_verdict_count}件あります"
     return _build_event("mission.completed", mission.id, None, summary)
 
 
