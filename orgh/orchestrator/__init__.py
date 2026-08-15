@@ -19,6 +19,7 @@ from .review_pipeline import review_with_retry as _review_with_retry
 from .scheduler import (TERMINAL, acquire_mission_lock, run_mission,
                         assign_personas as _assign_personas)
 from .task_executor import (full_worker_prompt as _full_worker_prompt,
+                            is_capability_error as _is_capability_error,
                             is_infra_error as _is_infra_error,
                             retry_prompt as _retry_prompt,
                             run_task as _run_task)
