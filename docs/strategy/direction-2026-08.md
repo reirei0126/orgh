@@ -1,5 +1,11 @@
 # orgh 方向性と機能の取捨(2026-08-15)
 
+> **状態: 提案確定。実行開始は Phase 0 完了まで BLOCKED。**
+> 理由: 現在の規範SSOT(`criteria/arch.md` の ARCH-001/002 と HANDOFF冒頭)は本文書の方針と
+> 正面衝突しており、Reviewerには旧原則が注入され続ける。Phase 0(§6)の完了条件3点
+> ①旧ARCH行の失効 ②HANDOFF冒頭の更新 ③Reviewerへ旧規範が注入されないことのテスト確認
+> を満たすまで、本文書を実行可能な最終方針と呼んではならない。
+
 > 目的: orghが「何になるのか」を定め、機能を **①追加/修正する ②他プロダクトに任せる ③劣後・捨てる**
 > の3つに分類する。判断の根拠は `harness-landscape-2026-08.md`(競争環境・反証調査済み)と
 > criteria台帳 ARCH-001/002(上半分/下半分の境界)。
@@ -24,6 +30,11 @@
 **境界の切り方**: 「決める/触る」では切れない(orgh自身もPlannerがDAGとACを決め、workerがブランチや
 文書を直接変更する)。正しい三分割は **目的・価値判断の妥当性(前段) / 成果物の適合性(orgh) /
 外部システムへの確定的副作用の許可(後段)**。
+
+**「外部副作用」の定義(初版は広すぎて既存workerのコード変更まで違反扱いになっていた)**:
+後段へ委譲するのは **orghが管理する成果物領域(worktree/vault/runs)の外にある、業務SoR・
+外部通信・決済・アカウント・インフラに対する確定操作**に限る。
+**worktree内のコード変更・文書生成・git操作・テスト実行はorgh workerの責任**であって、A7の対象外。
 
 ## 2. 三層アーキテクチャ(既存資産の連携)
 
@@ -59,7 +70,7 @@
 decision-os=**目的・価値判断の妥当性**、orgh=**成果物の適合性**、ontology-platform=**副作用の許可**。
 **それぞれのゲートを相手に押し付けない**ことが設計の肝(orghのReviewerに目的の是非を裁定させない)。
 
-### 連携の具体(実装順)
+### 連携契約の三方向(**L番号は順序を示さない**。唯一の実装順は §4 Phase 3 に集約する)
 
 **前提の訂正(2026-08-15 Codexレビューr3)**: 初版は「decision-osのsnapshotを書き出すだけ・orghは無改造」
 としていたが、両プロダクトの実装を確認した結果**いずれも事実誤認**だった。以下は実装を読んだ上での契約案。
@@ -72,10 +83,13 @@ decision-os=**目的・価値判断の妥当性**、orgh=**成果物の適合性
 - **リポジトリの特定**: 本節の「decision-os」は実装リポジトリ **`~/projects/decision-os-mvp`**
   (origin: `decision-os.git`)を指す。`~/projects/decision-os/` は実装前のhandoffパッケージであり、
   validator/fixtures/ケース実装を持たない(混同するとL1の前提が再現できない)
-- 交換形式は**version付きJSON/YAML**を正準とする(snapshotの文章解析は禁止):
-  `case_id / action_id / revision / task / deliverable / dependencies / done_when / owner / decision_id`
-- orgh側にも**新規実装が要る**: `(source_system, source_case_id, source_action_id)` の**一意制約**と
-  **revisionの単調増加検査**(でないと、期限や説明の更新で同じACTが再着火する。
+- 交換形式は**version付きJSON/YAML**を正準とする(snapshotの文章解析は禁止)。
+  **正準フィールド名(L1/L3/A1in/一意制約で完全に統一する。初版は `case_id` と `source_case_id` が
+  混在しており、双方が文書どおり実装しても接続できなかった)**:
+  `source_system / source_case_id / source_action_id / source_revision` +
+  `task / deliverable / dependencies / done_when / owner / decision_id`
+- orgh側にも**新規実装が要る**: **三要素 `(source_system, source_case_id, source_action_id)` の一意制約**と、
+  **同一三要素内での `source_revision` 単調増加検査**(でないと、期限や説明の更新で同じACTが再着火する。
   現在の処理済み判定は**ノートファイル全体のSHA-256先頭16桁**なので、内容が変われば再着火してしまう)
 - ファイル書き込みは**一時ファイル+rename**の原子的操作(watcherの途中読み取りによる誤計画を防ぐ)
 
@@ -96,7 +110,8 @@ decision-os=**目的・価値判断の妥当性**、orgh=**成果物の適合性
 - Reviewerは決定の是非を裁定しない。「現ACでは完遂不能」「前提が反証された」を
   **証拠付きの構造化エスカレーション**(新feedback種別 `ESCALATE:`)として出力する
 - 人間可読の文字列を増やすだけではループにならない。エスカレーションは
-  **L1の交換形式のキー(`source_case_id` / `source_action_id` / `revision`)を保持**した機械可読レコードとし、
+  **L1の正準キー(`source_system` / `source_case_id` / `source_action_id` / `source_revision`)を保持**した
+  機械可読レコードとし、
   decision-os側がcaseの再検討トリガとして消費できる形にする
 
 **規模感の訂正**: 「Gmail/Slack/SaaS等はすべて ontology-platform 側のコネクタとして実装」は
@@ -142,7 +157,8 @@ decision-os=**目的・価値判断の妥当性**、orgh=**成果物の適合性
 | A4 | escape(逃し)の記録 | owner verdictを運用で必須化し、**機械ゲート通過後の不合格を全件 `escape` として記録**。統計評価・20%固定抽出・各30件評価は**当面やらない**(§3.4) | 小 | 記録・集計は自走可。**gold判定と欠陥分類は人間** |
 | A5 | 状態表示の真実性 | **永続lease + heartbeat + 起動世代ID + 期限切れ後の `unknown` 遷移**。`procreg`はプロセス内メモリで再起動後に消え、ledgerの `task.start` は「開始した」証拠であって生存証拠ではないため、**両者の突合だけでは再起動後の実行中/死亡/孤児化を判別できない**(初版の前提は誤り)。判別不能を `pending`/`failed` へ丸めず `unknown` として扱い、再取得前に成果物・worker・外部実行を照合する復旧手順を必須にする | 中 | 自走可 |
 | A6 | 機械可読AC + 規範の版固定 | AC ID・検証方式・期待証拠の構造化 / **検収時点のcriteria版(revision/hash)をミッションへ固定** / AC→証拠→finding→判定の対応表(証拠来歴) | 中 | 自走可 |
-| A7 | action実行契約 | **要求・状態遷移・execution_id照合・検収再開**まで。`planned → approval_requested → executing → succeeded\|rejected\|expired\|failed\|unknown`。**runner・認証情報・argv実行・補償処理はorghが持たない**(持てば「実世界操作を持たない」という定義と矛盾する) | 中 | **契約・失敗時意味論は人間設計必須** |
+| A7 | action実行契約 | **要求・状態遷移・execution_id照合・検収再開**まで。`planned → approval_requested → executing → succeeded\|rejected\|expired\|failed\|unknown`。**業務actionのrunner・認証情報・argv実行・補償処理はorghが持たない**(worktree内のツール実行は
+従来どおりworkerの責任。区別は上記「外部副作用」の定義による) | 中 | **契約・失敗時意味論は人間設計必須** |
 | A9 | 実物観察ベースの検収工程 | DESIGN-005の工程化(実物観察→正解仕様→TC導出、参照との並置比較、目視証拠) | 大 | **人間主導**。着手は条件付き(§4) |
 | A10 | 内部SPI | アダプタ境界の固定: `capabilities / config schema / lifecycle / error taxonomy / idempotency / API version`。**第三者公開はしない**が、内部の拡張点は今定義する(でないと互換性のない疑似プラグイン機構が乱立する) | 中 | 自走可 |
 
@@ -197,7 +213,9 @@ fallbackを継続的に要するため、測定基盤が無い段階での並行
    この値で品質の良否やA9の要否を判断してはならない**と明記する
 2. **【条件付き】sentinel回帰**: escapeが実際に発生した領域に限り、その事例を固定ケース化して
    検収器の変更前後で shadow replay する(最初から5〜10件揃えようとしない)
-3. **【当面やらない】** 20%固定抽出の抜き打ち再検収 / 成果物種別ごとに各30件の統計評価 /
+3. **【小さく固定枠で】独立再検収**: 「毎月最大N件(暫定3件)」の固定上限で無作為抽出して再検収する。
+   Phase 2完了条件の一部だが、**20%のような比率指定にはしない**(ミッション数に比例して負荷が増えるため)
+4. **【当面やらない】** 比率指定の抜き打ち再検収 / 成果物種別ごとに各30件の統計評価 /
    汎用の欠陥注入セット。**初期構築が「大」+恒常運用が「毎ミッションの20%」になり維持不能**
    (gold判定と欠陥分類は自走させられない=人間工数が線形に増える)
 
@@ -221,7 +239,10 @@ prompt・model・criteriaの版 / 判定 / 費用。改善の採否は**同一�
 **Phase 0: 前提の是正(人間・小)** — **ARCH-001/002の改訂ドラフトをオーナーが承認する**(§6)。
 現行の原則のままでは「下半分の信頼性修復」が禁止扱いになり、Phase 1のA5と矛盾する。
 
-**Phase 1: 制御層の正当性を回復する(小〜中・最優先)** — **A5状態表示の真実性** → A1(縮小版) → A2(限定版)。
+**Phase 1: 制御層の正当性を回復する(小〜中・最優先)** — **A5状態表示の真実性** → A1out(縮小版)+A10最小 → **A2限定版**。
+**A2限定版の範囲を確定する**: 「能力不足を `awaiting_human` へ誤りなく遷移させる契約と、その監査記録」まで。
+実行ファイルhash・filesystem/network制約の宣言は**記録情報でありセキュリティ保証ではない**と明記して分離し、
+強制可能な土台(sandbox等)が入るまで完全版には進まない(完全版は別Phase・大規模扱い)。
 A5を先頭に置く理由: 監査可能性が定義の中核である以上、**状態表示が嘘をついている限り通知も人間ノードも
 監査記録も信用できない**(21時間ゾンビ表示・実行中なのに全pending表示の実例)。通知元の状態が
 正しくなって初めてA1が意味を持つ。
