@@ -32,6 +32,7 @@ from pathlib import Path
 
 from . import doctor, gc, lease, listing, planner, report, watcher
 from .criteria import (approve_draft, criteria_context, criteria_list_payload,
+                       criteria_list_text,
                        distill_verdict, list_drafts, reject_draft)
 from .events_json import events_payload
 from .orchestrator import run_mission
@@ -121,6 +122,10 @@ def main() -> None:
     g.add_argument("--pass", dest="passed", action="store_true", default=None)
     g.add_argument("--fail", dest="passed", action="store_false", default=None)
     vp.add_argument("--reason")
+    # --fail時のescape記録に使う欠陥カテゴリ(方向性文書2026-08 §3.4 A4)。
+    # 率の算出はしない・件数の元データのみを記録する
+    vp.add_argument("--category", choices=["visual", "factual", "premise", "other"],
+                    default="other")
 
     hd = sub.add_parser("humandone")  # awaiting_human タスクの人間完了報告
     hd.add_argument("mission_id")
@@ -299,6 +304,16 @@ def main() -> None:
                                 "reason": args.reason}, ensure_ascii=False) + "\n")
         store.log("mission.owner_verdict", passed=args.passed,
                   reason=args.reason[:500])
+        if not args.passed:
+            done_tasks = [t.id for t in mission.tasks]
+            gate_passed = bool(mission.tasks) and all(
+                t.status == "done" for t in mission.tasks)
+            if gate_passed:
+                # 機械ゲート通過後の不合格=escape(方向性文書2026-08 §3.4 A4)。
+                # 記録は件数の元データのみ。率の算出・失効候補提示はしない
+                store.log("escape", mission_id=args.mission_id,
+                          reason=args.reason[:500], tasks=done_tasks,
+                          category=args.category)
         drafts = distill_verdict(cfg, args.mission_id, mission.intent,
                                  args.passed, args.reason)
         for fp in drafts:
@@ -331,12 +346,14 @@ def main() -> None:
         task.last_output = args.note
         store.log("task.human_report", task=task.id, note=args.note[:500])
         cost_sink: list[float] = []
-        passed, feedback, ac_verdicts, ac_verdicts_dropped = planner.review(
+        (passed, feedback, ac_verdicts, ac_verdicts_dropped,
+         criteria_cited) = planner.review(
             cfg, task, workdir=task.workdir, budget=mission.budget,
             registry_key=store.dir.name, cost_sink=cost_sink)
         task.cost_usd += sum(cost_sink)
         task.review_notes = feedback
-        log_kw: dict = {"task": task.id, "passed": passed}
+        log_kw: dict = {"task": task.id, "passed": passed,
+                        "criteria_cited": criteria_cited}
         if ac_verdicts:
             log_kw["ac_verdicts"] = ac_verdicts
         if ac_verdicts_dropped:
@@ -376,12 +393,13 @@ def main() -> None:
     if args.cmd == "criteria":
         if args.action == "list":
             if args.json:
-                print(json.dumps(criteria_list_payload(cfg), ensure_ascii=False))
+                print(json.dumps(criteria_list_payload(cfg, include_usage=True),
+                                 ensure_ascii=False))
                 return
             for fp in list_drafts(cfg):
                 print(f"[draft] {fp.stem}: {fp.read_text()}")
             print("--- 台帳 ---")
-            print(criteria_context(cfg, max_chars=100000))
+            print(criteria_list_text(cfg))
             return
         if not args.name:
             raise SystemExit("approve/reject には name が必要(orgh criteria list で確認)")

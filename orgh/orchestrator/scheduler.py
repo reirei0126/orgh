@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
-from .. import lease, notify
+from .. import lease, listing, notify
 from ..guard import needs_approval
 from ..state import TERMINAL, Mission, RunStore, Task
 from .budget_policy import initiate_budget_stop, setup_budget
@@ -254,7 +254,12 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
               cancelled=[t.id for t in mission.tasks
                          if t.status == "cancelled"])
     try:
-        event = notify.mission_completed_event(mission)
+        # 未裁定件数はorgh verdict --pending(A1out)と同じ判定ロジックを再利用する
+        # (二重定義しない)。ここでの取得失敗も通知全体と同様に進行を止めない
+        pending = listing.list_pending_verdicts(
+            cfg.get("runs_dir", "runs"))["missions"]
+        event = notify.mission_completed_event(
+            mission, pending_verdict_count=len(pending))
         notify.emit(store, cfg, event)
     except Exception:
         pass  # 通知処理の失敗でミッション進行を止めない

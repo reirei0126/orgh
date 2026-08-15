@@ -23,6 +23,10 @@
    判定不能なACは not_applicable とし理由を書け。
    受け入れ条件がすべて `- <text>` 形式の旧形式(verify/evidence指定なし)
    のみの場合、"ac_verdicts" キーは省略してよい。
+6. 出力JSONに "criteria_cited" キーを追加し、この裁定で実際に参照した
+   オーナー判断基準(台帳)のIDだけを配列で示せ(例: ["QA-009"])。
+   台帳を参照していない・違反が無ければ空配列 [] を返せ。台帳に無いIDを
+   創作するな(捏造IDは記録時に破棄される)。
 
 ## タスク: {title}
 ## 指示内容
@@ -41,6 +45,8 @@
   "feedback": "差し戻す場合、workerが即座に修正に着手できる具体的な指摘。passならば空文字",
   "ac_verdicts": [
     {{"id": "AC-1", "verdict": "pass|fail|not_applicable", "reason": "判定根拠"}}
-  ]
+  ],
+  "criteria_cited": ["QA-009"]
 }}
-("ac_verdicts" は任意キー。手順5のとおり、構造化ACが無ければ省略してよい)
+("ac_verdicts" は任意キー。手順5のとおり、構造化ACが無ければ省略してよい。
+"criteria_cited" は必須キー。参照した基準が無ければ空配列 [] を返せ)

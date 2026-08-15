@@ -13,6 +13,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from . import listing
 from .sources.base import MissionFeedback
 
 # 結果ノートの「成果物」節へコピーする対象拡張子(テキスト系のみ)
@@ -29,6 +30,7 @@ def _task_icon(status: str) -> str:
 
 class ResultsNote(MissionFeedback):
     def __init__(self, cfg: dict, mission_id: str) -> None:
+        self.cfg = cfg
         self.mission_id = mission_id
         self.vault = Path(cfg["vault"]["path"]).expanduser()
         self.path = self.vault / "orgh" / "results" / f"{mission_id}.md"
@@ -138,6 +140,10 @@ class ResultsNote(MissionFeedback):
         else:
             lines.append(f"- done {done}/{n}。全タスク完了")
         lines.append(f"- 成果物: [[orgh/artifacts/{mission.id}/]] 配下")
+        # orgh verdict --pending(A1out)と同じ判定ロジックを再利用する(二重定義しない)
+        pending = listing.list_pending_verdicts(
+            self.cfg.get("runs_dir", "runs"))["missions"]
+        lines.append(f"- 未裁定のミッションが{len(pending)}件あります")
         return lines
 
     def _artifact_lines(self, mission, store) -> list[str]:
