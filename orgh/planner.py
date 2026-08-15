@@ -12,7 +12,7 @@ from pathlib import Path
 from .adapters.base import get_adapter
 from .criteria import criteria_context
 from .slots import acquire_slot
-from .state import TERMINAL, Budget, Mission, Task
+from .state import TERMINAL, Budget, Mission, Task, acceptance_lines
 
 _META_RE = re.compile(r"<!-- m:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
 
@@ -192,7 +192,7 @@ def build_review_prompt(cfg: dict, task: Task) -> str:
     """プロンプトテンプレートへ判断基準を注入してReviewerプロンプトを構築する。"""
     tmpl = _read_prompt(cfg, "reviewer.md")
     return tmpl.format(title=task.title, prompt=task.prompt,
-                       acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                       acceptance=acceptance_lines(task),
                        output=task.last_output[:12000],
                        criteria=criteria_context(cfg))
 
@@ -227,7 +227,7 @@ def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
     cfg = role_with_default(cfg, role, _PERSONA_ROLE_DEFAULT)
     tmpl = _read_prompt(cfg, f"{role}.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
-                         acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                         acceptance=acceptance_lines(task),
                          output=task.last_output[:12000],
                          criteria=criteria_context(cfg))
     data = _ask_json(cfg, role, prompt, workdir=workdir, budget=budget,
@@ -310,7 +310,7 @@ def replan_task(cfg: dict, task: Task, reason: str,
     Plannerに再設計させる(HANDOFF タスク5)。"""
     tmpl = _read_prompt(cfg, "replan.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
-                         acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                         acceptance=acceptance_lines(task),
                          reason=reason)
     return _ask_json(cfg, "planner", prompt, budget=budget,
                      registry_key=registry_key)
@@ -339,7 +339,7 @@ def build_human_request(mission_id: str, task: Task, reason: str) -> tuple[str, 
     """
     reason_flat = " ".join(reason.split())
     brief = _elide(f"「{task.title}」の完了に人間の対応が必要: {reason_flat}", 100)
-    acceptance = "\n".join(f"- {a}" for a in task.acceptance) or "- (未指定)"
+    acceptance = acceptance_lines(task) or "- (未指定)"
     body = (
         f"{brief}\n\n"
         f"## 何をするか\n{task.prompt}\n\n"
@@ -355,5 +355,5 @@ def build_human_request(mission_id: str, task: Task, reason: str) -> tuple[str, 
 def worker_prompt(cfg: dict, task: Task) -> str:
     tmpl = _read_prompt(cfg, "worker_preamble.md")
     return tmpl.format(title=task.title, prompt=task.prompt,
-                       acceptance="\n".join(f"- {a}" for a in task.acceptance),
+                       acceptance=acceptance_lines(task),
                        playbooks=_playbook_context(cfg, 4000))
