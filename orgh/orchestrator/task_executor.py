@@ -260,7 +260,7 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             # 書き込み・対面作業・アカウント登録等)。REPLANと同型でattemptsは
             # 消費しない(再設計しても解消しない制約のため回数上限も設けない)
             reason = feedback[len("HUMAN:"):].strip()
-            enter_awaiting_human(store, t, reason, refund_attempt=True)
+            enter_awaiting_human(store, cfg, t, reason, refund_attempt=True)
             return t
 
         # 改善ループ: レビューのフィードバックを次のattemptへ

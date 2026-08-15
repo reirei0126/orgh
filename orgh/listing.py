@@ -133,6 +133,36 @@ def list_missions(runs_dir: str | Path) -> list[dict]:
     return list_missions_report(runs_dir)["missions"]
 
 
+def has_verdict(mission_dir: Path) -> bool:
+    """mission_dir に orgh verdict による記録(verdicts.jsonl)が1件以上あるか。"""
+    fp = mission_dir / "verdicts.jsonl"
+    if not fp.exists():
+        return False
+    try:
+        return any(line.strip() for line in fp.read_text().splitlines())
+    except OSError:
+        return False
+
+
+def list_pending_verdicts(runs_dir: str | Path) -> dict:
+    """done だが orgh verdict が未実施のミッションを一覧する。
+
+    通知が届かなくても人間が再発見できる導線
+    (docs/strategy/direction-2026-08.md §7 Phase 1 完了条件④)。
+    list_missions_report のサマリ(id/インデックスキャッシュ利用)をそのまま使い、
+    verdicts.jsonl の有無だけは都度読み直す — この探索対象外(_dir_signature が
+    mission.json/ledger.jsonlのみを見る)なため、キャッシュに追従させると
+    verdict記録後も pending のまま化ける。
+    """
+    root = Path(runs_dir)
+    missions = [
+        {**m, "verdict_pending": True}
+        for m in list_missions_report(runs_dir)["missions"]
+        if m["status"] == "done" and not has_verdict(root / m["mission_id"])
+    ]
+    return {"missions": missions}
+
+
 def _dir_signature(d: Path) -> str:
     """mission.json と ledger.jsonl の mtime/size からキャッシュ鍵を作る。
     どちらかが変われば鍵が変わり、キャッシュは自動失効する。"""

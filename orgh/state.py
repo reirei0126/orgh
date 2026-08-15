@@ -95,6 +95,14 @@ class PersonasCfg:
 
 
 @dataclass
+class NotifyCfg:
+    """人間接点イベント通知(A1out)。既定は無効(webhook_url=null=挙動不変)。
+    配送保証(再送・順序・署名)は持たない(方向性文書2026-08 §3.1 A1out)。"""
+    webhook_url: str | None = None   # POST先。null=webhook無効(ledgerのnotify.emittedのみ記録)
+    timeout: float = 5.0             # POSTのタイムアウト秒
+
+
+@dataclass
 class ConfigSchema:
     """既知のトップレベルキー。workers/rolesは名前が自由なため深掘りしない。"""
     workers: dict | None = None          # 必須
@@ -106,6 +114,7 @@ class ConfigSchema:
     source: SourceCfg | None = None
     gc: GcCfg | None = None
     personas: PersonasCfg | None = None
+    notify: NotifyCfg | None = None
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     criteria_dir: str = "criteria"
@@ -116,12 +125,13 @@ class ConfigSchema:
 _REQUIRED_KEYS = ("workers",)
 _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
                     "worktree": WorktreeCfg, "source": SourceCfg, "gc": GcCfg,
-                    "personas": PersonasCfg}
+                    "personas": PersonasCfg, "notify": NotifyCfg}
 # from __future__ import annotations により field.type は文字列
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,
     "float | None": (int, float),
     "int | None": int,
+    "str | None": str,
     "list[str]": list,   # 要素型はisinstanceでは表現できないため_check_sectionで別途検査
 }
 _LIST_ELEM_TYPE_MAP: dict[str, type] = {

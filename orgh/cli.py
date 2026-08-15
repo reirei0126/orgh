@@ -14,6 +14,7 @@
   orgh list                       # runs配下の全ミッションをid/intent/状態/コストで一覧
   orgh events <mission_id>        # ミッションのledger.jsonlをイベントとして表示
   orgh verdict <mission_id> --pass|--fail --reason <text>  # オーナー裁定の記録と基準蒸留
+  orgh verdict --pending                                   # done だが未裁定のミッション一覧
   orgh criteria                   # 判断基準台帳の下書き確認・承認・却下
   orgh report --days N            # 週次合格率・ミッション別コスト・worker別失敗率
   orgh playbooks                  # playbooks/配下の教訓(Retro追記分)を表示
@@ -44,6 +45,27 @@ from . import worktree
 # (listing._INFLIGHT_TASK_STATUSES / status_json._INFLIGHT_TASK_STATUSESと
 # 同じ理由でテキスト表示経路(_summary)にも複製している)。
 _INFLIGHT_TASK_STATUSES = ("queued", "running", "review")
+
+
+def _dt(ts):
+    return (datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
+            if ts else "--")
+
+
+def _format_mission_line(m: dict, label: str | None = None) -> str:
+    """orgh list / orgh verdict --pending で共有するミッション1行の整形。
+
+    label省略時は m['status'] を角括弧内にそのまま使う(orgh list互換、
+    出力フォーマットは既存契約のため不変)。label指定時(verdict --pending)は
+    起票/完了/tasks/costをlistと同じ密度で出しつつ、角括弧内だけ状況に
+    差し替える(優先順位付けに必要な情報を削らない — レビュー指摘対応)。
+    """
+    tag = label if label is not None else m["status"]
+    return (f"{m['mission_id']}  [{tag}]  "
+            f"起票 {_dt(m['created_ts'])}  "
+            f"完了 {_dt(m['finished_ts'])}  "
+            f"{m['tasks_done']}/{m['tasks_total']} tasks  "
+            f"{m['cost_usd']:.4f} USD  {m['intent']}")
 
 
 def main() -> None:
@@ -91,11 +113,14 @@ def main() -> None:
             sp.add_argument("--yes", action="store_true")
 
     vp = sub.add_parser("verdict")   # オーナー検収裁定の記録と基準蒸留
-    vp.add_argument("mission_id")
-    g = vp.add_mutually_exclusive_group(required=True)
-    g.add_argument("--pass", dest="passed", action="store_true")
-    g.add_argument("--fail", dest="passed", action="store_false")
-    vp.add_argument("--reason", required=True)
+    vp.add_argument("mission_id", nargs="?")
+    vp.add_argument("--pending", action="store_true",
+                    help="done だが verdict 未実施のミッションを一覧して終了")
+    vp.add_argument("--json", action="store_true")
+    g = vp.add_mutually_exclusive_group()
+    g.add_argument("--pass", dest="passed", action="store_true", default=None)
+    g.add_argument("--fail", dest="passed", action="store_false", default=None)
+    vp.add_argument("--reason")
 
     hd = sub.add_parser("humandone")  # awaiting_human タスクの人間完了報告
     hd.add_argument("mission_id")
@@ -224,15 +249,8 @@ def main() -> None:
         if not missions:
             print("no missions")
         else:
-            def _dt(ts):
-                return (datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
-                        if ts else "--")
             for m in missions:
-                print(f"{m['mission_id']}  [{m['status']}]  "
-                      f"起票 {_dt(m['created_ts'])}  "
-                      f"完了 {_dt(m['finished_ts'])}  "
-                      f"{m['tasks_done']}/{m['tasks_total']} tasks  "
-                      f"{m['cost_usd']:.4f} USD  {m['intent']}")
+                print(_format_mission_line(m))
         for s in payload["skipped"]:
             print(f"! 読めないmission.jsonをスキップ: {s['path']} ({s['reason']})",
                   file=sys.stderr)
@@ -257,6 +275,23 @@ def main() -> None:
         return
 
     if args.cmd == "verdict":
+        if args.pending:
+            payload = listing.list_pending_verdicts(cfg.get("runs_dir", "runs"))
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False))
+                return
+            if not payload["missions"]:
+                print("verdict未実施のdoneミッションは無い")
+            else:
+                for m in payload["missions"]:
+                    print(_format_mission_line(m, label="verdict未実施"))
+            return
+        if not args.mission_id:
+            sys.exit("mission_id が必要(--pending 指定時を除く)")
+        if args.passed is None:
+            sys.exit("--pass か --fail のどちらかが必要")
+        if not args.reason:
+            sys.exit("--reason が必要")
         store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)
         mission = store.load(reset_inflight=False)  # 読むだけ。実行状態は触らない
         with open(store.dir / "verdicts.jsonl", "a") as f:
