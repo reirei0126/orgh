@@ -32,6 +32,7 @@ from pathlib import Path
 
 from . import doctor, gc, lease, listing, planner, report, watcher
 from .criteria import (approve_draft, criteria_context, criteria_list_payload,
+                       criteria_list_text,
                        distill_verdict, list_drafts, reject_draft)
 from .events_json import events_payload
 from .orchestrator import run_mission
@@ -392,12 +393,13 @@ def main() -> None:
     if args.cmd == "criteria":
         if args.action == "list":
             if args.json:
-                print(json.dumps(criteria_list_payload(cfg), ensure_ascii=False))
+                print(json.dumps(criteria_list_payload(cfg, include_usage=True),
+                                 ensure_ascii=False))
                 return
             for fp in list_drafts(cfg):
                 print(f"[draft] {fp.stem}: {fp.read_text()}")
             print("--- 台帳 ---")
-            print(criteria_context(cfg, max_chars=100000))
+            print(criteria_list_text(cfg))
             return
         if not args.name:
             raise SystemExit("approve/reject には name が必要(orgh criteria list で確認)")

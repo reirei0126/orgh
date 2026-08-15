@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
+
+from .events_json import events_payload
 
 _ENTRY_RE = re.compile(r"^- ([A-Z]+)-(\d{3}) \[(norm|pref)\]:")
 _LEDGER_ENTRY_RE = re.compile(r"^- ([A-Z]+-\d{3}) \[(norm|pref)\]: (.*)$")
@@ -193,7 +195,60 @@ def reject_draft(cfg: dict, name: str) -> Path:
     return dst
 
 
-def criteria_list_payload(cfg: dict) -> dict:
+def criteria_usage(cfg: dict) -> dict[str, dict]:
+    """全missionの裁定イベントからcriteria IDごとの引用実績を返す。"""
+    usage: dict[str, dict] = {}
+    runs_dir = Path(cfg.get("runs_dir", "runs")).expanduser()
+    if not runs_dir.is_dir():
+        return usage
+
+    # gcで runs/_archive/<mission>/ へ退避済みの過去ledgerも実績に含める。
+    for ledger_path in runs_dir.rglob("ledger.jsonl"):
+        run_dir = ledger_path.parent
+        for event in events_payload(
+                run_dir.parent, run_dir.name, tail=None)["events"]:
+            if event["event"] not in {"task.review", "task.persona_review"}:
+                continue
+            cited = event.get("criteria_cited")
+            if not isinstance(cited, list):
+                continue
+            # 回数はIDの出現数ではなく、そのIDを含む裁定イベント数。
+            for criterion_id in {item for item in cited if isinstance(item, str)}:
+                item = usage.setdefault(
+                    criterion_id, {"citation_count": 0, "last_cited_ts": None})
+                item["citation_count"] += 1
+                if (item["last_cited_ts"] is None
+                        or event["ts"] > item["last_cited_ts"]):
+                    item["last_cited_ts"] = event["ts"]
+    return usage
+
+
+def _usage_fields(item: dict | None) -> dict:
+    count = item["citation_count"] if item else 0
+    last_ts = item["last_cited_ts"] if item else None
+    last_date = (datetime.fromtimestamp(last_ts, timezone.utc).date().isoformat()
+                 if last_ts is not None else None)
+    return {"citation_count": count, "last_cited_date": last_date}
+
+
+def criteria_list_text(cfg: dict, max_chars: int = 100000) -> str:
+    """各台帳行の直前に、走査しやすい独立した引用実績行を付ける。"""
+    usage = criteria_usage(cfg)
+    rendered: list[str] = []
+    for line in criteria_context(cfg, max_chars=max_chars).splitlines():
+        match = _LEDGER_ENTRY_RE.match(line)
+        if not match:
+            rendered.append(line)
+            continue
+        fields = _usage_fields(usage.get(match.group(1)))
+        rendered.append(
+            f"<!-- id:{match.group(1)} 引用回数:{fields['citation_count']} "
+            f"最終引用日:{fields['last_cited_date'] or '-'} -->")
+        rendered.append(line)
+    return "\n".join(rendered)
+
+
+def criteria_list_payload(cfg: dict, include_usage: bool = False) -> dict:
     """`orgh criteria list --json` 用の機械可読ペイロード。
 
     本台帳(criteria/<category>.md)と下書き(criteria/_drafts/*.json)を
@@ -227,6 +282,11 @@ def criteria_list_payload(cfg: dict) -> dict:
                 "text": text, "source_mission": source_mission,
                 "date": entry_date,
             })
+
+    if include_usage:
+        usage = criteria_usage(cfg)
+        for entry in entries:
+            entry.update(_usage_fields(usage.get(entry["id"])))
 
     drafts: list[dict] = []
     for fp in list_drafts(cfg):
