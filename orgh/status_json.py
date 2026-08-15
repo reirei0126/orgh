@@ -21,8 +21,10 @@ def _mission_dir(cfg: dict | None, mission_id: str) -> Path:
 
 def _lease_expired(d: Path) -> bool:
     """listing._lease_expiredと同一規則(orgh/lease.py の公開APIのみ使用)。
-    leaseが一度も取得されていない場合はFalse(判定材料が無いだけ)。"""
-    return lease.read(d) is not None and not lease.is_alive(d)
+    leaseが一度も取得されていない場合はFalse(判定材料が無いだけ)。
+    表示専用のis_alive_lenient()を使う理由はlisting._lease_expiredの
+    docstring参照(pidの生死は見ずheartbeat鮮度のみで判定する)。"""
+    return lease.read(d) is not None and not lease.is_alive_lenient(d)
 
 
 def _read_human_request_body(mission_dir: Path, task_id: str) -> str | None:

@@ -52,8 +52,15 @@ def _lease_expired(d: Path) -> bool:
     lease自体が一度も取得されていない(旧ミッション・lease.py導入前の
     データ)場合はFalseを返す — 判定材料が無いだけであり、失効の証拠には
     ならないため、rawステータスをそのまま通す(orgh/lease.py の公開API
-    read()/is_alive()のみを使い、定数は一切ここで再定義しない)。"""
-    return lease.read(d) is not None and not lease.is_alive(d)
+    read()/is_alive_lenient()のみを使い、定数は一切ここで再定義しない)。
+
+    表示専用の is_alive_lenient() を使う(pidの生死は見ずheartbeat鮮度のみ):
+    kill -9されたプロセスは親に数百ms〜数秒でreapされpidが即座に消えるため、
+    pidも条件に含めるRunStore.load用のis_alive()をここに使うと、失効猶予
+    (LEASE_EXPIRY_SEC)の間runningのまま表示し続けるという表示要件が
+    キル直後に崩れてしまう(2026-08-15 実機レビューで判明、orgh/lease.py
+    のis_alive/is_alive_lenientのdocstring参照)。"""
+    return lease.read(d) is not None and not lease.is_alive_lenient(d)
 
 
 # 完了扱いとするミッション状態(finished_tsを出す対象)

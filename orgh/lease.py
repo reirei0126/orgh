@@ -115,9 +115,13 @@ def release(run_dir: str | Path) -> None:
         pass
 
 
-def _pid_alive(pid: int) -> bool:
+def pid_alive(pid: int) -> bool:
     """OSレベルでpidのプロセスが存在するか。シグナル0番は実際には配送されず、
-    カーネルの存在チェックのみが働く(POSIX標準の生存確認手法)。"""
+    カーネルの存在チェックのみが働く(POSIX標準の生存確認手法)。
+
+    is_alive()の内部判定に使うほか、公開APIとしてorgh/doctor.pyの人間向け
+    復旧診断(leaseに記録されたpidが実在するかの単独確認、heartbeat失効判定
+    とは独立に見せたい)からも呼ばれる。"""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -132,14 +136,25 @@ def _pid_alive(pid: int) -> bool:
 
 
 def is_alive(run_dir: str | Path, now: float | None = None) -> bool:
-    """leaseが『生きている』か判定する。
+    """leaseが『生きている』か判定する(厳格判定: heartbeat鮮度とpid生存の両方)。
 
-    条件は (1) heartbeat_atがLEASE_EXPIRY_SEC以内 かつ (2) 記録されたpidの
-    プロセスがOS上に存在すること、の両方。両方を要求する理由:
-    heartbeat_atだけだと更新間隔中の一時的な遅延で誤って失効扱いになりうる
-    一方、pid生存チェックだけだとPID再利用によるゾンビleaseの誤判定を防げ
-    ない。nowを注入可能にしているのはテストで実時間を待たずに失効/生存を
-    固定して検証するため。
+    RunStore.load(reset_inflight=True)(orgh/state.py)の実行中系巻き戻し
+    判定専用。ここで「巻き戻してよい」と誤って早まっても、実際に元プロセスが
+    まだ生きていればミッションロック(flock、orgh/orchestrator/scheduler.py)
+    が新規run_mission()の起動そのものを拒否するため、二重実行には至らない
+    (安全網はflock側にある)。そのため、pid_aliveがFalseになった時点(実務上
+    kill -9からミリ秒〜数秒でOSにreapされる)で直ちに「死んでいる」と判定して
+    即座に復旧可能にする、積極的な判定基準を採る。
+
+    表示系(orgh list / orgh status。orgh/listing.py・orgh/status_json.py)は
+    これとは別に is_alive_lenient() を使う — 表示にはflockのような安全網が
+    無く早すぎる「unknown」表示が人間を不必要に驚かせるため、失効猶予
+    (LEASE_EXPIRY_SEC)の間はpidの生死に関わらずrunning等の従来表示を保つ、
+    保守的な判定基準にしている(2026-08-15 実機レビューで、単一のis_alive()
+    をkill -9直後の表示にも使うと猶予が機能しないことが判明し分離した)。
+
+    nowを注入可能にしているのはテストで実時間を待たずに失効/生存を固定して
+    検証するため。
     """
     lease = read(run_dir)
     if lease is None:
@@ -147,4 +162,24 @@ def is_alive(run_dir: str | Path, now: float | None = None) -> bool:
     ts = now if now is not None else time.time()
     if ts - lease.heartbeat_at > LEASE_EXPIRY_SEC:
         return False
-    return _pid_alive(lease.pid)
+    return pid_alive(lease.pid)
+
+
+def is_alive_lenient(run_dir: str | Path, now: float | None = None) -> bool:
+    """leaseが『生きている』か判定する(表示専用: heartbeat鮮度のみ)。
+
+    orgh list / orgh status(orgh/listing.py・orgh/status_json.py)がここに
+    「running/unknown」の表示を委ねる。is_alive()と違いpidの生死は見ない:
+    kill -9されたプロセスは、シェルのジョブ管理・systemd・launchd等の親に
+    よって通常数百ms〜数秒でreapされOSからpidが消えるため、pid生存も条件に
+    含めると失効猶予(LEASE_EXPIRY_SEC)の間ずっとrunning表示を保つという
+    表示要件が実質即座に破られてしまう(2026-08-15 実機レビューで確認された
+    誤判定)。heartbeat_atが新しい間は「まだ判断を保留してよい」とみなし、
+    LEASE_EXPIRY_SECを超えて初めて失効=unknownとする。
+    RunStore.loadの実行中系巻き戻し判定にはこちらを使わない(is_alive()参照)。
+    """
+    lease = read(run_dir)
+    if lease is None:
+        return False
+    ts = now if now is not None else time.time()
+    return ts - lease.heartbeat_at <= LEASE_EXPIRY_SEC
