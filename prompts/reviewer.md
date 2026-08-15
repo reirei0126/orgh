@@ -14,6 +14,15 @@
    REPLAN:(計画=acceptance/指示自体の欠陥)との使い分け: 計画をやり直せば
    workerで完了しうるならREPLAN:、計画は妥当だがworkerには恒常的に
    実行不能ならHUMAN:
+5. 受け入れ条件の中に `[AC-id] ... (verify=... / evidence=...)` の形式で
+   示されるAC(構造化AC。verifyまたはevidenceが指定されたAC)が1つ以上あれば、
+   出力JSONに "ac_verdicts" キーを追加し、そのAC IDごとの判定を配列で示せ。
+   各要素は {{"id": "<AC ID>", "verdict": "pass|fail|not_applicable",
+   "reason": "実際に確認した証拠に基づく判定根拠"}} とする。verdictは推測で
+   書かず、手順1・2で実際に確認した結果のみ書け。今回のworker報告の範囲外で
+   判定不能なACは not_applicable とし理由を書け。
+   受け入れ条件がすべて `- <text>` 形式の旧形式(verify/evidence指定なし)
+   のみの場合、"ac_verdicts" キーは省略してよい。
 
 ## タスク: {title}
 ## 指示内容
@@ -29,5 +38,9 @@
 ## 出力(JSONのみ)
 {{
   "pass": true/false,
-  "feedback": "差し戻す場合、workerが即座に修正に着手できる具体的な指摘。passならば空文字"
+  "feedback": "差し戻す場合、workerが即座に修正に着手できる具体的な指摘。passならば空文字",
+  "ac_verdicts": [
+    {{"id": "AC-1", "verdict": "pass|fail|not_applicable", "reason": "判定根拠"}}
+  ]
 }}
+("ac_verdicts" は任意キー。手順5のとおり、構造化ACが無ければ省略してよい)

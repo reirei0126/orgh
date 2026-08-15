@@ -33,6 +33,9 @@
                           (証拠チャネル原則違反ケースの試験用)
   MOCK_CLAUDE_AUTH        "ok"(既定)/"failed": `auth status --json` 呼び出し
                           (orgh doctor の非対話認証確認)への応答を切り替える
+  MOCK_REVIEWER_AC_VERDICTS reviewer応答へ "ac_verdicts" キーとして注入する
+                          inline JSON配列(ac_verdicts記録・サニタイズの試験用。
+                          HUMAN:/REPLAN:差し戻し分岐には注入しない)
 
 プロンプト中の [[SLEEP:<秒>]] で応答前に sleep(タイムアウト/kill試験用)。
 [[WRITE:<相対パス>:<内容>]] でworkerがcwdにファイルを書く(worktree分離試験用)。
@@ -208,6 +211,9 @@ def main() -> int:
                        "feedback": f"モック差し戻し(初回のみ): [[MARK:{marker}]] を修正せよ"}
         else:
             verdict = {"pass": True, "feedback": ""}
+        ac_verdicts_spec = os.environ.get("MOCK_REVIEWER_AC_VERDICTS")
+        if ac_verdicts_spec:
+            verdict["ac_verdicts"] = json.loads(ac_verdicts_spec)
         _log_call(state, {"role": "reviewer", "marker": marker,
                           "resume": resume, "passed": verdict["pass"]})
         print(_envelope(json.dumps(verdict, ensure_ascii=False),

@@ -75,9 +75,8 @@ def run_review_pipeline(cfg: dict, store: RunStore, t: Task, budget: Budget,
     # 反映されず、次attempt冒頭のタスク予算チェックも過小評価していた)
     review_cost_sink: list[float] = []
     try:
-        passed, feedback = review_with_retry(cfg, store, t, budget,
-                                             wait=infra_wait,
-                                             cost_sink=review_cost_sink)
+        passed, feedback, ac_verdicts, ac_verdicts_dropped = review_with_retry(
+            cfg, store, t, budget, wait=infra_wait, cost_sink=review_cost_sink)
     except CancelledDuringRole:
         # キャンセル起因は_run_taskの包括ハンドラでcancelled化する。
         # 包括exceptに食わせるとfailedに化けて通常resume不能になる
@@ -96,7 +95,12 @@ def run_review_pipeline(cfg: dict, store: RunStore, t: Task, budget: Budget,
             t.cost_usd += sum(review_cost_sink)
     with store.lock:
         t.review_notes = feedback
-    store.log("task.review", task=t.id, passed=passed)
+    log_kw: dict = {"task": t.id, "passed": passed}
+    if ac_verdicts:
+        log_kw["ac_verdicts"] = ac_verdicts
+    if ac_verdicts_dropped:
+        log_kw["ac_verdicts_dropped"] = ac_verdicts_dropped
+    store.log("task.review", **log_kw)
     if passed and t.personas:
         for persona in t.personas:
             persona_cost_sink: list[float] = []

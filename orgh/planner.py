@@ -8,6 +8,7 @@ import json
 import re
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from .adapters.base import get_adapter
 from .criteria import criteria_context
@@ -197,14 +198,51 @@ def build_review_prompt(cfg: dict, task: Task) -> str:
                        criteria=criteria_context(cfg))
 
 
+_AC_VERDICT_VALUES = frozenset({"pass", "fail", "not_applicable"})
+
+
+def _sanitize_ac_verdicts(raw: Any, task: Task) -> tuple[list[dict], int]:
+    """ReviewerがLLM由来で返す ac_verdicts を検証・矯正する(信用しない)。
+
+    - リストでなければ何も無かったものとして扱う(([], 0))
+    - 各要素はdictで id/verdict/reason を持つこと。id はtask.acceptanceに
+      実在するACのidであること。verdictはpass|fail|not_applicableのみ。
+      reasonは空でない文字列であること。1つでも欠ければその要素を落とす
+    - 例外は投げない。戻り値は (サニタイズ済み配列, 落とした要素数)
+    """
+    if not isinstance(raw, list):
+        return [], 0
+    valid_ids = {ac["id"] for ac in task.acceptance
+                if isinstance(ac, dict) and isinstance(ac.get("id"), str)}
+    out: list[dict] = []
+    dropped = 0
+    for item in raw:
+        if not isinstance(item, dict):
+            dropped += 1
+            continue
+        ac_id = item.get("id")
+        verdict = item.get("verdict")
+        reason = item.get("reason")
+        if (not isinstance(ac_id, str) or ac_id not in valid_ids
+                or verdict not in _AC_VERDICT_VALUES
+                or not isinstance(reason, str) or not reason.strip()):
+            dropped += 1
+            continue
+        out.append({"id": ac_id, "verdict": verdict, "reason": reason[:500]})
+    return out, dropped
+
+
 def review(cfg: dict, task: Task, workdir: str,
           budget: Budget | None = None,
           registry_key: str | None = None,
-          cost_sink: list | None = None) -> tuple[bool, str]:
+          cost_sink: list | None = None) -> tuple[bool, str, list[dict], int]:
     data = _ask_json(cfg, "reviewer", build_review_prompt(cfg, task),
                      workdir=workdir, budget=budget, registry_key=registry_key,
                      cost_sink=cost_sink)
-    return bool(data.get("pass")), data.get("feedback", "")
+    ac_verdicts, ac_verdicts_dropped = _sanitize_ac_verdicts(
+        data.get("ac_verdicts"), task)
+    return (bool(data.get("pass")), data.get("feedback", ""),
+           ac_verdicts, ac_verdicts_dropped)
 
 
 _PERSONA_ROLE_DEFAULT = {"model": "sonnet", "max_turns": 30,
