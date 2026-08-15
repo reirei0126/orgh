@@ -28,6 +28,13 @@ def criteria_dir(cfg: dict) -> Path:
     return Path(cfg.get("criteria_dir", "criteria")).expanduser()
 
 
+def criteria_read_dir(cfg: dict) -> Path:
+    """実行時スナップショットがあればそれを、なければ本台帳を返す。"""
+    if "_criteria_read_dir" in cfg:
+        return Path(cfg["_criteria_read_dir"]).expanduser()
+    return criteria_dir(cfg)
+
+
 def _ledger_files(cdir: Path) -> list[Path]:
     """_始まり(_drafts/_rejected等)は台帳走査から除外する。"""
     if not cdir.is_dir():
@@ -38,7 +45,7 @@ def _ledger_files(cdir: Path) -> list[Path]:
 def criteria_context(cfg: dict, max_chars: int = 4000) -> str:
     """台帳をReviewer/ペルソナのプロンプトへ注入する(playbookと同じ日付降順詰め)。"""
     entries: list[tuple[str, str]] = []
-    for p in _ledger_files(criteria_dir(cfg)):
+    for p in _ledger_files(criteria_read_dir(cfg)):
         for line in p.read_text().splitlines():
             if not line.strip():
                 continue

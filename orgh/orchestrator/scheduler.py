@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import shutil
 import time
 from pathlib import Path
@@ -93,6 +94,50 @@ def with_prompts_snapshot(cfg: dict, store: RunStore) -> dict:
     return {**cfg, "_prompts_read_dir": str(dst)}
 
 
+def with_criteria_snapshot(cfg: dict, store: RunStore) -> dict:
+    """criteria/をミッション専用スナップショットへ差し替えたcfgを返す。
+
+    コードとconfigはプロセス起動時に固定される一方、criteria/はReviewer・
+    ペルソナへの注入のたびにディスクから読まれる。長時間ミッションやresume中に
+    本台帳が変わると、同じ成果物が別基準で裁定されても監査できない。
+    実行開始・resumeの時点(=プロセスのコードと確実に整合する時点)の
+    criteria/*.mdを runs/<id>/criteria/ へ写し、以後はそれだけを読む。
+    resumeのたびに上書きするのは、resumeプロセスは現行コードで動くため
+    「その時点のライブ版」と揃えるのが正しいから。
+    副次効果: どの判断基準で裁定されたかがミッション記録に残る。
+    """
+    src = Path(cfg.get("criteria_dir", "criteria")).expanduser()
+    dst = store.dir / "criteria"
+    tmp = store.dir / ".criteria.snapshot.tmp"
+    try:
+        if not src.is_dir():
+            print("  [warn] criteria/スナップショット作成に失敗、ライブ版を使用: "
+                  f"台帳ディレクトリが存在しない: {src}")
+            return cfg
+        files = sorted(src.glob("*.md"), key=lambda p: p.name)
+        if tmp.exists():
+            shutil.rmtree(tmp)
+        tmp.mkdir(parents=True)
+        digest = hashlib.sha256()
+        for fp in files:
+            content = fp.read_bytes()
+            digest.update(fp.name.encode())
+            digest.update(content)
+            (tmp / fp.name).write_bytes(content)
+        if dst.exists():
+            shutil.rmtree(dst)
+        tmp.rename(dst)
+        store.log("mission.criteria_snapshot", src=str(src),
+                  hash=digest.hexdigest())
+    except OSError as e:
+        shutil.rmtree(tmp, ignore_errors=True)
+        print(f"  [warn] criteria/スナップショット作成に失敗、ライブ版を使用: {e!r}")
+        return cfg
+    # 注意: criteria_dir自体は差し替えない(自己改変ガードがcfg["criteria_dir"]を
+    # 保護対象パスとして参照するため)。読み取り先のみ別キーで上書きする
+    return {**cfg, "_criteria_read_dir": str(dst)}
+
+
 def run_mission(cfg: dict, mission: Mission, store: RunStore,
                 on_update=None, poll_cancel=None, lock_fp=None) -> Mission:
     """同一ミッションの二重実行防止(GUI/CLI/watchの経路をまたぐプロセス間ロック)
@@ -107,6 +152,7 @@ def run_mission(cfg: dict, mission: Mission, store: RunStore,
                 f"二重発行の可能性)。二重実行を中止する")
     try:
         cfg = with_prompts_snapshot(cfg, store)
+        cfg = with_criteria_snapshot(cfg, store)
         return _run_mission_locked(cfg, mission, store, on_update, poll_cancel)
     finally:
         lock_fp.close()  # closeでflockも解放される
