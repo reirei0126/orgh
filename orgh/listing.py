@@ -9,9 +9,15 @@ import json
 import os
 from pathlib import Path
 
+from . import lease
 from .state import TERMINAL
 
 _MAX_INTENT_LEN = 60
+
+# 実行中系タスクステータス。state._INFLIGHT_STATUSESと同期を保つこと
+# (listing.pyはmission.jsonを直接読むためTaskデータクラスに依存しない設計上、
+# 独自に複製している。_derive_statusのstatus_json.pyとの重複と同じ理由)。
+_INFLIGHT_TASK_STATUSES = ("queued", "running", "review")
 
 
 def _summarize_intent(intent: str) -> str:
@@ -38,6 +44,16 @@ def _derive_status(tasks: list[dict]) -> str:
     if all(s in TERMINAL for s in statuses):
         return "cancelled"
     return "running"
+
+
+def _lease_expired(d: Path) -> bool:
+    """dでleaseが取得されたことがあり、かつ現在失効しているか。
+
+    lease自体が一度も取得されていない(旧ミッション・lease.py導入前の
+    データ)場合はFalseを返す — 判定材料が無いだけであり、失効の証拠には
+    ならないため、rawステータスをそのまま通す(orgh/lease.py の公開API
+    read()/is_alive()のみを使い、定数は一切ここで再定義しない)。"""
+    return lease.read(d) is not None and not lease.is_alive(d)
 
 
 # 完了扱いとするミッション状態(finished_tsを出す対象)
@@ -135,6 +151,14 @@ def _summarize_mission(d: Path) -> dict:
             and all(t.get("status") == "pending" for t in tasks)
             and (d.parent / "_queue" / f"{mission['id']}.json").exists()):
         status = "queued"
+    # 実行中系タスクを抱えたまま(=status_json.status_payloadと同一規則で
+    # "running"と導出された)のに、そのプロセスのleaseが失効している場合は
+    # pending/failedへ丸めず「unknown」として出す(判別不能を判別不能のまま
+    # 出す。pendingに丸めると二重実行、failedに丸めると成果喪失を誘発する)
+    if (status == "running"
+            and any(t.get("status") in _INFLIGHT_TASK_STATUSES for t in tasks)
+            and _lease_expired(d)):
+        status = "unknown"
     created_ts, finished_ts = _mission_times(d, status)
     return {
         "mission_id": mission["id"],

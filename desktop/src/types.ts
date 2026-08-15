@@ -28,7 +28,11 @@ export interface MissionSummary {
  * 1件でもawaiting_approval="awaiting_approval"。
  * 1件でもawaiting_human="awaiting_human"(awaiting_approvalより優先度は下)。
  * 全件終端(done/cancelled/skipped)でdone以外を含む="cancelled"。
- * それ以外(pending/running混在)="running"。 */
+ * それ以外(pending/running混在)="running"。
+ * 実行中系タスク(queued/running/review)を抱えたまま実行プロセスのlease
+ * (orgh/lease.py)が失効している場合="unknown"(orgh/listing.py
+ * _lease_expired 準拠。pending/failedに丸めない — 二重実行/成果喪失の
+ * 誤誘導を避けるため判別不能のまま出す)。 */
 export type MissionListStatus =
   | "empty"
   | "queued"
@@ -37,7 +41,8 @@ export type MissionListStatus =
   | "failed"
   | "awaiting_approval"
   | "awaiting_human"
-  | "cancelled";
+  | "cancelled"
+  | "unknown";
 
 /** list_missions() で読み飛ばされた壊れた mission.json の情報。
  * 破損データを黙殺すると「0件」とデータ消失を区別できないため明示する。 */
@@ -101,7 +106,8 @@ export interface GatedTask {
 }
 
 /** 実行中ミッションのステータス派生規則(orgh/status_json.py 準拠)。
- * listing._derive_status と完全に同一規則(0タスクなら "empty")。 */
+ * listing._derive_status と完全に同一規則(0タスクなら "empty")。
+ * "unknown" は MissionListStatus と同じ意味(lease失効による判別不能)。 */
 export type MissionRunStatus =
   | "empty"
   | "queued"
@@ -110,14 +116,17 @@ export type MissionRunStatus =
   | "failed"
   | "awaiting_approval"
   | "awaiting_human"
-  | "cancelled";
+  | "cancelled"
+  | "unknown";
 
 export interface TaskStatus {
   id: string;
   title: string;
   /** pending/running/review/done/failed/cancelled/skipped/awaiting_approval等。
-   * orgh側のTask.statusをそのまま文字列で通す。将来値が増えても壊れない
-   * よう、リテラルUnionにはせずstringとする。 */
+   * orgh側のTask.statusをそのまま文字列で通す。ただし実行中系
+   * (queued/running/review)でプロセスのleaseが失効している場合のみ、
+   * 生の値ではなく表示上"unknown"に上書きされる(orgh/status_json.py
+   * 準拠)。将来値が増えても壊れないよう、リテラルUnionにはせずstringとする。 */
   status: string;
   attempts: number;
   worker: string;
