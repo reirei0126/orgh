@@ -91,6 +91,25 @@ class BaseAdapter:
         raise NotImplementedError
 
 
+def build_allowed_tools(base_tools: str | None,
+                        capability_allowlist: list | None) -> str | None:
+    """--allowedTools へ capability_allowlist(固定Bashパターン等)を追記結合する。
+
+    capability_allowlist が空/未設定なら base_tools をそのまま返す(既存挙動を
+    1バイトも変えない)。設定がある場合のみカンマ区切りで末尾に追記する。
+
+    ⚠ これはセキュリティ境界ではない/セキュリティ保証ではない: 同じargvでも
+    PATH差し替え・cwd・設定ファイル・git hook・symlink・環境変数によって実際の
+    書き込み/外部通信は変わりうる(sandbox/egressの強制も無い)。ここでの許可は
+    「能力不足を誤ってawaiting_humanへ変換しない」ための能力宣言というUX改善で
+    あって、実行環境そのものを隔離する保証ではない(方向性文書2026-08 §3.1 A2)。
+    """
+    if not capability_allowlist:
+        return base_tools
+    injected = ",".join(capability_allowlist)
+    return f"{base_tools},{injected}" if base_tools else injected
+
+
 class ClaudeCodeAdapter(BaseAdapter):
     """claude -p headless. --output-format json で result / session_id / cost を取得。"""
     name = "claude_code"
@@ -103,9 +122,12 @@ class ClaudeCodeAdapter(BaseAdapter):
                "--max-turns", str(c.get("max_turns", 40))]
         if c.get("model"):
             cmd += ["--model", c["model"]]
-        # タスク単位のtools(Planner明示付与)がworker既定より優先
-        if allowed_tools or c.get("allowed_tools"):
-            cmd += ["--allowedTools", allowed_tools or c["allowed_tools"]]
+        # タスク単位のtools(Planner明示付与)がworker既定より優先。
+        # capability_allowlist(config)はその上へさらに追記注入する
+        tools = build_allowed_tools(allowed_tools or c.get("allowed_tools"),
+                                    c.get("capability_allowlist"))
+        if tools:
+            cmd += ["--allowedTools", tools]
         if c.get("permission_mode"):
             cmd += ["--permission-mode", c["permission_mode"]]
         # 役割呼び出しはsetting_sources="user"でcwd内のCLAUDE.md/.claude設定

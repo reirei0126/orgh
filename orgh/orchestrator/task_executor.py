@@ -120,6 +120,14 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             store.log("task.worktree", task=t.id, path=str(path), branch=branch)
 
     adapter = get_adapter(t.worker, cfg["workers"])
+    # A2限定版(方向性文書2026-08 §3.1): 注入したcapability_allowlistを監査記録する。
+    # 「そのタスクに何が許可されていたか」を事後追跡できるようにするための記録
+    # であって、セキュリティ保証ではない(orgh/adapters/base.py build_allowed_tools参照)
+    capability_allowlist = cfg["workers"].get(t.worker, {}).get(
+        "capability_allowlist")
+    if capability_allowlist:
+        store.log("task.capability_allowlist", task=t.id, worker=t.worker,
+                  patterns=list(capability_allowlist))
     lcfg = cfg.get("loop", {})
     max_attempts = lcfg.get("max_attempts", 3)
     infra_max = lcfg.get("infra_max_retries", 3)
