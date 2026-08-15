@@ -345,12 +345,14 @@ def main() -> None:
         task.last_output = args.note
         store.log("task.human_report", task=task.id, note=args.note[:500])
         cost_sink: list[float] = []
-        passed, feedback, ac_verdicts, ac_verdicts_dropped = planner.review(
+        (passed, feedback, ac_verdicts, ac_verdicts_dropped,
+         criteria_cited) = planner.review(
             cfg, task, workdir=task.workdir, budget=mission.budget,
             registry_key=store.dir.name, cost_sink=cost_sink)
         task.cost_usd += sum(cost_sink)
         task.review_notes = feedback
-        log_kw: dict = {"task": task.id, "passed": passed}
+        log_kw: dict = {"task": task.id, "passed": passed,
+                        "criteria_cited": criteria_cited}
         if ac_verdicts:
             log_kw["ac_verdicts"] = ac_verdicts
         if ac_verdicts_dropped:

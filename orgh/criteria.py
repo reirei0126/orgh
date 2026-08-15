@@ -61,6 +61,18 @@ def criteria_context(cfg: dict, max_chars: int = 4000) -> str:
     return "\n".join(picked) if picked else "(no criteria yet)"
 
 
+def criteria_ids(cfg: dict, max_chars: int = 4000) -> set[str]:
+    """criteria_context(cfg, max_chars)が実際にプロンプトへ注入する基準IDの
+    集合。裁定応答の criteria_cited 検証(捏造ID破棄)に使う — 注入されて
+    いないIDを裁定が引用したと言い張っても、この集合に無ければ信用しない。"""
+    ids: set[str] = set()
+    for line in criteria_context(cfg, max_chars=max_chars).splitlines():
+        m = _LEDGER_ENTRY_RE.match(line)
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
 def next_id(cdir: Path, prefix: str) -> str:
     """全台帳ファイル横断でprefixの最大番号+1(3桁ゼロ埋め)。"""
     top = 0

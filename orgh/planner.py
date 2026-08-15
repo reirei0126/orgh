@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapters.base import get_adapter
-from .criteria import criteria_context
+from .criteria import criteria_context, criteria_ids
 from .slots import acquire_slot
 from .state import TERMINAL, Budget, Mission, Task, acceptance_lines
 
@@ -232,17 +232,31 @@ def _sanitize_ac_verdicts(raw: Any, task: Task) -> tuple[list[dict], int]:
     return out, dropped
 
 
+def _sanitize_criteria_cited(raw: Any, valid_ids: set[str]) -> list[str]:
+    """裁定応答の criteria_cited(実際に参照した基準IDの配列)を検証する
+    (信用しない)。そのタスクの裁定プロンプトに実際に注入された基準ID
+    (valid_ids)に含まれないID(捏造)は黙って捨て、有効なIDだけを残す。
+    キー欠落・型不正(配列でない)は例外にせず空配列として扱う。
+    """
+    if not isinstance(raw, list):
+        return []
+    return [cid for cid in raw if isinstance(cid, str) and cid in valid_ids]
+
+
 def review(cfg: dict, task: Task, workdir: str,
           budget: Budget | None = None,
           registry_key: str | None = None,
-          cost_sink: list | None = None) -> tuple[bool, str, list[dict], int]:
+          cost_sink: list | None = None
+          ) -> tuple[bool, str, list[dict], int, list[str]]:
     data = _ask_json(cfg, "reviewer", build_review_prompt(cfg, task),
                      workdir=workdir, budget=budget, registry_key=registry_key,
                      cost_sink=cost_sink)
     ac_verdicts, ac_verdicts_dropped = _sanitize_ac_verdicts(
         data.get("ac_verdicts"), task)
+    criteria_cited = _sanitize_criteria_cited(
+        data.get("criteria_cited"), criteria_ids(cfg))
     return (bool(data.get("pass")), data.get("feedback", ""),
-           ac_verdicts, ac_verdicts_dropped)
+           ac_verdicts, ac_verdicts_dropped, criteria_cited)
 
 
 _PERSONA_ROLE_DEFAULT = {"model": "sonnet", "max_turns": 30,
@@ -252,7 +266,9 @@ _PERSONA_ROLE_DEFAULT = {"model": "sonnet", "max_turns": 30,
 def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
                    budget: Budget | None = None,
                    registry_key: str | None = None,
-                   cost_sink: list | None = None) -> tuple[bool, str, list[str]]:
+                   cost_sink: list | None = None,
+                   criteria_cited_sink: list | None = None
+                   ) -> tuple[bool, str, list[str]]:
     """ペルソナ検収(戦略設計書 柱1)。証拠なしの合格裁定はValueErrorで無効化する
     (同じLLMが自分に頷くだけのハンコ裁定の禁止)。呼び出し側のロールリトライで
     再裁定され、リトライ枯渇時はworker成果を保持したままfailedになる。
@@ -260,6 +276,10 @@ def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
     戻り値は (pass, feedback, evidence) の3要素。evidenceは呼び出し側が
     ledger(task.persona_review)に記録し、ゲートの監査可能性を担保する
     (フォローアップ2: これまでは検証にしか使わずledgerへ残していなかった)。
+
+    criteria_cited(実際に参照した基準ID)は戻り値のタプルに足さず
+    criteria_cited_sink(cost_sinkと同型の出力先リスト)へ積む: 既存の
+    3要素タプル前提の呼び出し元(直接呼ぶ既存テスト含む)を壊さないため。
     """
     role = f"persona_{persona}"
     cfg = role_with_default(cfg, role, _PERSONA_ROLE_DEFAULT)
@@ -274,6 +294,9 @@ def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
     if data.get("pass") and not evidence:
         raise ValueError(
             f"persona {persona} が証拠なしで合格裁定を返した(証拠チャネル原則違反)")
+    if criteria_cited_sink is not None:
+        criteria_cited_sink.extend(_sanitize_criteria_cited(
+            data.get("criteria_cited"), criteria_ids(cfg)))
     return bool(data.get("pass")), data.get("feedback", ""), evidence
 
 
