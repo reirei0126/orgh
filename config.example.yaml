@@ -44,6 +44,25 @@ workers:
     allowed_tools: "Read,Write,Edit,Glob,Grep"   # Bashはデフォルト付与しない。必要なタスクにはPlannerがtoolsで明示付与
     permission_mode: acceptEdits
     # env_secret_allow: [MY_CUSTOM_TOKEN]   # 秘密パターンでもworkerへ通したい変数
+    # capability_allowlist: 固定Bashパターンの能力宣言(A2限定版, 方向性文書2026-08
+    #   §3.1)。既定は未設定(空=無効)。設定した場合のみ、その内容が起動時の
+    #   --allowedTools へ「追記」注入される(未設定なら従来の引数列と1バイトも
+    #   変わらない)。注入した内容はミッションledgerに task.capability_allowlist
+    #   として記録され、後から「そのタスクに何が許可されていたか」を追跡できる。
+    #   ⚠ これはセキュリティ境界ではない/セキュリティ保証ではない: 同じargvでも
+    #   PATH差し替え・cwd・設定ファイル・git hook・symlink・環境変数によって
+    #   実際の書き込み/外部通信は変わりうる(sandbox/egress制御は無い)。ここでの
+    #   許可は「能力不足を誤ってawaiting_human(人間依頼)へ変換しない」ための
+    #   能力宣言というUX改善であって、実行環境そのものを隔離する保証ではない。
+    #   以下は b6503b9a t3(読み取り専用gitの承認待ちで人間依頼化した実害)で
+    #   実証された値。claude CLIのallowedToolsパターン仕様(Bash(<prefix>)形式)を
+    #   そのまま踏襲しており調整はしていない
+    # capability_allowlist:
+    #   - "Bash(git -C * rev-parse *)"
+    #   - "Bash(git -C * status *)"
+    #   - "Bash(git -C * log *)"
+    #   - "Bash(git -C * show *)"
+    #   - "Bash(git -C * diff *)"
   codex:
     bin: codex
     extra_args: ["--sandbox", "workspace-write", "--skip-git-repo-check"]  # codex 0.146+。--full-autoは非推奨、git外workdirには--skip-git-repo-check必須

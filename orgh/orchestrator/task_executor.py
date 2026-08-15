@@ -39,6 +39,22 @@ def is_infra_error(output: str) -> bool:
     return bool(INFRA_ERROR_RE.search(output or ""))
 
 
+# 権限起因の失敗署名。CLIサンドボックス側の非対話承認待ちはworkerでは解消
+# 不能な環境側の制約であり、retry/レビュー(LLM判断)に回しても直らないため
+# 機械的にawaiting_humanへ回す(実運用b6503b9a t3: 読み取り専用gitコマンドが
+# 承認待ちのまま完了せず、3ターン浪費した末にReviewerのHUMAN:判断で人間へ
+# 転換された事例。runs/b6503b9a/artifacts/t3_attempt1.md・t3_attempt2.md で
+# "This command requires approval" を実測)。署名は実際に観測されたものだけ
+# 登録する(誤検知はawaiting_humanの濫発に直結する)
+CAPABILITY_ERROR_RE = re.compile(
+    r"This command requires approval",  # claude CLI(b6503b9a t3で実測)
+)
+
+
+def is_capability_error(output: str) -> bool:
+    return bool(CAPABILITY_ERROR_RE.search(output or ""))
+
+
 def run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     """最外周の薄いラッパ: 実処理(attempt_loop)の全例外を1タスクのfailedに閉じ込め、
     ミッション全体を道連れにしない。"""
@@ -120,6 +136,14 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             store.log("task.worktree", task=t.id, path=str(path), branch=branch)
 
     adapter = get_adapter(t.worker, cfg["workers"])
+    # A2限定版(方向性文書2026-08 §3.1): 注入したcapability_allowlistを監査記録する。
+    # 「そのタスクに何が許可されていたか」を事後追跡できるようにするための記録
+    # であって、セキュリティ保証ではない(orgh/adapters/base.py build_allowed_tools参照)
+    capability_allowlist = cfg["workers"].get(t.worker, {}).get(
+        "capability_allowlist")
+    if capability_allowlist:
+        store.log("task.capability_allowlist", task=t.id, worker=t.worker,
+                  patterns=list(capability_allowlist))
     lcfg = cfg.get("loop", {})
     max_attempts = lcfg.get("max_attempts", 3)
     infra_max = lcfg.get("infra_max_retries", 3)
@@ -185,6 +209,20 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             if flag.exists():
                 # terminateによる異常終了は失敗ではなくキャンセル扱い
                 transition(store, t, "cancelled")
+                return t
+            if is_capability_error(res.output):
+                # 権限起因はworkerの実力不足ではなく環境側の制約。retry/レビュー
+                # (LLM判断)を介さず、機械的にawaiting_humanへ遷移する
+                store.log("capability.blocked", task=t.id,
+                          detail=res.output[:500])
+                reason = (
+                    "権限起因のエラーで失敗した(機械検知。レビュー未経由): "
+                    f"{res.output[:500]}\n\n"
+                    "対処案: config の `workers.claude_code.capability_allowlist` "
+                    "へ、ブロックされたコマンドを許可する追加パターンを登録する"
+                    "ことを検討せよ。")
+                enter_awaiting_human(store, cfg, t, reason,
+                                     refund_attempt=True)
                 return t
             if is_infra_error(res.output):
                 # ネットワーク断等はworkerの失敗ではない: attemptを返却して待機後に再試行。

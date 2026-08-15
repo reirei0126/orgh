@@ -272,6 +272,50 @@ class TestSecurityDefaults:
         assert argv[argv.index("--allowedTools") + 1] == "Read,Edit,Bash"
 
 
+class TestCapabilityAllowlist:
+    """A2限定版(方向性文書2026-08 §3.1): workers.claude_code.capability_allowlist
+    の --allowedTools 追記注入とミッションledgerへの監査記録。"""
+
+    def test_capability_allowlist_appended_to_allowed_tools(
+            self, cfg, mock_state_dir, tmp_path):
+        cfg["workers"]["claude_code"]["capability_allowlist"] = [
+            "Bash(git -C * rev-parse *)", "Bash(git -C * status *)"]
+        m = _mission([_task("t1", workdir=str(tmp_path), tools="Read,Edit")])
+        run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
+
+        [call] = [c for c in read_calls(mock_state_dir) if c["role"] == "worker"]
+        argv = call["argv"]
+        assert "--allowedTools" in argv
+        value = argv[argv.index("--allowedTools") + 1]
+        assert value == ("Read,Edit,Bash(git -C * rev-parse *),"
+                         "Bash(git -C * status *)")
+
+    def test_capability_allowlist_unset_keeps_argv_unchanged(
+            self, cfg, mock_state_dir, tmp_path):
+        # capability_allowlist未設定(config既定=空): 従来の引数列と1バイトも
+        # 変わらないことの回帰テスト
+        m = _mission([_task("t1", workdir=str(tmp_path), tools="Read,Edit,Bash")])
+        run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
+
+        [call] = [c for c in read_calls(mock_state_dir) if c["role"] == "worker"]
+        argv = call["argv"]
+        assert "--allowedTools" in argv
+        assert argv[argv.index("--allowedTools") + 1] == "Read,Edit,Bash"
+
+    def test_capability_allowlist_recorded_in_ledger(
+            self, cfg, mock_state_dir, tmp_path):
+        patterns = ["Bash(git -C * rev-parse *)", "Bash(git -C * status *)"]
+        cfg["workers"]["claude_code"]["capability_allowlist"] = patterns
+        m = _mission([_task("t1", workdir=str(tmp_path))])
+        run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
+
+        events = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                  if e["event"] == "task.capability_allowlist"]
+        assert len(events) == 1
+        assert events[0]["task"] == "t1"
+        assert events[0]["patterns"] == patterns
+
+
 class TestApproveGuardrails:
     """approveの安全弁: 承認対象が無いときの先行承認・二重承認を弾く。"""
 
