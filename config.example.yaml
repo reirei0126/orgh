@@ -93,3 +93,7 @@ watch:                         # orgh watch (イベント駆動デーモン)
 
 gc:                            # orgh gc(playbookの代謝とruns保持)
   retention_days: 90           # これより古いミッションは runs/_archive/ へ退避
+
+notify:                        # 人間接点イベント通知(A1out)。既定は無効(挙動不変)
+  webhook_url: null            # POST先URL。null=webhook無効(ledgerのnotify.emittedのみ記録)
+  timeout: 5                   # POSTのタイムアウト秒
