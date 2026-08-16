@@ -16,6 +16,7 @@ from ..planner import replan_task, worker_prompt
 from ..state import Budget, RunStore, Task
 from ..slots import SlotAborted, acquire_slot
 from ..worktree import commit_task_result, ensure_task_worktree
+from . import copyback_gate
 from .cancellation import CancelledDuringRole, cancel_flag, cancellable_sleep
 from .review_pipeline import run_review_pipeline
 from .transitions import enter_awaiting_human, transition
@@ -249,6 +250,11 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             continue
 
         transition(store, t, "review")
+        # 非git成果物の配達契約(direction-2026-08 §4 3a'): workerがworktree直下に
+        # orgh-manifest.json を出力した場合のみ発動する(無ければNone=従来動作)。
+        # 検収開始時点でstagingを凍結扱いにして照合するため、reviewer呼び出し
+        # (成果物を書き換えない前提)より前にここで行う
+        copyback_ctx = copyback_gate.start_review_gate(store, t)
         verdict = run_review_pipeline(cfg, store, t, budget, infra_wait)
         if verdict is None:
             return t   # レビュー/ペルソナ枯渇でfailed確定済み(成果は保持)
@@ -272,6 +278,12 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                 transition(store, t, "cancelled",
                            event="task.cancelled_after_review")
                 return t
+            if copyback_ctx is not None:
+                # 検収合格後にのみ実コピーを行う(コピー直前に再検証する契約は
+                # copyback_gate.finalize -> run_copyback 内で行われる)。
+                # False = 既にfailed/awaiting_humanへ遷移済み(doneにしない)
+                if not copyback_gate.finalize(store, cfg, t, copyback_ctx):
+                    return t
             transition(store, t, "done")
             return t
 
