@@ -1,5 +1,9 @@
 # ARCH-001 / ARCH-002 失効記録(2026-08-15)
 
+> **2026-08-16 追記: 台帳へ復元済み。** supersede機能(c19b45d2)の実装により、旧エントリは
+> `superseded_by:ARCH-003/004` タグ付きで `criteria/arch.md` へ戻した(注入されない・listで
+> `[superseded → …]` 表示・履歴は台帳内で完結)。本ファイルは失効の経緯記録として残す。
+
 `criteria/arch.md` から削除した旧エントリの保管記録。**criteria/ 配下に置くと Reviewer へ
 そのまま注入されるため**(`criteria_context` は台帳ファイルの全行を注入する実装)、docs へ退避した。
 
