@@ -116,26 +116,37 @@ class TestBackwardCompatibleWithRealLedger:
         cdir = self._real_criteria_dir()
         cfg = {"criteria_dir": str(cdir)}
 
-        expected_ids = []
+        # 実台帳は成長する(承認・supersede)ため件数をハードコードしない。
+        # 活性エントリは全て注入され、supersededエントリは注入されないことを検証する
+        import re
+        active_ids, superseded_ids = [], []
         for p in sorted(cdir.glob("*.md")):
             if p.name.startswith("_"):
                 continue
             for line in p.read_text().splitlines():
                 if not line.strip():
                     continue
-                import re
                 m = re.match(r"^- ([A-Z]+-\d{3}) \[(norm|pref)\]:", line)
-                if m:
-                    expected_ids.append(m.group(1))
+                if not m:
+                    continue
+                if re.search(r"superseded_by:[A-Z]+-\d{3}", line):
+                    superseded_ids.append(m.group(1))
+                else:
+                    active_ids.append(m.group(1))
 
-        assert len(expected_ids) == 33
+        assert len(active_ids) >= 33  # 2026-08-16時点の下限(以後は増えるのみ)
 
         ctx = criteria_context(cfg, max_chars=1_000_000)
-        for entry_id in expected_ids:
+        for entry_id in active_ids:
             assert entry_id in ctx
+        for entry_id in superseded_ids:
+            assert not re.search(rf"^- {entry_id} ", ctx, re.M), (
+                f"supersededエントリ {entry_id} が注入されている")
 
+        # list系はsupersededも含めて全件列挙する(履歴の連続性)
         payload = criteria_list_payload(cfg)
-        assert {e["id"] for e in payload["entries"]} == set(expected_ids)
+        assert ({e["id"] for e in payload["entries"]}
+                == set(active_ids) | set(superseded_ids))
 
 
 def test_criteria_context_max_chars_from_config(tmp_path):
