@@ -391,7 +391,7 @@ r6のFATAL指摘により、現行の台帳エントリは以下の問題を持�
 | A1in | 同一 `source_action_id` の再投入がrevision単調増加でなければ拒否され、重複ミッションが作られないことをテストで確認 | 凍結(3c'と同時) |
 | A2 | 能力宣言外の要求が**機械的に**人間へエスカレーションされる(LLM判断を介さない)ことをテストで確認 | **済** |
 | A3a | criteria各件の適用回数・最終適用日が `orgh criteria list` に表示される | **済** |
-| A3b | 矛盾する基準ペアと失効候補が**候補として**提示され、承認しない限り台帳が変わらない | 一部済(supersede機能はc19b45d2で実装中) |
+| A3b | 矛盾する基準ペアと失効候補が**候補として**提示され、承認しない限り台帳が変わらない | 一部済(supersede機能はc19b45d2でマージ済 2026-08-16) |
 | A4 | owner verdictの不合格が `escape` としてledgerに記録され、reportで件数と内訳が出る | **済** |
 | A5 | デーモン再起動をまたいでも実行中/死亡/孤児が正しく判別され(`unknown` 含む)、二重実行が起きないことをkill試験で確認 | **済** |
 | A6 | 全新規ミッションのACにIDと検証方式と期待証拠が付き、criteria版がrunsへ固定される | **済** |
@@ -426,7 +426,7 @@ awaiting_approval / awaiting_human`。ここへ **`awaiting_external_approval`**
 | A1in | 凍結(3c'再検討条件と連動) | A7 | Phase 3a'(配達契約)/以降(action) |
 | A2 | Phase 1 **済** | A9 | 条件付き(§7) |
 | A3a | Phase 2 **済** | A10最小 | Phase 1 **済** |
-| A3b | supersede実装中(c19b45d2)+候補提示は将来 | A10完全 | actionアダプタ直前 |
+| A3b | supersede済(c19b45d2)+候補提示は将来 | A10完全 | actionアダプタ直前 |
 | A4 | Phase 2 **済** | A5 | Phase 1 **済** |
 | L1 exporter | **凍結**(3c') | L3a/L3b | Phase 3b' |
 | 旧A8 | ロードマップ外(§3.3) | — | — |
