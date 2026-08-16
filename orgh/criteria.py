@@ -17,6 +17,11 @@ from .events_json import events_payload
 _ENTRY_RE = re.compile(r"^- ([A-Z]+)-(\d{3}) \[(norm|pref)\]:")
 _LEDGER_ENTRY_RE = re.compile(r"^- ([A-Z]+-\d{3}) \[(norm|pref)\]: (.*)$")
 _META_RE = re.compile(r"<!-- src:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
+# エントリ行のメタコメントに書ける失効タグ。src:/d: の本体コメントとは別の
+# 独立したHTMLコメント(例: `<!-- superseded_by:ARCH-003 -->`)として書く
+# 前提。_META_REを拡張せず単純な部分一致で探すことで、src:/d:の解析を
+# 壊さずに既存33件(supersededタグ無し)との後方互換を保つ。
+_SUPERSEDED_RE = re.compile(r"superseded_by:([A-Z]+-\d{3})")
 # prefixは_ENTRY_REが `[A-Z]+` しか認識しないため、それより緩い正規表現を許すと
 # next_id走査から漏れて同一IDが再発行される(Fix 1が閉じたはずの欠陥クラス)
 _SAFE_PREFIX_RE = re.compile(r"^[A-Z]+$")
@@ -44,22 +49,40 @@ def _ledger_files(cdir: Path) -> list[Path]:
     return sorted(p for p in cdir.glob("*.md") if not p.name.startswith("_"))
 
 
-def criteria_context(cfg: dict, max_chars: int = 4000) -> str:
-    """台帳をReviewer/ペルソナのプロンプトへ注入する(playbookと同じ日付降順詰め)。"""
+def _ledger_entries(cfg: dict) -> list[tuple[str, str]]:
+    """台帳のエントリ行(_LEDGER_ENTRY_REにマッチする行)のみを(date, line)で
+    返す。見出し・注釈等の非エントリ行は無視する。supersededエントリも
+    含める(next_id走査・list表示側で必要なため、除外はcriteria_context側
+    で行う)。"""
     entries: list[tuple[str, str]] = []
     for p in _ledger_files(criteria_read_dir(cfg)):
         for line in p.read_text().splitlines():
-            if not line.strip():
+            if not line.strip() or not _LEDGER_ENTRY_RE.match(line):
                 continue
             m = _META_RE.search(line)
             entries.append((m.group(2) if m else "0000-00-00", line))
     entries.sort(key=lambda e: e[0], reverse=True)
+    return entries
+
+
+def _pack(entries: list[tuple[str, str]], max_chars: int) -> list[str]:
+    """日付降順で詰め、max_charsを超えた時点で打ち切る(playbookと同じ作法)。"""
     picked, total = [], 0
     for _, line in entries:
         total += len(line) + 1
         if total > max_chars and picked:
             break
         picked.append(line)
+    return picked
+
+
+def criteria_context(cfg: dict, max_chars: int = 4000) -> str:
+    """台帳のエントリ行のみをReviewer/ペルソナのプロンプトへ注入する
+    (playbookと同じ日付降順詰め)。見出し・注釈等の非エントリ行と、
+    superseded_by付きエントリ(失効済み)は注入しない。"""
+    active = [(d, line) for d, line in _ledger_entries(cfg)
+              if not _SUPERSEDED_RE.search(line)]
+    picked = _pack(active, max_chars)
     return "\n".join(picked) if picked else "(no criteria yet)"
 
 
@@ -94,6 +117,52 @@ def append_entry(cdir: Path, category: str, prefix: str, strength: str,
     with open(cdir / f"{category}.md", "a") as f:
         f.write(line + "\n")
     return line
+
+
+def _find_entry_line(cdir: Path, entry_id: str) -> tuple[Path, list[str], int] | None:
+    """entry_idに一致するエントリ行を全台帳ファイル横断で探す。
+    見つかれば (ファイル, split("\\n")した全行, 行index) を返す。
+    split("\\n")を使うのは、書き戻し時に対象行以外を1文字も変えずに
+    再結合するため(splitlines()は改行種別・末尾改行の情報を失う)。"""
+    for p in _ledger_files(cdir):
+        lines = p.read_text().split("\n")
+        for i, line in enumerate(lines):
+            m = _LEDGER_ENTRY_RE.match(line)
+            if m and m.group(1) == entry_id:
+                return p, lines, i
+    return None
+
+
+def supersede_entry(cfg: dict, old_id: str, new_id: str) -> str:
+    """旧IDのエントリ行に superseded_by:<新ID> メタタグを付与する(書き込み側)。
+
+    criteria_context/list/next_idの読み取り側は_SUPERSEDED_RE前提で実装済み
+    (このモジュール冒頭のコメント参照)。ここでは対象エントリ行のみを書き換え、
+    他の行・他ファイルは一切変更しない。検証(新ID実在・旧ID実在・二重
+    supersede禁止・自己参照禁止)は全てファイル書き換え前に行い、失敗時は
+    台帳を一切書き換えない。
+    """
+    if old_id == new_id:
+        raise ValueError(f"old_id と new_id が同一です(自己参照は禁止): {old_id}")
+
+    cdir = criteria_dir(cfg)
+    if _find_entry_line(cdir, new_id) is None:
+        raise ValueError(f"new_id が台帳に実在しません: {new_id}")
+
+    found = _find_entry_line(cdir, old_id)
+    if found is None:
+        raise ValueError(f"old_id が台帳に存在しません: {old_id}")
+    path, lines, idx = found
+    line = lines[idx]
+    already = _SUPERSEDED_RE.search(line)
+    if already:
+        raise ValueError(
+            f"{old_id} は既に {already.group(1)} へsupersede済みです"
+            f"(二重supersedeは禁止)")
+
+    lines[idx] = f"{line} <!-- superseded_by:{new_id} -->"
+    path.write_text("\n".join(lines))
+    return f"{old_id} -> {new_id} へsupersede完了 ({path.name})"
 
 
 def _next_draft_start(drafts_dir: Path, mission_id: str) -> int:
@@ -232,19 +301,26 @@ def _usage_fields(item: dict | None) -> dict:
 
 
 def criteria_list_text(cfg: dict, max_chars: int = 100000) -> str:
-    """各台帳行の直前に、走査しやすい独立した引用実績行を付ける。"""
+    """各台帳行の直前に、走査しやすい独立した引用実績行を付ける。
+
+    criteria_context()と異なり、supersededエントリも列挙し
+    `[superseded → <ID>]` を付記する(履歴を台帳内に残し監査の連続性を
+    保つ)。"""
     usage = criteria_usage(cfg)
+    picked = _pack(_ledger_entries(cfg), max_chars)
+    if not picked:
+        return "(no criteria yet)"
     rendered: list[str] = []
-    for line in criteria_context(cfg, max_chars=max_chars).splitlines():
+    for line in picked:
         match = _LEDGER_ENTRY_RE.match(line)
-        if not match:
-            rendered.append(line)
-            continue
         fields = _usage_fields(usage.get(match.group(1)))
         rendered.append(
             f"<!-- id:{match.group(1)} 引用回数:{fields['citation_count']} "
             f"最終引用日:{fields['last_cited_date'] or '-'} -->")
-        rendered.append(line)
+        superseded = _SUPERSEDED_RE.search(line)
+        rendered.append(
+            f"{line} [superseded → {superseded.group(1)}]" if superseded
+            else line)
     return "\n".join(rendered)
 
 
@@ -277,11 +353,15 @@ def criteria_list_payload(cfg: dict, include_usage: bool = False) -> dict:
                 source_mission, entry_date = meta.group(1), meta.group(2)
             else:
                 text, source_mission, entry_date = rest.strip(), None, None
-            entries.append({
+            entry = {
                 "category": category, "id": entry_id, "strength": strength,
                 "text": text, "source_mission": source_mission,
                 "date": entry_date,
-            })
+            }
+            superseded = _SUPERSEDED_RE.search(rest)
+            if superseded:
+                entry["superseded_by"] = superseded.group(1)
+            entries.append(entry)
 
     if include_usage:
         usage = criteria_usage(cfg)
