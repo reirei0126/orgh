@@ -1,14 +1,23 @@
 """copyback契約: git管理外の成果物領域への安全な書き戻し(direction-2026-08 §4 3a')。
 
 対象領域がgit管理外(例: decision-osの private/cases/)の場合、orghのworktree→
-branch→diff受け渡しが全て空振りするため、workerがworktree(staging)直下に出力する
-`orgh-manifest.json`(相対パス・サイズ・SHA-256の一覧)を照合しながら、staging→宛先
-ルートへ原子的にコピーバックする。orchestratorへの結線は別モジュール(後続タスク)。
+branch→diff受け渡しが全て空振りするため、workerがworktree直下の`_orgh_staging/`
+(既定。manifestの`staging_dir`キーで変更可)配下に出力した成果物を、
+`orgh-manifest.json`(worktree直下に配置。相対パス・サイズ・SHA-256の一覧)と
+照合しながらstaging→宛先ルートへ原子的にコピーバックする。orchestratorへの結線は
+別モジュール(orgh/orchestrator/copyback_gate.py)。
 
 契約の要点:
+- `orgh-manifest.json` は worktree 直下に置く。`files[].path` は、staging
+  サブディレクトリ(既定 `_orgh_staging`。manifestの `staging_dir` キーで
+  worktree直下からの相対パスとして変更可)からの相対パスとして解釈する。
+  実worktreeにはgit管理下の通常ファイルが多数存在するが、`_orgh_staging/`
+  配下以外は verify_manifest() の走査・照合・未列挙拒否の対象外であり、
+  拒否もコピー対象にもならない(staging専用サブディレクトリ契約)。
 - staging限定実行が前提。staging外(worker実行対象の宛先そのもの)への直接書き込み
   防止はここでは強制できない(sandbox/filesystem強制が無い)。
-- パスは正規化のうえ、staging/宛先いずれのルートにも閉包させる。絶対パス・`..`・
+- パスは正規化のうえ、staging_dir自身・manifest各エントリのpath・宛先パスの
+  いずれも該当ルート(worktree/staging/宛先)に閉包させる。絶対パス・`..`・
   symlink・manifest未列挙ファイルはすべて拒否する。
 - コピーは「一時ディレクトリへ全量配置→再検証→rename」の順で行い、途中失敗時に
   宛先が半端な状態で汚染されないようにする(= copyback_partial)。
@@ -28,6 +37,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 MANIFEST_FILENAME = "orgh-manifest.json"
+DEFAULT_STAGING_DIR = "_orgh_staging"
 
 
 class CopybackError(ValueError):
@@ -47,17 +57,24 @@ class ManifestVerification:
     """`copyback.manifest` ledgerイベントの情報源。
 
     ok: 全件がmanifestと一致し、閉包・symlink違反・未列挙ファイルが無ければTrue
-    entries: 検証済みのManifestEntry一覧(正規化済みpath)
+    entries: 検証済みのManifestEntry一覧(正規化済みpath。staging_dirからの相対)
     rejected: {元のmanifest記載path(または実ファイルの相対path): 拒否理由}
               絶対パス/'..'/symlink/manifest未列挙ファイル/要素型不正など
+              (staging_dir自身の閉包違反は"staging_dir"キーで報告される)
     mismatches: {正規化path: 差分の説明} サイズまたはSHA-256が不一致
     missing: manifestに記載があるがstagingに実体が無いパスの一覧
+    staging_dir: 解決済みのstaging絶対パス(worktree直下 + manifestの
+                 `staging_dir`キー、既定`_orgh_staging`)。manifest自体が
+                 読めない/'files'が不正/staging_dirが閉包違反の場合はNone。
+                 run_copyback()はここに記録された同一の解決結果をコピー元
+                 として使う(verifyとcopyでの解決のずれを防ぐ)。
     """
     ok: bool
     entries: list[ManifestEntry] = field(default_factory=list)
     rejected: dict[str, str] = field(default_factory=dict)
     mismatches: dict[str, str] = field(default_factory=dict)
     missing: list[str] = field(default_factory=list)
+    staging_dir: Path | None = None
 
     def as_ledger_payload(self) -> dict[str, Any]:
         return {
@@ -160,15 +177,20 @@ def _walk_files(root: Path):
             yield full.relative_to(root).as_posix()
 
 
-def verify_manifest(staging_dir: Path | str,
+def verify_manifest(worktree_dir: Path | str,
                      manifest_filename: str = MANIFEST_FILENAME) -> ManifestVerification:
-    """staging直下のmanifestを読み、実ファイルと再計算した size/SHA-256 を突合する。
+    """worktree直下のmanifestを読み、staging(既定`_orgh_staging`。manifestの
+    `staging_dir`キーで変更可)配下の実ファイルと再計算したsize/SHA-256を突合する。
+
+    走査・照合・未列挙拒否の対象はstagingサブディレクトリ配下のみであり、
+    worktree直下のgit管理下ファイル等(staging外)は無視する(拒否もコピー対象
+    にもしない)。
 
     検収開始時・コピー直前のいずれからも呼ばれる想定(呼ぶたびに全量再計算する
     ="staging凍結の検証"であり、キャッシュは持たない)。
     """
-    staging_dir = Path(staging_dir)
-    manifest_path = staging_dir / manifest_filename
+    worktree_dir = Path(worktree_dir)
+    manifest_path = worktree_dir / manifest_filename
     if not manifest_path.exists():
         return ManifestVerification(
             ok=False, rejected={manifest_filename: "manifestファイルが存在しない"})
@@ -178,10 +200,27 @@ def verify_manifest(staging_dir: Path | str,
         return ManifestVerification(
             ok=False, rejected={manifest_filename: f"manifestの読み取りに失敗: {e}"})
 
-    items = raw.get("files") if isinstance(raw, dict) else raw
+    if isinstance(raw, dict):
+        items = raw.get("files")
+        staging_dir_raw: Any = raw.get("staging_dir", DEFAULT_STAGING_DIR)
+    else:
+        items = raw
+        staging_dir_raw = DEFAULT_STAGING_DIR
+
     if not isinstance(items, list):
         return ManifestVerification(
             ok=False, rejected={manifest_filename: "'files'がリストでない"})
+
+    if not isinstance(staging_dir_raw, str) or not staging_dir_raw:
+        return ManifestVerification(
+            ok=False, rejected={"staging_dir": "staging_dirが空または文字列でない"})
+
+    staging_reason = _safe_relpath_reason(worktree_dir, staging_dir_raw)
+    if staging_reason:
+        return ManifestVerification(
+            ok=False, rejected={"staging_dir": staging_reason})
+
+    staging_dir = worktree_dir / "/".join(PurePosixPath(staging_dir_raw).parts)
 
     entries: list[ManifestEntry] = []
     rejected: dict[str, str] = {}
@@ -232,7 +271,8 @@ def verify_manifest(staging_dir: Path | str,
 
     ok = not rejected and not mismatches and not missing
     return ManifestVerification(ok=ok, entries=entries, rejected=rejected,
-                                mismatches=mismatches, missing=missing)
+                                mismatches=mismatches, missing=missing,
+                                staging_dir=staging_dir)
 
 
 def snapshot_tree(root: Path | str) -> dict[str, str]:
@@ -274,16 +314,19 @@ def _copy_file(src: Path, dst: Path) -> None:
     shutil.copy2(src, dst)
 
 
-def run_copyback(staging_dir: Path | str, dest_root: Path | str,
+def run_copyback(worktree_dir: Path | str, dest_root: Path | str,
                   allowed_roots: list[str], *,
                   baseline_snapshot: dict[str, str] | None = None,
                   manifest_filename: str = MANIFEST_FILENAME,
                   ) -> tuple[ManifestVerification, CopybackResult]:
-    """manifestを再検証し、staging→dest_rootへ原子的にコピーバックする。
+    """manifestを再検証し、staging(worktree直下の`_orgh_staging/`。manifestの
+    `staging_dir`キーで変更可)→dest_rootへ原子的にコピーバックする。
 
     手順(§4 3a'契約どおり):
     1. dest_rootがallowed_roots配下か検査(外れていればCopybackError)
-    2. manifestをstagingに対して再計算・再検証(=コピー直前の再検証)
+    2. manifestをworktree_dirに対して再計算・再検証し、staging_dirを解決する
+       (=コピー直前の再検証。コピー元にはこの解決結果をそのまま使い、
+       verify/copyでstaging_dirの解決がずれないようにする)
     3. baseline_snapshotが渡されていれば、宛先の該当ファイルが記録時から
        変化していないか突合する。変化していれば `copyback_conflict`
        (⚠ 暫定運用でありセキュリティ保証ではない)
@@ -297,17 +340,18 @@ def run_copyback(staging_dir: Path | str, dest_root: Path | str,
     前者を `copyback.manifest`、後者のstatusに応じて `copyback.completed` /
     `copyback.partial` / `copyback.conflict` のledgerイベントに使う。
     """
-    staging_dir = Path(staging_dir)
+    worktree_dir = Path(worktree_dir)
     dest_root = Path(dest_root)
     _check_allowed_root(dest_root, allowed_roots)
 
-    verification = verify_manifest(staging_dir, manifest_filename)
+    verification = verify_manifest(worktree_dir, manifest_filename)
     if not verification.ok:
         return verification, CopybackResult(
             status="manifest_invalid", dest_root=str(dest_root),
             reason=(f"manifest検証失敗: rejected={sorted(verification.rejected)} "
                     f"mismatches={sorted(verification.mismatches)} "
                     f"missing={sorted(verification.missing)}"))
+    staging_dir = verification.staging_dir
 
     if baseline_snapshot is not None:
         current = snapshot_tree(dest_root)

@@ -5,7 +5,12 @@
 
 - 発動条件: workerがworktree直下に orgh-manifest.json を出力した場合のみ。
   無ければ start_review_gate() は None を返し、呼び出し側(task_executor)は
-  従来経路を一切変えない(後方互換が最優先)。
+  従来経路を一切変えない(後方互換が最優先)。成果物自体は worktree 直下の
+  `_orgh_staging/`(既定。manifestの`staging_dir`キーで変更可)に置く契約。
+- start_review_gate() と finalize()(→run_copyback())はいずれも同一の
+  t.workdir(worktree直下)をverify_manifest()に渡す。staging_dirはmanifestの
+  内容から都度導出されるため、staging凍結の前提のもとで両呼び出しの解決結果は
+  一致する(orgh/copyback.pyのverify_manifest/run_copyback参照)。
 - 実行順: manifest照合(=copyback.manifest ledgerイベント)は検収開始時
   (review遷移直後)に行い、以後stagingを凍結扱いとする。実際のコピーは
   検収合格後にのみ行い、run_copyback() 内部でコピー直前の再検証も行う
