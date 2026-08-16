@@ -16,6 +16,7 @@
   orgh verdict <mission_id> --pass|--fail --reason <text>  # オーナー裁定の記録と基準蒸留
   orgh verdict --pending                                   # done だが未裁定のミッション一覧
   orgh criteria                   # 判断基準台帳の下書き確認・承認・却下
+  orgh criteria supersede <旧ID> <新ID>  # 旧エントリを失効させ新IDへ置き換え
   orgh report --days N            # 週次合格率・ミッション別コスト・worker別失敗率
   orgh playbooks                  # playbooks/配下の教訓(Retro追記分)を表示
   # 上記の list/doctor/events/status/report/playbooks/criteria list は --json で
@@ -33,7 +34,8 @@ from pathlib import Path
 from . import doctor, gc, lease, listing, planner, report, watcher
 from .criteria import (approve_draft, criteria_context, criteria_list_payload,
                        criteria_list_text,
-                       distill_verdict, list_drafts, reject_draft)
+                       distill_verdict, list_drafts, reject_draft,
+                       supersede_entry)
 from .events_json import events_payload
 from .orchestrator import run_mission
 from .playbooks_json import playbooks_payload
@@ -133,9 +135,21 @@ def main() -> None:
     hd.add_argument("--note", required=True)
 
     cp = sub.add_parser("criteria")
-    cp.add_argument("action", choices=["list", "approve", "reject"])
-    cp.add_argument("name", nargs="?")
-    cp.add_argument("--json", action="store_true")
+    cp_sub = cp.add_subparsers(dest="action", required=True)
+
+    clp = cp_sub.add_parser("list")
+    clp.add_argument("--json", action="store_true")
+
+    cap = cp_sub.add_parser("approve")
+    cap.add_argument("name")
+
+    crp = cp_sub.add_parser("reject")
+    crp.add_argument("name")
+
+    csp = cp_sub.add_parser(
+        "supersede", help="旧IDのエントリを新IDへ置き換える(superseded_by付与)")
+    csp.add_argument("old_id", help="失効させるエントリID(例: ARCH-001)")
+    csp.add_argument("new_id", help="置き換え先のエントリID(台帳に実在が必要)")
 
     args = ap.parse_args()
     try:
@@ -401,8 +415,12 @@ def main() -> None:
             print("--- 台帳 ---")
             print(criteria_list_text(cfg))
             return
-        if not args.name:
-            raise SystemExit("approve/reject には name が必要(orgh criteria list で確認)")
+        if args.action == "supersede":
+            try:
+                print(supersede_entry(cfg, args.old_id, args.new_id))
+            except ValueError as e:
+                raise SystemExit(str(e))
+            return
         if args.action == "approve":
             print(approve_draft(cfg, args.name))
         else:

@@ -119,6 +119,52 @@ def append_entry(cdir: Path, category: str, prefix: str, strength: str,
     return line
 
 
+def _find_entry_line(cdir: Path, entry_id: str) -> tuple[Path, list[str], int] | None:
+    """entry_idに一致するエントリ行を全台帳ファイル横断で探す。
+    見つかれば (ファイル, split("\\n")した全行, 行index) を返す。
+    split("\\n")を使うのは、書き戻し時に対象行以外を1文字も変えずに
+    再結合するため(splitlines()は改行種別・末尾改行の情報を失う)。"""
+    for p in _ledger_files(cdir):
+        lines = p.read_text().split("\n")
+        for i, line in enumerate(lines):
+            m = _LEDGER_ENTRY_RE.match(line)
+            if m and m.group(1) == entry_id:
+                return p, lines, i
+    return None
+
+
+def supersede_entry(cfg: dict, old_id: str, new_id: str) -> str:
+    """旧IDのエントリ行に superseded_by:<新ID> メタタグを付与する(書き込み側)。
+
+    criteria_context/list/next_idの読み取り側は_SUPERSEDED_RE前提で実装済み
+    (このモジュール冒頭のコメント参照)。ここでは対象エントリ行のみを書き換え、
+    他の行・他ファイルは一切変更しない。検証(新ID実在・旧ID実在・二重
+    supersede禁止・自己参照禁止)は全てファイル書き換え前に行い、失敗時は
+    台帳を一切書き換えない。
+    """
+    if old_id == new_id:
+        raise ValueError(f"old_id と new_id が同一です(自己参照は禁止): {old_id}")
+
+    cdir = criteria_dir(cfg)
+    if _find_entry_line(cdir, new_id) is None:
+        raise ValueError(f"new_id が台帳に実在しません: {new_id}")
+
+    found = _find_entry_line(cdir, old_id)
+    if found is None:
+        raise ValueError(f"old_id が台帳に存在しません: {old_id}")
+    path, lines, idx = found
+    line = lines[idx]
+    already = _SUPERSEDED_RE.search(line)
+    if already:
+        raise ValueError(
+            f"{old_id} は既に {already.group(1)} へsupersede済みです"
+            f"(二重supersedeは禁止)")
+
+    lines[idx] = f"{line} <!-- superseded_by:{new_id} -->"
+    path.write_text("\n".join(lines))
+    return f"{old_id} -> {new_id} へsupersede完了 ({path.name})"
+
+
 def _next_draft_start(drafts_dir: Path, mission_id: str) -> int:
     """既存の <mission_id>-<n>.json を走査し、次に使う番号(最大+1)を返す。
     同一ミッションへ複数回 verdict した際に、番号を1から振り直して
