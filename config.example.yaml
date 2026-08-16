@@ -89,6 +89,13 @@ worktree:                      # タスクごとのgit worktree分離(並列タ�
   base_ref: HEAD               # 分岐元
   root: .orgh-worktrees        # worktree置き場(taskのworkdir相対)
 
+copyback:                      # 非git成果物領域への書き戻し許可(方向性文書2026-08 §4 3a')
+  allowed_roots: []            # 絶対パスのみ許可。既定は空リスト=copyback無効。
+                                # 例: ["/Users/you/projects/decision-os-mvp/private/cases"]
+                                # ⚠ コピー時の宛先事前hash突合による競合検知(copyback_conflict)は
+                                # 暫定運用でありセキュリティ保証ではない(sandbox/filesystem強制が
+                                # 無いため、同じhashでの同時書き込み等までは検知できない)
+
 watch:                         # orgh watch (イベント駆動デーモン)
   interval: 5                  # 監視間隔(秒)
   stabilize_seconds: 20        # 書きかけノートを拾わない猶予

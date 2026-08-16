@@ -103,6 +103,16 @@ class NotifyCfg:
 
 
 @dataclass
+class CopybackCfg:
+    """非git成果物領域への書き戻し許可(方向性文書2026-08 §4 3a')。
+    allowed_rootsが空ならcopyback無効(既定)。各要素は絶対パス必須で、
+    orgh/copyback.py はこのリスト配下以外への書き戻しを拒否する。
+    宛先の事前hash突合による競合検知は暫定運用でありセキュリティ保証ではない
+    (orgh/copyback.pyモジュールdocstring参照)。"""
+    allowed_roots: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ConfigSchema:
     """既知のトップレベルキー。workers/rolesは名前が自由なため深掘りしない。"""
     workers: dict | None = None          # 必須
@@ -115,6 +125,7 @@ class ConfigSchema:
     gc: GcCfg | None = None
     personas: PersonasCfg | None = None
     notify: NotifyCfg | None = None
+    copyback: CopybackCfg | None = None
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     criteria_dir: str = "criteria"
@@ -126,7 +137,8 @@ class ConfigSchema:
 _REQUIRED_KEYS = ("workers",)
 _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
                     "worktree": WorktreeCfg, "source": SourceCfg, "gc": GcCfg,
-                    "personas": PersonasCfg, "notify": NotifyCfg}
+                    "personas": PersonasCfg, "notify": NotifyCfg,
+                    "copyback": CopybackCfg}
 # from __future__ import annotations により field.type は文字列
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,
@@ -182,6 +194,13 @@ def validate_config(data: Any) -> dict:
     for name in ("runs_dir", "prompts_dir", "playbooks_dir", "projects_map"):
         if data.get(name) is not None and not isinstance(data[name], str):
             raise ConfigError(f"config: {name} は文字列で指定すること")
+    copyback = data.get("copyback")
+    if copyback is not None:
+        for root in copyback.get("allowed_roots") or []:
+            if not isinstance(root, str) or not Path(root).is_absolute():
+                raise ConfigError(
+                    f"config: copyback.allowed_roots の要素は絶対パスで指定すること "
+                    f"(実際: {root!r})")
     return data
 
 
