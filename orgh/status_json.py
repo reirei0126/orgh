@@ -5,13 +5,26 @@ import json
 from pathlib import Path
 from typing import Any
 
+from . import lease
 from .guard import approval_reason
 from .state import TERMINAL
+
+# 実行中系タスクステータス。state._INFLIGHT_STATUSESと同期を保つこと
+# (listing._INFLIGHT_TASK_STATUSESと同じ理由で複製している)。
+_INFLIGHT_TASK_STATUSES = ("queued", "running", "review")
 
 
 def _mission_dir(cfg: dict | None, mission_id: str) -> Path:
     """RunStoreと同じ既定(cfg.get("runs_dir", "runs"))でミッションdirを解決する。"""
     return Path((cfg or {}).get("runs_dir", "runs")) / mission_id
+
+
+def _lease_expired(d: Path) -> bool:
+    """listing._lease_expiredと同一規則(orgh/lease.py の公開APIのみ使用)。
+    leaseが一度も取得されていない場合はFalse(判定材料が無いだけ)。
+    表示専用のis_alive_lenient()を使う理由はlisting._lease_expiredの
+    docstring参照(pidの生死は見ずheartbeat鮮度のみで判定する)。"""
+    return lease.read(d) is not None and not lease.is_alive_lenient(d)
 
 
 def _read_human_request_body(mission_dir: Path, task_id: str) -> str | None:
@@ -52,6 +65,12 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
     approval_brief キーを追加する(オーナー裁定 PROD-001: 承認接点は詳細を
     探させず一文で先に提示する)。cfg=None(既存呼び出し)や awaiting なしの
     ときはキー自体を省略し、旧GUI/旧呼び出しとの後方互換を保つ。"""
+    mission_dir = _mission_dir(cfg, mission.id)
+    # 実行中系タスク(queued/running/review)を抱えているのにleaseが失効して
+    # いる場合の表示用フラグ。mission-level/task-level両方の"unknown"上書きで
+    # 共有する(orgh/lease.py の公開APIのみ使用、定数はここで再定義しない)
+    lease_dead = _lease_expired(mission_dir)
+
     statuses = [t.status for t in mission.tasks]
     # listing._derive_status と同一の導出規則を保つこと(GUIが両方を表示する)
     if not statuses:
@@ -84,11 +103,17 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
             and (Path(cfg.get("runs_dir", "runs")) / "_queue"
                  / f"{mission.id}.json").exists()):
         mission_status = "queued"
+    # listing._summarize_mission と同一規則: 実行中系タスクを抱えたまま
+    # プロセスのleaseが失効していれば、pending/failedに丸めず「unknown」を
+    # 出す(判別不能を判別不能のまま出す。丸めると二重実行/成果喪失を誘発する)
+    if (mission_status == "running"
+            and any(s in _INFLIGHT_TASK_STATUSES for s in statuses)
+            and lease_dead):
+        mission_status = "unknown"
 
     budget = getattr(mission, "budget", None)
     cost_usd = budget.spent_usd if budget else 0.0
     budget_usd = budget.limit_usd if budget else None
-    mission_dir = _mission_dir(cfg, mission.id)
 
     payload = {
         "mission_id": mission.id,
@@ -98,7 +123,9 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
             {
                 "id": t.id,
                 "title": t.title,
-                "status": t.status,
+                "status": ("unknown" if (lease_dead and
+                                          t.status in _INFLIGHT_TASK_STATUSES)
+                           else t.status),
                 "attempts": t.attempts,
                 "worker": t.worker,
                 "deps": list(t.deps),

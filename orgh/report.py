@@ -15,6 +15,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from . import listing
+
+# escapeのcategory表示順(方向性文書2026-08 §3.4 A4のcategory定義と揃える)。
+# 未知のcategoryは末尾にアルファベット順で追加する
+_ESCAPE_CATEGORY_ORDER = ("visual", "factual", "premise", "other")
+
 
 def _load_missions(runs_dir: str | Path) -> tuple[list[tuple[dict, list[dict]]], list[dict]]:
     """mission.json を持つ各ミッションディレクトリから (mission, events) を集める。
@@ -155,6 +161,52 @@ def _worker_stats(missions: list[tuple[dict, list[dict]]]) -> dict[str, tuple[in
     return stats
 
 
+def _verdict_stats(runs_dir: str | Path,
+                    missions: list[tuple[dict, list[dict]]]) -> tuple[int, int]:
+    """(verdict済み件数, 機械ゲート通過(=全タスクdone)件数)。
+
+    「verdict済みか」の判定は listing.has_verdict をそのまま使う(orgh verdict
+    --pendingの一覧と二重定義しない)。これは取得率であり、検収の正確さを示す
+    指標ではない(docs/strategy/direction-2026-08.md §3.4)。
+    """
+    root = Path(runs_dir)
+    done = 0
+    verdicted = 0
+    for mission, _events in missions:
+        tasks = mission.get("tasks", [])
+        gate_passed = bool(tasks) and all(
+            t.get("status") == "done" for t in tasks)
+        if not gate_passed:
+            continue
+        done += 1
+        if listing.has_verdict(root / mission["id"]):
+            verdicted += 1
+    return verdicted, done
+
+
+def _escape_stats(
+        missions: list[tuple[dict, list[dict]]]) -> tuple[int, dict[str, int]]:
+    """escapeイベント(orgh verdict --fail、機械ゲート通過後の不合格)の
+    総数とcategory別内訳。件数の集計のみで、率の算出・失効候補の提示はしない
+    (§3.4の「当面やらない」)。"""
+    total = 0
+    by_category: dict[str, int] = {}
+    for _mission, events in missions:
+        for e in events:
+            if e.get("event") != "escape":
+                continue
+            total += 1
+            cat = e.get("category") or "other"
+            by_category[cat] = by_category.get(cat, 0) + 1
+    return total, by_category
+
+
+def _ordered_categories(by_category: dict[str, int]) -> list[str]:
+    known = [c for c in _ESCAPE_CATEGORY_ORDER if c in by_category]
+    unknown = sorted(c for c in by_category if c not in _ESCAPE_CATEGORY_ORDER)
+    return known + unknown
+
+
 def build_report(cfg: dict, days: int | None = None) -> str:
     missions, skipped = _load_missions(cfg.get("runs_dir", "runs"))
 
@@ -188,6 +240,17 @@ def build_report(cfg: dict, days: int | None = None) -> str:
         failed, n = worker_stats[worker]
         pct = round(failed / n * 100) if n else 0
         lines.append(f"- {worker}: {failed}/{n} failed ({pct}%)")
+    lines.append("")
+
+    runs_dir = cfg.get("runs_dir", "runs")
+    lines.append("## 検収の裏付け")
+    verdicted, done_total = _verdict_stats(runs_dir, missions)
+    vr_pct = round(verdicted / done_total * 100) if done_total else 0
+    lines.append(f"- verdict取得率: {verdicted}/{done_total} ({vr_pct}%)")
+    escape_total, by_category = _escape_stats(missions)
+    lines.append(f"- 報告済みescape件数: {escape_total}")
+    for cat in _ordered_categories(by_category):
+        lines.append(f"  - {cat}: {by_category[cat]}")
 
     if skipped:
         lines.append("")

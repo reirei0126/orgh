@@ -75,9 +75,9 @@ def run_review_pipeline(cfg: dict, store: RunStore, t: Task, budget: Budget,
     # 反映されず、次attempt冒頭のタスク予算チェックも過小評価していた)
     review_cost_sink: list[float] = []
     try:
-        passed, feedback = review_with_retry(cfg, store, t, budget,
-                                             wait=infra_wait,
-                                             cost_sink=review_cost_sink)
+        (passed, feedback, ac_verdicts, ac_verdicts_dropped,
+         criteria_cited) = review_with_retry(
+            cfg, store, t, budget, wait=infra_wait, cost_sink=review_cost_sink)
     except CancelledDuringRole:
         # キャンセル起因は_run_taskの包括ハンドラでcancelled化する。
         # 包括exceptに食わせるとfailedに化けて通常resume不能になる
@@ -96,17 +96,24 @@ def run_review_pipeline(cfg: dict, store: RunStore, t: Task, budget: Budget,
             t.cost_usd += sum(review_cost_sink)
     with store.lock:
         t.review_notes = feedback
-    store.log("task.review", task=t.id, passed=passed)
+    log_kw: dict = {"task": t.id, "passed": passed, "criteria_cited": criteria_cited}
+    if ac_verdicts:
+        log_kw["ac_verdicts"] = ac_verdicts
+    if ac_verdicts_dropped:
+        log_kw["ac_verdicts_dropped"] = ac_verdicts_dropped
+    store.log("task.review", **log_kw)
     if passed and t.personas:
         for persona in t.personas:
             persona_cost_sink: list[float] = []
+            persona_criteria_cited: list[str] = []
             try:
                 p_ok, p_fb, p_ev = role_call_with_retry(
                     cfg, store, t, f"persona_{persona}",
                     lambda p=persona: persona_review(
                         cfg, p, t, workdir=t.workdir, budget=budget,
                         registry_key=store.dir.name,
-                        cost_sink=persona_cost_sink),
+                        cost_sink=persona_cost_sink,
+                        criteria_cited_sink=persona_criteria_cited),
                     wait=infra_wait)
             except CancelledDuringRole:
                 raise
@@ -126,7 +133,8 @@ def run_review_pipeline(cfg: dict, store: RunStore, t: Task, budget: Budget,
             # str化して300文字に丸める(監査に必要な最小限のみ残す)
             store.log("task.persona_review", task=t.id, persona=persona,
                       passed=p_ok,
-                      evidence=[str(x)[:300] for x in p_ev[:10]])
+                      evidence=[str(x)[:300] for x in p_ev[:10]],
+                      criteria_cited=persona_criteria_cited)
             if not p_ok:
                 passed = False
                 feedback = f"[{persona}ペルソナ検収] {p_fb}"

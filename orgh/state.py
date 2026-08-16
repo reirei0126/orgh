@@ -19,6 +19,8 @@ from typing import Any
 
 import yaml
 
+from . import lease
+
 
 class ConfigError(ValueError):
     """必須キー欠落・型不一致など、続行不能なconfig欠陥。"""
@@ -93,6 +95,14 @@ class PersonasCfg:
 
 
 @dataclass
+class NotifyCfg:
+    """人間接点イベント通知(A1out)。既定は無効(webhook_url=null=挙動不変)。
+    配送保証(再送・順序・署名)は持たない(方向性文書2026-08 §3.1 A1out)。"""
+    webhook_url: str | None = None   # POST先。null=webhook無効(ledgerのnotify.emittedのみ記録)
+    timeout: float = 5.0             # POSTのタイムアウト秒
+
+
+@dataclass
 class ConfigSchema:
     """既知のトップレベルキー。workers/rolesは名前が自由なため深掘りしない。"""
     workers: dict | None = None          # 必須
@@ -104,6 +114,7 @@ class ConfigSchema:
     source: SourceCfg | None = None
     gc: GcCfg | None = None
     personas: PersonasCfg | None = None
+    notify: NotifyCfg | None = None
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     criteria_dir: str = "criteria"
@@ -114,12 +125,13 @@ class ConfigSchema:
 _REQUIRED_KEYS = ("workers",)
 _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
                     "worktree": WorktreeCfg, "source": SourceCfg, "gc": GcCfg,
-                    "personas": PersonasCfg}
+                    "personas": PersonasCfg, "notify": NotifyCfg}
 # from __future__ import annotations により field.type は文字列
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,
     "float | None": (int, float),
     "int | None": int,
+    "str | None": str,
     "list[str]": list,   # 要素型はisinstanceでは表現できないため_check_sectionで別途検査
 }
 _LIST_ELEM_TYPE_MAP: dict[str, type] = {
@@ -239,7 +251,9 @@ class Task:
     prompt: str
     worker: str = "claude_code"          # adapter name
     deps: list[str] = field(default_factory=list)
-    acceptance: list[str] = field(default_factory=list)
+    # AC最小構造(方向性文書2026-08 §3.1 A6): {id, text, verify, evidence}。
+    # build_task()がstr/dict双方から正規化する(_normalize_acceptance参照)
+    acceptance: list[dict[str, Any]] = field(default_factory=list)
     workdir: str = "."
     status: str = "pending"              # pending -> running -> review -> done / failed
     attempts: int = 0
@@ -281,6 +295,77 @@ _TASK_ID_RE = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 # Taskデータクラスの既知フィールド名(LLM由来のdictから未知キーを除去する)
 _TASK_FIELDS = frozenset(f.name for f in fields(Task))
 
+# AC最小構造(方向性文書2026-08 §3.1 A6)の許容verify値。EARSは導入しない。
+_AC_VERIFY_VALUES = frozenset({"test", "command", "visual", "doc"})
+
+
+def _normalize_acceptance(items: Any) -> list[dict[str, Any]]:
+    """acceptance配列をAC最小構造 {id, text, verify, evidence} へ正規化する。
+
+    - 文字列要素: {"id": "AC-<n>", "text": <str>, "verify": None, "evidence": None}
+      (nは1始まりの連番)
+    - dict要素: id欠落時は同じ規則で採番、text必須、verify/evidence欠落はNone、
+      未知キーは黙って落とす。verifyは test|command|visual|doc|None のみ許可し、
+      それ以外はNoneに矯正する(例外で落とさない)
+    - str/dict以外の要素はValueError
+    """
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for i, item in enumerate(items):
+        n = i + 1
+        if isinstance(item, str):
+            out.append({"id": f"AC-{n}", "text": item,
+                       "verify": None, "evidence": None})
+            continue
+        if isinstance(item, dict):
+            text = item.get("text")
+            if not isinstance(text, str):
+                raise ValueError(
+                    f"不正なAC: text が必須(受け取った値: {item!r})")
+            ac_id = item.get("id")
+            if not isinstance(ac_id, str) or not ac_id:
+                ac_id = f"AC-{n}"
+            verify = item.get("verify")
+            if verify not in _AC_VERIFY_VALUES:
+                verify = None
+            evidence = item.get("evidence")
+            if evidence is not None and not isinstance(evidence, str):
+                evidence = None
+            out.append({"id": ac_id, "text": text,
+                       "verify": verify, "evidence": evidence})
+            continue
+        raise ValueError(
+            f"不正なAC要素: {item!r}(文字列またはマップのみ許可)")
+    return out
+
+
+def acceptance_lines(task: "Task") -> str:
+    """AC配列を人間可読な箇条書きに整形する(プロンプト注入・結果ノート共用)。
+
+    verify/evidenceが両方Noneのac(旧形式・未指定)は従来どおり `- <text>` の
+    1行。どちらか片方でもあればID・verify・evidenceが読める1行にする。
+    build_task()を経ていない生の文字列要素(REPLAN再設計の直接代入等)も
+    許容する(後方互換)。
+    """
+    lines: list[str] = []
+    for ac in task.acceptance:
+        if isinstance(ac, str):
+            lines.append(f"- {ac}")
+            continue
+        text = ac.get("text", "")
+        verify = ac.get("verify")
+        evidence = ac.get("evidence")
+        if verify is None and evidence is None:
+            lines.append(f"- {text}")
+            continue
+        ac_id = ac.get("id", "")
+        detail = f"verify={verify or '(未指定)'}"
+        if evidence:
+            detail += f" / evidence={evidence}"
+        lines.append(f"- [{ac_id}] {text} ({detail})")
+    return "\n".join(lines)
+
 
 def build_task(data: dict) -> Task:
     """LLM(Planner/REPLAN)由来のtask dictを検証してTaskにする。
@@ -288,12 +373,15 @@ def build_task(data: dict) -> Task:
     - 未知キー(priority/description等のスキーマ揺れ)は黙って落とす
       (従来はTask(**t)がTypeErrorで即死し、runs/もコスト記録も残らなかった)
     - id は _TASK_ID_RE で強制(パストラバーサル・git参照汚染の防止)
+    - acceptance は _normalize_acceptance でAC最小構造へ正規化する
     """
     known = {k: v for k, v in data.items() if k in _TASK_FIELDS}
     tid = known.get("id")
     if not isinstance(tid, str) or not _TASK_ID_RE.match(tid):
         raise ValueError(
             f"不正なtask.id: {tid!r}(英数字始まり・[A-Za-z0-9_-]・64字以内が必須)")
+    if "acceptance" in known:
+        known["acceptance"] = _normalize_acceptance(known["acceptance"])
     return Task(**known)
 
 
@@ -330,8 +418,12 @@ class RunStore:
         mission = Mission(**data)
         # 実行中系→pendingの巻き戻しはクラッシュ後の再実行(run/resume/approve)用。
         # 読み取り専用の照会(status等)でこれを適用すると実行中タスクを
-        # pendingと偽るため、reset_inflight=Falseで生の永続状態を返せるようにする
-        if reset_inflight:
+        # pendingと偽るため、reset_inflight=Falseで生の永続状態を返せるようにする。
+        # reset_inflight=Trueでも、永続lease(orgh/lease.py)が生きている場合は
+        # 別プロセスが実際に走っている証拠なので巻き戻さない(生きている
+        # プロセスの状態を偽らない)。leaseが無い/失効している場合のみ、
+        # 従来どおりクラッシュ復旧として巻き戻す
+        if reset_inflight and not lease.is_alive(self.dir):
             for t in mission.tasks:
                 if t.status in _INFLIGHT_STATUSES:
                     t.status = "pending"

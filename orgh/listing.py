@@ -9,9 +9,15 @@ import json
 import os
 from pathlib import Path
 
+from . import lease
 from .state import TERMINAL
 
 _MAX_INTENT_LEN = 60
+
+# 実行中系タスクステータス。state._INFLIGHT_STATUSESと同期を保つこと
+# (listing.pyはmission.jsonを直接読むためTaskデータクラスに依存しない設計上、
+# 独自に複製している。_derive_statusのstatus_json.pyとの重複と同じ理由)。
+_INFLIGHT_TASK_STATUSES = ("queued", "running", "review")
 
 
 def _summarize_intent(intent: str) -> str:
@@ -38,6 +44,23 @@ def _derive_status(tasks: list[dict]) -> str:
     if all(s in TERMINAL for s in statuses):
         return "cancelled"
     return "running"
+
+
+def _lease_expired(d: Path) -> bool:
+    """dでleaseが取得されたことがあり、かつ現在失効しているか。
+
+    lease自体が一度も取得されていない(旧ミッション・lease.py導入前の
+    データ)場合はFalseを返す — 判定材料が無いだけであり、失効の証拠には
+    ならないため、rawステータスをそのまま通す(orgh/lease.py の公開API
+    read()/is_alive_lenient()のみを使い、定数は一切ここで再定義しない)。
+
+    表示専用の is_alive_lenient() を使う(pidの生死は見ずheartbeat鮮度のみ):
+    kill -9されたプロセスは親に数百ms〜数秒でreapされpidが即座に消えるため、
+    pidも条件に含めるRunStore.load用のis_alive()をここに使うと、失効猶予
+    (LEASE_EXPIRY_SEC)の間runningのまま表示し続けるという表示要件が
+    キル直後に崩れてしまう(2026-08-15 実機レビューで判明、orgh/lease.py
+    のis_alive/is_alive_lenientのdocstring参照)。"""
+    return lease.read(d) is not None and not lease.is_alive_lenient(d)
 
 
 # 完了扱いとするミッション状態(finished_tsを出す対象)
@@ -110,6 +133,36 @@ def list_missions(runs_dir: str | Path) -> list[dict]:
     return list_missions_report(runs_dir)["missions"]
 
 
+def has_verdict(mission_dir: Path) -> bool:
+    """mission_dir に orgh verdict による記録(verdicts.jsonl)が1件以上あるか。"""
+    fp = mission_dir / "verdicts.jsonl"
+    if not fp.exists():
+        return False
+    try:
+        return any(line.strip() for line in fp.read_text().splitlines())
+    except OSError:
+        return False
+
+
+def list_pending_verdicts(runs_dir: str | Path) -> dict:
+    """done だが orgh verdict が未実施のミッションを一覧する。
+
+    通知が届かなくても人間が再発見できる導線
+    (docs/strategy/direction-2026-08.md §7 Phase 1 完了条件④)。
+    list_missions_report のサマリ(id/インデックスキャッシュ利用)をそのまま使い、
+    verdicts.jsonl の有無だけは都度読み直す — この探索対象外(_dir_signature が
+    mission.json/ledger.jsonlのみを見る)なため、キャッシュに追従させると
+    verdict記録後も pending のまま化ける。
+    """
+    root = Path(runs_dir)
+    missions = [
+        {**m, "verdict_pending": True}
+        for m in list_missions_report(runs_dir)["missions"]
+        if m["status"] == "done" and not has_verdict(root / m["mission_id"])
+    ]
+    return {"missions": missions}
+
+
 def _dir_signature(d: Path) -> str:
     """mission.json と ledger.jsonl の mtime/size からキャッシュ鍵を作る。
     どちらかが変われば鍵が変わり、キャッシュは自動失効する。"""
@@ -135,6 +188,14 @@ def _summarize_mission(d: Path) -> dict:
             and all(t.get("status") == "pending" for t in tasks)
             and (d.parent / "_queue" / f"{mission['id']}.json").exists()):
         status = "queued"
+    # 実行中系タスクを抱えたまま(=status_json.status_payloadと同一規則で
+    # "running"と導出された)のに、そのプロセスのleaseが失効している場合は
+    # pending/failedへ丸めず「unknown」として出す(判別不能を判別不能のまま
+    # 出す。pendingに丸めると二重実行、failedに丸めると成果喪失を誘発する)
+    if (status == "running"
+            and any(t.get("status") in _INFLIGHT_TASK_STATUSES for t in tasks)
+            and _lease_expired(d)):
+        status = "unknown"
     created_ts, finished_ts = _mission_times(d, status)
     return {
         "mission_id": mission["id"],

@@ -14,6 +14,7 @@
   orgh list                       # runs配下の全ミッションをid/intent/状態/コストで一覧
   orgh events <mission_id>        # ミッションのledger.jsonlをイベントとして表示
   orgh verdict <mission_id> --pass|--fail --reason <text>  # オーナー裁定の記録と基準蒸留
+  orgh verdict --pending                                   # done だが未裁定のミッション一覧
   orgh criteria                   # 判断基準台帳の下書き確認・承認・却下
   orgh report --days N            # 週次合格率・ミッション別コスト・worker別失敗率
   orgh playbooks                  # playbooks/配下の教訓(Retro追記分)を表示
@@ -29,8 +30,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import doctor, gc, listing, planner, report, watcher
+from . import doctor, gc, lease, listing, planner, report, watcher
 from .criteria import (approve_draft, criteria_context, criteria_list_payload,
+                       criteria_list_text,
                        distill_verdict, list_drafts, reject_draft)
 from .events_json import events_payload
 from .orchestrator import run_mission
@@ -39,6 +41,32 @@ from .sources.base import get_source
 from .state import TERMINAL, RunStore, load_config
 from .status_json import status_payload
 from . import worktree
+
+# 実行中系タスクステータス。state._INFLIGHT_STATUSESと同期を保つこと
+# (listing._INFLIGHT_TASK_STATUSES / status_json._INFLIGHT_TASK_STATUSESと
+# 同じ理由でテキスト表示経路(_summary)にも複製している)。
+_INFLIGHT_TASK_STATUSES = ("queued", "running", "review")
+
+
+def _dt(ts):
+    return (datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
+            if ts else "--")
+
+
+def _format_mission_line(m: dict, label: str | None = None) -> str:
+    """orgh list / orgh verdict --pending で共有するミッション1行の整形。
+
+    label省略時は m['status'] を角括弧内にそのまま使う(orgh list互換、
+    出力フォーマットは既存契約のため不変)。label指定時(verdict --pending)は
+    起票/完了/tasks/costをlistと同じ密度で出しつつ、角括弧内だけ状況に
+    差し替える(優先順位付けに必要な情報を削らない — レビュー指摘対応)。
+    """
+    tag = label if label is not None else m["status"]
+    return (f"{m['mission_id']}  [{tag}]  "
+            f"起票 {_dt(m['created_ts'])}  "
+            f"完了 {_dt(m['finished_ts'])}  "
+            f"{m['tasks_done']}/{m['tasks_total']} tasks  "
+            f"{m['cost_usd']:.4f} USD  {m['intent']}")
 
 
 def main() -> None:
@@ -86,11 +114,18 @@ def main() -> None:
             sp.add_argument("--yes", action="store_true")
 
     vp = sub.add_parser("verdict")   # オーナー検収裁定の記録と基準蒸留
-    vp.add_argument("mission_id")
-    g = vp.add_mutually_exclusive_group(required=True)
-    g.add_argument("--pass", dest="passed", action="store_true")
-    g.add_argument("--fail", dest="passed", action="store_false")
-    vp.add_argument("--reason", required=True)
+    vp.add_argument("mission_id", nargs="?")
+    vp.add_argument("--pending", action="store_true",
+                    help="done だが verdict 未実施のミッションを一覧して終了")
+    vp.add_argument("--json", action="store_true")
+    g = vp.add_mutually_exclusive_group()
+    g.add_argument("--pass", dest="passed", action="store_true", default=None)
+    g.add_argument("--fail", dest="passed", action="store_false", default=None)
+    vp.add_argument("--reason")
+    # --fail時のescape記録に使う欠陥カテゴリ(方向性文書2026-08 §3.4 A4)。
+    # 率の算出はしない・件数の元データのみを記録する
+    vp.add_argument("--category", choices=["visual", "factual", "premise", "other"],
+                    default="other")
 
     hd = sub.add_parser("humandone")  # awaiting_human タスクの人間完了報告
     hd.add_argument("mission_id")
@@ -219,15 +254,8 @@ def main() -> None:
         if not missions:
             print("no missions")
         else:
-            def _dt(ts):
-                return (datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
-                        if ts else "--")
             for m in missions:
-                print(f"{m['mission_id']}  [{m['status']}]  "
-                      f"起票 {_dt(m['created_ts'])}  "
-                      f"完了 {_dt(m['finished_ts'])}  "
-                      f"{m['tasks_done']}/{m['tasks_total']} tasks  "
-                      f"{m['cost_usd']:.4f} USD  {m['intent']}")
+                print(_format_mission_line(m))
         for s in payload["skipped"]:
             print(f"! 読めないmission.jsonをスキップ: {s['path']} ({s['reason']})",
                   file=sys.stderr)
@@ -252,6 +280,23 @@ def main() -> None:
         return
 
     if args.cmd == "verdict":
+        if args.pending:
+            payload = listing.list_pending_verdicts(cfg.get("runs_dir", "runs"))
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False))
+                return
+            if not payload["missions"]:
+                print("verdict未実施のdoneミッションは無い")
+            else:
+                for m in payload["missions"]:
+                    print(_format_mission_line(m, label="verdict未実施"))
+            return
+        if not args.mission_id:
+            sys.exit("mission_id が必要(--pending 指定時を除く)")
+        if args.passed is None:
+            sys.exit("--pass か --fail のどちらかが必要")
+        if not args.reason:
+            sys.exit("--reason が必要")
         store = RunStore(cfg.get("runs_dir", "runs"), args.mission_id)
         mission = store.load(reset_inflight=False)  # 読むだけ。実行状態は触らない
         with open(store.dir / "verdicts.jsonl", "a") as f:
@@ -259,6 +304,16 @@ def main() -> None:
                                 "reason": args.reason}, ensure_ascii=False) + "\n")
         store.log("mission.owner_verdict", passed=args.passed,
                   reason=args.reason[:500])
+        if not args.passed:
+            done_tasks = [t.id for t in mission.tasks]
+            gate_passed = bool(mission.tasks) and all(
+                t.status == "done" for t in mission.tasks)
+            if gate_passed:
+                # 機械ゲート通過後の不合格=escape(方向性文書2026-08 §3.4 A4)。
+                # 記録は件数の元データのみ。率の算出・失効候補提示はしない
+                store.log("escape", mission_id=args.mission_id,
+                          reason=args.reason[:500], tasks=done_tasks,
+                          category=args.category)
         drafts = distill_verdict(cfg, args.mission_id, mission.intent,
                                  args.passed, args.reason)
         for fp in drafts:
@@ -291,12 +346,19 @@ def main() -> None:
         task.last_output = args.note
         store.log("task.human_report", task=task.id, note=args.note[:500])
         cost_sink: list[float] = []
-        passed, feedback = planner.review(
+        (passed, feedback, ac_verdicts, ac_verdicts_dropped,
+         criteria_cited) = planner.review(
             cfg, task, workdir=task.workdir, budget=mission.budget,
             registry_key=store.dir.name, cost_sink=cost_sink)
         task.cost_usd += sum(cost_sink)
         task.review_notes = feedback
-        store.log("task.review", task=task.id, passed=passed)
+        log_kw: dict = {"task": task.id, "passed": passed,
+                        "criteria_cited": criteria_cited}
+        if ac_verdicts:
+            log_kw["ac_verdicts"] = ac_verdicts
+        if ac_verdicts_dropped:
+            log_kw["ac_verdicts_dropped"] = ac_verdicts_dropped
+        store.log("task.review", **log_kw)
 
         if passed:
             commit = worktree.commit_task_result(task, store.dir.name)
@@ -331,12 +393,13 @@ def main() -> None:
     if args.cmd == "criteria":
         if args.action == "list":
             if args.json:
-                print(json.dumps(criteria_list_payload(cfg), ensure_ascii=False))
+                print(json.dumps(criteria_list_payload(cfg, include_usage=True),
+                                 ensure_ascii=False))
                 return
             for fp in list_drafts(cfg):
                 print(f"[draft] {fp.stem}: {fp.read_text()}")
             print("--- 台帳 ---")
-            print(criteria_context(cfg, max_chars=100000))
+            print(criteria_list_text(cfg))
             return
         if not args.name:
             raise SystemExit("approve/reject には name が必要(orgh criteria list で確認)")
@@ -510,10 +573,22 @@ def _sync_results_note(cfg: dict, mission, store: RunStore) -> None:
 
 def _summary(m, store: RunStore | None = None) -> None:
     print(f"\nmission {m.id}: {m.intent}")
+    # 実行中系タスクを抱えたままプロセスのleaseが失効している場合、テキスト
+    # 表示でも(status --json / orgh listと同じく)pending/failedに丸めず
+    # unknownとして出す(orgh/lease.py の公開APIのみ使用)。
+    # is_alive_lenient()(heartbeat鮮度のみ)を使うこと: is_alive()(heartbeat+
+    # pid生存のAND、RunStore.load専用)を使うと、kill -9直後はpidが即座に
+    # OSから消えるため失効猶予(LEASE_EXPIRY_SEC)内でもunknownと誤判定し、
+    # orgh list(is_alive_lenient採用)とorgh status(プレーンテキスト)の
+    # 表示が食い違う(2026-08-15 consumerペルソナ実機レビューで指摘)。
+    lease_dead = (store is not None and lease.read(store.dir) is not None
+                  and not lease.is_alive_lenient(store.dir))
     for t in m.tasks:
+        status = ("unknown" if (lease_dead and t.status in _INFLIGHT_TASK_STATUSES)
+                  else t.status)
         mark = {"done": "✓", "failed": "✗", "cancelled": "⊘",
-                "skipped": "⊘"}.get(t.status, "…")
-        print(f"  {mark} {t.title} [{t.status}] attempts={t.attempts}")
+                "skipped": "⊘"}.get(status, "…")
+        print(f"  {mark} {t.title} [{status}] attempts={t.attempts}")
     b = getattr(m, "budget", None)
     if b and b.spent_usd:
         line = f"  cost: {b.spent_usd:.4f} USD"
