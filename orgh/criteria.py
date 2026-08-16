@@ -76,17 +76,26 @@ def _pack(entries: list[tuple[str, str]], max_chars: int) -> list[str]:
     return picked
 
 
-def criteria_context(cfg: dict, max_chars: int = 4000) -> str:
+def _max_inject_chars(cfg: dict) -> int:
+    """注入上限。config `criteria_max_inject_chars`(既定4000)。台帳が上限を
+    超えると古いエントリから無言で注入対象外になるため、全件注入したい場合は
+    configで拡大する(2026-08-16時点の全量は約5,300字)。"""
+    return cfg.get("criteria_max_inject_chars") or 4000
+
+
+def criteria_context(cfg: dict, max_chars: int | None = None) -> str:
     """台帳のエントリ行のみをReviewer/ペルソナのプロンプトへ注入する
     (playbookと同じ日付降順詰め)。見出し・注釈等の非エントリ行と、
     superseded_by付きエントリ(失効済み)は注入しない。"""
+    if max_chars is None:
+        max_chars = _max_inject_chars(cfg)
     active = [(d, line) for d, line in _ledger_entries(cfg)
               if not _SUPERSEDED_RE.search(line)]
     picked = _pack(active, max_chars)
     return "\n".join(picked) if picked else "(no criteria yet)"
 
 
-def criteria_ids(cfg: dict, max_chars: int = 4000) -> set[str]:
+def criteria_ids(cfg: dict, max_chars: int | None = None) -> set[str]:
     """criteria_context(cfg, max_chars)が実際にプロンプトへ注入する基準IDの
     集合。裁定応答の criteria_cited 検証(捏造ID破棄)に使う — 注入されて
     いないIDを裁定が引用したと言い張っても、この集合に無ければ信用しない。"""

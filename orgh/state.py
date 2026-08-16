@@ -118,6 +118,7 @@ class ConfigSchema:
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     criteria_dir: str = "criteria"
+    criteria_max_inject_chars: int = 4000  # 台帳注入の上限字数。超過分は日付降順詰めで切り捨て
     playbooks_dir: str = "playbooks"
     projects_map: str | None = None      # 対象リポの絶対パス⇔説明の対応表(Planner注入)
 
