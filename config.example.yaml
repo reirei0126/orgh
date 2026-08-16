@@ -3,6 +3,7 @@ prompts_dir: prompts         # 役割プロンプト(planner/reviewer/retro/work
 playbooks_dir: playbooks     # Retroが蒸留した組織知の置き場
 
 criteria_dir: criteria       # オーナー判断基準台帳。Reviewer/ペルソナ検収に注入され、
+criteria_max_inject_chars: 4000     # 台帳注入の上限字数。超過分は日付降順で古い方から注入対象外(既定4000)
                              # orgh verdict の裁定から下書きが自動生成される
                              # (本台帳への反映は orgh criteria approve のみ)
 

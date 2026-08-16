@@ -136,3 +136,28 @@ class TestBackwardCompatibleWithRealLedger:
 
         payload = criteria_list_payload(cfg)
         assert {e["id"] for e in payload["entries"]} == set(expected_ids)
+
+
+def test_criteria_context_max_chars_from_config(tmp_path):
+    """注入上限はconfig `criteria_max_inject_chars` で拡大できる(既定4000)。"""
+    from orgh.criteria import criteria_context
+    cdir = tmp_path / "criteria"
+    cdir.mkdir()
+    # 1行約100字のエントリを60件 → 全量約6,000字(既定4000字を超える)
+    lines = []
+    for i in range(1, 61):
+        pad = "x" * 70
+        lines.append(f"- QA-{i:03d} [norm]: {pad} <!-- src:m d:2026-01-{(i % 28) + 1:02d} -->")
+    (cdir / "qa.md").write_text("\n".join(lines) + "\n")
+
+    base = {"criteria_dir": str(cdir)}
+    injected_default = criteria_context(base).splitlines()
+    assert len(injected_default) < 60  # 既定4000字では全件入らない前提の題材
+
+    widened = criteria_context({**base, "criteria_max_inject_chars": 100000})
+    assert len(widened.splitlines()) == 60  # config拡大で全件注入
+
+    # 明示引数はconfigより優先(既存呼び出しの互換)
+    narrowed = criteria_context({**base, "criteria_max_inject_chars": 100000},
+                                max_chars=500)
+    assert len(narrowed.splitlines()) < 10
