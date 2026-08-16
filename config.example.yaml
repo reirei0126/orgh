@@ -1,14 +1,3 @@
-vault:
-  path: ~/obsidian/main        # Obsidian vaultのパス
-  inbox: inbox                 # このフォルダ配下のノートはミッション候補
-  mission_tag: mission         # 候補として認識(scan用)。着火はtrigger_tag
-  trigger_tag: go              # 明示着火タグ。inbox配置だけでは着火しない。
-                                # ノート本文の #go インラインタグ、または
-                                # frontmatterの `orgh: go` で着火する
-
-source:                        # 入力ソースの選択(将来Notion等を差し替え可能にする拡張点)
-  type: obsidian               # 現状は obsidian のみ
-
 runs_dir: runs
 prompts_dir: prompts         # 役割プロンプト(planner/reviewer/retro/worker_preamble)の置き場
 playbooks_dir: playbooks     # Retroが蒸留した組織知の置き場
@@ -116,3 +105,19 @@ gc:                            # orgh gc(playbookの代謝とruns保持)
 notify:                        # 人間接点イベント通知(A1out)。既定は無効(挙動不変)
   webhook_url: null            # POST先URL。null=webhook無効(ledgerのnotify.emittedのみ記録)
   timeout: 5                   # POSTのタイムアウト秒
+
+
+# --- 以下は Obsidian をメモ起点に使う場合だけ設定する(任意) ---
+# 未設定でも orgh run --intent / doctor / resume は問題なく動く。
+# scan / watch / run --note を使うときだけ必要。
+
+vault:
+  path: ~/obsidian/main        # Obsidian vaultのパス
+  inbox: inbox                 # このフォルダ配下のノートはミッション候補
+  mission_tag: mission         # 候補として認識(scan用)。着火はtrigger_tag
+  trigger_tag: go              # 明示着火タグ。inbox配置だけでは着火しない。
+                                # ノート本文の #go インラインタグ、または
+                                # frontmatterの `orgh: go` で着火する
+
+source:                        # 入力ソースの選択(将来Notion等を差し替え可能にする拡張点)
+  type: obsidian               # 現状は obsidian のみ
