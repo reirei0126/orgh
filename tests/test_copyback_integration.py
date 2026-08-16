@@ -16,6 +16,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from orgh.copyback import DEFAULT_STAGING_DIR
 from orgh.orchestrator.task_executor import run_task
 from orgh.state import Budget, RunStore, Task
 
@@ -26,8 +27,12 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _write_staging(staging: Path, files: dict[str, str],
+def _write_staging(workdir: Path, files: dict[str, str],
                    dest_root: str | None) -> None:
+    """workdir(worktree直下)に orgh-manifest.json を置き、成果物は
+    `_orgh_staging/` サブディレクトリ配下へ出力する(staging専用サブ
+    ディレクトリ契約)。"""
+    staging = workdir / DEFAULT_STAGING_DIR
     staging.mkdir(parents=True, exist_ok=True)
     entries = []
     for rel, content in files.items():
@@ -39,7 +44,7 @@ def _write_staging(staging: Path, files: dict[str, str],
     manifest: dict = {"files": entries}
     if dest_root is not None:
         manifest["dest_root"] = dest_root
-    (staging / "orgh-manifest.json").write_text(
+    (workdir / "orgh-manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False))
 
 
