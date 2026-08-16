@@ -197,3 +197,50 @@ class TestIdempotentReEmission:
             ids2 = _ids(cfg2["runs_dir"], event_type)
             assert len(ids1) == 1 and len(ids2) == 1
             assert ids1[0] == ids2[0]
+
+
+class TestSlackCompatText:
+    def test_webhook_payload_includes_text_alias(self, tmp_path):
+        """Slack Incoming Webhook互換: 送信ペイロードにtext(=summary)を含める。
+        ledger側(notify.emitted)にはtextを含めない(送信時のみの別名)。"""
+        import json as _json
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        from orgh.notify import emit, mission_completed_event
+        from orgh.state import Mission, RunStore
+
+        received = []
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0))
+                received.append(_json.loads(self.rfile.read(n)))
+                self.send_response(200)
+                self.end_headers()
+            def log_message(self, *a):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        th = threading.Thread(target=srv.serve_forever, daemon=True)
+        th.start()
+        try:
+            m = Mission.new(intent="text別名試験", context_digest="(t)",
+                            tasks=[{"id": "t1", "title": "x", "prompt": "p",
+                                    "worker": "claude_code", "deps": [],
+                                    "acceptance": ["a"], "workdir": "."}])
+            m.tasks[0].status = "done"
+            store = RunStore(str(tmp_path / "runs"), m.id)
+            store.save(m)
+            cfg = {"notify": {"webhook_url":
+                              f"http://127.0.0.1:{srv.server_port}/hook"}}
+            ev = mission_completed_event(m)
+            emit(store, cfg, ev)
+            assert len(received) == 1
+            assert received[0]["text"] == ev["summary"]      # Slack互換の別名
+            ledger = (store.dir / "ledger.jsonl").read_text()
+            emitted = [_json.loads(l) for l in ledger.splitlines()
+                       if '"notify.emitted"' in l]
+            assert emitted and "text" not in emitted[0]       # ledgerは元の形のみ
+        finally:
+            srv.shutdown()

@@ -79,7 +79,11 @@ def mission_completed_event(mission: Mission,
 
 
 def _post_webhook(url: str, event: dict, timeout: float) -> None:
-    body = json.dumps(event, ensure_ascii=False).encode("utf-8")
+    # "text" はSlack Incoming Webhook互換のための別名(無いと400 no_textで拒否される。
+    # 2026-08-16 実URLで確認)。汎用コンシューマにはsummaryと同値の冗長キーであり無害。
+    # ledger(notify.emitted)には元のevent形のみを記録し、この別名は送信時にだけ付ける
+    body = json.dumps({**event, "text": event.get("summary", "")},
+                      ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         url, data=body, method="POST",
         headers={"Content-Type": "application/json"})
