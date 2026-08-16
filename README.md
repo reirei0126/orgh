@@ -1,6 +1,14 @@
 # orgh — 自律増幅型AI組織ハーネス
 
-Obsidian/メモ → 意図解釈 → 計画(DAG) → Claude Code / Codex セッション並列起動 → レビュー → 差し戻し改善ループ → 学習の蒸留、までを1コマンドで回す。
+やりたいことを1行渡すと、計画(DAG) → Claude Code / Codex セッションの並列起動 → レビュー → 差し戻し改善ループ → 学習の蒸留、までを1コマンドで回す。
+
+```bash
+orgh run --intent "status --jsonとorgh listの2機能を追加"
+```
+
+Planner(Opus)がタスクの依存グラフを設計し、各タスクをClaude Code / Codexのセッションとしてgit worktree分離で並列に走らせる。Reviewerが受け入れ条件で検収し、落ちたタスクは`--resume`で**同じセッションに差し戻される**(文脈を保ったまま直せる)。計画自体の欠陥は`REPLAN:`でPlannerへ戻る。ミッション後にRetroが教訓を`playbooks/`へ蒸留し、以後の全プロンプトに自動注入される。
+
+Obsidianのメモを起点にする使い方もできるが、**必須ではない**。
 
 > **EN**: An agent-orchestration harness that turns plain notes into executed missions: a Planner (Opus) designs a task DAG, parallel workers (Claude Code / Codex sessions) implement, a Reviewer gates each task against acceptance criteria — failed reviews are sent back into the *same* session via `--resume` so context is preserved, and plan-level defects escalate back to the Planner (`REPLAN:`). After each mission a Retro distills lessons into `playbooks/`, which are auto-injected into every future prompt, so the "organization" gets smarter with each run. Includes budget guards, git-worktree isolation for parallel tasks, a self-modification approval gate, and an ops report that tracks first-attempt pass rate over time.
 
@@ -40,28 +48,31 @@ Obsidian vault ──ingest──> Planner(Opus)  ……… 経営層: タスク
 1. **改善ループ**: レビューfailはClaude Codeの`session_id`を`--resume`して文脈を保ったまま修正させる(最大`max_attempts`回)。Reviewerのfeedbackが `REPLAN:` で始まる場合はWorkerではなく**Plannerへエスカレーション**し、タスクの指示と受け入れ条件を再設計して(attempts非消費で)再実行する — 計画自体の欠陥はWorkerを何周させても直らないため。再設計は1タスク1回まで
 2. **Playbooks**: Retroがミッションごとの教訓を`playbooks/`に追記し、次回以降のPlanner/Worker全員のプロンプトに自動注入される。回すほど組織が賢くなる
 
-## セットアップ
+## 5分ではじめる
+
+前提: `claude`(Claude Code CLI)がPATHにあり認証済み。Obsidianは要らない。
 
 ```bash
 pip install -e .
-cp config.example.yaml config.yaml   # vaultパスとworker設定を編集
+cp config.example.yaml config.yaml
+
+# 疎通確認(外部CLI・config・書き込み権限)。「全タスク謎のfailed」の前にこれ
+orgh doctor
+
+# 対象リポジトリで実行
+orgh run --intent "READMEにトラブルシュート節を追加する"
 ```
 
-前提: `claude`(Claude Code CLI)と`codex`がPATHにあり認証済み。
+`orgh doctor` の出力で `vault: 未設定(watch/scanを使わないなら問題なし)` と出れば、Obsidianなしの構成として正しい。
 
-`prompts_dir` / `playbooks_dir` は config で指定する(パッケージ相対ではなくconfig駆動)。
-非editableでインストールした場合や作業ディレクトリがリポ外の場合は、絶対パスで指定すること。
+config で最低限いじるのは `workers`(使うCLIとモデル)と `prompts_dir` / `playbooks_dir` だけ。後者はパッケージ相対ではなくconfig駆動なので、非editableインストールや作業ディレクトリがリポ外の場合は絶対パスで指定すること。
+
+初回は小さめのintentで1本回し、`runs/<mission_id>/` に何が残るかを見るのがいちばん早い。
 
 ## 使い方
 
 ```bash
-# vault内のミッション候補(inbox配下 or #missionタグ)を一覧
-orgh scan
-
-# ノート起点でフル実行(plan→execute→review loop→retro)
-orgh run --note "オントロジーレイヤーMVP"
-
-# ノートなしで直接指示
+# 直接指示で実行(plan→execute→review loop→retro)
 orgh run --intent "このリポジトリのテストカバレッジを60%まで上げる"
 
 # 中断・失敗・キャンセルしたミッションの再開 / 状況確認
@@ -71,12 +82,7 @@ orgh status <mission_id>
 # 実行中ミッションの停止(subprocessをterminate、未着手はcancelledに)
 orgh cancel <mission_id>
 
-# vault監視デーモン(ノート投稿で自動着火。実行はexecutorが runs/_queue/ 消化で担当)
-orgh watch                 # 既定: 検知+実行(executor同プロセス併走)
-orgh watch --watch-only    # 検知・投入のみ(実行は別プロセスの orgh executor)
-orgh executor              # キュー消化デーモン(watch再起動が実行に影響しない分離運用)
-
-# 事前疎通確認(外部CLI/config/vault/書き込み権限)。「全タスク謎のfailed」の前に
+# 事前疎通確認(外部CLI/config/書き込み権限)。「全タスク謎のfailed」の前に
 orgh doctor
 
 orgh gc  # playbookの統合・退避とruns/のアーカイブ(実行前に全量バックアップ)
@@ -113,7 +119,17 @@ orgh criteria approve <mission_id>-1
 そのミッションを `orgh resume` する際はゲートが走り続ける
 (ミッション単位の一貫性。無効化は次に新規着火するミッションから効く)。
 
-### vault完結のフィードバック(orgh watch)
+### メモ起点で使う(Obsidian・任意)
+
+ここから先はObsidianを使う場合の機能で、**使わなくてもorghの中核(計画→並列実行→レビュー→差し戻し→学習)はすべて動く**。入力ソースは `orgh/sources/` のアダプタとして差し替え可能な作りにしてあり、Obsidianはその1実装にすぎない(`config.yaml` の `source.type`)。
+
+```bash
+orgh scan                  # vault内のミッション候補を一覧
+orgh run --note "オントロジーレイヤーMVP"   # ノート起点で実行
+orgh watch                 # 監視デーモン: 既定は検知+実行(executor同プロセス併走)
+orgh watch --watch-only    # 検知・投入のみ(実行は別プロセスの orgh executor)
+orgh executor              # キュー消化デーモン(watch再起動が実行に影響しない分離運用)
+```
 
 `orgh watch` はinbox配下や `#mission` タグだけでは着火しない。ノート本文に
 明示的な `#go` インラインタグを付けるか、frontmatterに `orgh: go` を書いた
