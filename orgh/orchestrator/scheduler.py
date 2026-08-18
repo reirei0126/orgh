@@ -15,6 +15,7 @@ from ..guard import needs_approval
 from ..state import TERMINAL, Mission, RunStore, Task
 from .budget_policy import initiate_budget_stop, setup_budget
 from .cancellation import cancel_flag, initiate_cancel
+from .sleep_recovery import detect_sleep_gap, reclaim_hung_workers
 from .task_executor import run_task
 from .transitions import enter_awaiting_human, transition
 
@@ -177,6 +178,14 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
         futures = {}
         while True:
             now = time.time()
+            # スリープ復帰検知(H0①, outcome-2026-08.md §3.3): heartbeatが
+            # 更新されないまま実測経過した秒数がlease.LEASE_EXPIRY_SECを大幅に
+            # 超えていたら、GC一時停止等では説明のつかないwall-clockの飛び
+            # (Macスリープ復帰)とみなす。heartbeat更新(直後の分岐)より前に
+            # 判定することで、飛び幅を正しく計測してから基準時刻をリセットする
+            gap = detect_sleep_gap(now, last_heartbeat)
+            if gap is not None:
+                reclaim_hung_workers(cfg, store, mission, futures, gap)
             if now - last_heartbeat >= lease.HEARTBEAT_INTERVAL_SEC:
                 lease.heartbeat(store.dir, now=now)
                 last_heartbeat = now
