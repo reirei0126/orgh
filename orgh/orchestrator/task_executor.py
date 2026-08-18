@@ -16,7 +16,7 @@ from ..planner import replan_task, worker_prompt
 from ..state import Budget, RunStore, Task
 from ..slots import SlotAborted, acquire_slot
 from ..worktree import commit_task_result, ensure_task_worktree
-from . import copyback_gate
+from . import copyback_gate, sleep_recovery
 from .cancellation import CancelledDuringRole, cancel_flag, cancellable_sleep
 from .review_pipeline import run_review_pipeline
 from .transitions import enter_awaiting_human, transition
@@ -173,16 +173,28 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                 with store.lock:
                     t.attempts += 1
                     t.status = "running"
+                my_attempt = t.attempts
                 store.log("task.start", task=t.id, worker=t.worker,
                           attempt=t.attempts)
                 res = adapter.run(prompt, workdir=t.workdir,
                                   resume=t.session_id,
                                   timeout=lcfg.get("task_timeout", 3600),
                                   registry_key=store.dir.name,
+                                  task_key=sleep_recovery.task_registry_key(
+                                      store.dir.name, t.id),
                                   allowed_tools=t.tools)
         except SlotAborted:
             # 枠待ち中のキャンセル。attemptは未消費のままcancelledで確定
             transition(store, t, "cancelled")
+            return t
+        if sleep_recovery.was_reclaimed(store, t.id, my_attempt):
+            # スリープ復帰検知(sleep_recovery.reclaim_hung_workers)がscheduler
+            # スレッド側で既にこのattemptを失敗確定・次attemptへ進めている。
+            # 目覚めたこのスレッドが同じattemptへ二重に書き込むと、既に次の
+            # attemptが走っている場合に状態を破壊しうるため、以降の状態変更
+            # (last_output/session_id/cost/ledger/レビュー遷移)を一切行わず
+            # 即座に抜ける(誤った二重実行の防止。cancellation.pyのCANCEL
+            # フラグと同じ「両スレッドがファイルをポーリングする」設計)
             return t
         with store.lock:
             t.last_output = res.output
