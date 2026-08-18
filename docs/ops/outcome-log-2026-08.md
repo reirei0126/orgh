@@ -16,3 +16,5 @@ routeenum: orgh|manual|ai-session|dropped。observe_byは種別固定表(配達=
 |---|---|---|---|---|---|
 
 CHECKED W34 対象0件(プロトコル初日8/19。E1対象=8/19以降の新規doneのため登録なし)
+
+E2初データ(2026-08-19): 620402d6でノートに「予算上限: 15 USD」宣言→mission.json limit_usd=None(Plannerが宣言を予算機構へ未接続)→実費16.04で1USD超過。「宣言が強制に繋がらない」経路欠陥を確認。違反カウント対象(30USD超)ではないが、E2の設計前提に関わるためPlannerの宣言取り込みを要検討事項として記録。
