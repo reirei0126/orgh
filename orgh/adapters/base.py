@@ -62,7 +62,8 @@ class BaseAdapter:
 
     def run(self, prompt: str, workdir: str, resume: str | None = None,
             timeout: int = 3600, registry_key: str | None = None,
-            allowed_tools: str | None = None) -> WorkerResult:
+            allowed_tools: str | None = None,
+            task_key: str | None = None) -> WorkerResult:
         cmd, stdin = self._command(prompt, resume, allowed_tools)
         proc = subprocess.Popen(
             cmd, cwd=workdir, env=filtered_env(self.cfg),
@@ -70,6 +71,14 @@ class BaseAdapter:
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if registry_key:
             procreg.register(registry_key, proc)
+        # task_key: registry_key(mission単位、orgh cancelのterminate対象特定用)
+        # とは別に、タスク単位でも同じprocを登録する。スリープ復帰後のハング
+        # worker検知(orgh/orchestrator/sleep_recovery.py)が「このタスクに
+        # 紐づくworker」だけを特定してpid生死を確認する必要があり、mission
+        # 単位のregistry_keyだけでは並列実行中の他タスクのprocと区別できない
+        # ため新設した(procregの既存キー方式・登録/解除の作法はそのまま流用)
+        if task_key:
+            procreg.register(task_key, proc)
         try:
             try:
                 out, err = proc.communicate(stdin, timeout=timeout)
@@ -80,6 +89,8 @@ class BaseAdapter:
         finally:
             if registry_key:
                 procreg.unregister(registry_key, proc)
+            if task_key:
+                procreg.unregister(task_key, proc)
         return self._parse(
             subprocess.CompletedProcess(cmd, proc.returncode, out, err))
 
