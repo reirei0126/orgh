@@ -12,6 +12,7 @@ xdg-open docs/quiz/index.html   # macOS は open
 - カテゴリ(アーキテクチャ/状態遷移/ガバナンス/予算/隔離/知識/実行基盤/ソース連携/CLI/設定/Desktop)と
   難易度(基礎/応用/内部実装)で出題範囲を絞る
 - **学習モード**: 1問ごとに正誤・解説・出典を表示
+- 選択肢は出題のたびにシャッフルされる(正解の位置を覚えても意味がない)
 - **試験モード**: 最後にまとめて採点
 - **苦手優先**: これまで間違えた回数の多い設問から出題
 - 結果画面でカテゴリ別正答率・弱点カテゴリ・全問の見直し・間違いのみ再挑戦
@@ -32,7 +33,7 @@ xdg-open docs/quiz/index.html   # macOS は open
   type: "single",                // single(正解1つ) | multi(正解2つ以上)
   question: "…",
   choices: ["…", "…"],
-  answer: [0],                   // choices のindex
+  answer: [0],                   // choices のindex(出題時にシャッフルされる)
   explanation: "…",              // なぜそうなのか
   sources: ["orgh/state.py"]     // リポジトリ内の実在パス
 }

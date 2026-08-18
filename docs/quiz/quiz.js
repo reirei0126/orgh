@@ -43,7 +43,9 @@
     wrap.className = "chip" + (checked ? " on" : "");
     var box = document.createElement("input");
     box.type = "checkbox";
+    box.name = container.id;
     box.value = id;
+    box.setAttribute("aria-label", label);
     box.checked = checked;
     box.addEventListener("change", function () {
       wrap.classList.toggle("on", box.checked);
@@ -70,12 +72,16 @@
     });
   }
 
+  // 出題数はプールに合わせて丸めるが、希望値は覚えておきプールが広がったら戻す
+  // (全解除→選び直しで1問に固定されてしまうのを防ぐ)。
+  var wantedCount = 10;
+
   function updatePoolSize() {
     var n = pool().length;
     el("pool-size").textContent = "該当 " + n + " 問";
     var count = el("count");
-    if (parseInt(count.value, 10) > n) { count.value = String(Math.max(n, 1)); }
     count.max = String(Math.max(n, 1));
+    count.value = String(Math.min(wantedCount, Math.max(n, 1)));
     el("start").disabled = n === 0;
   }
 
@@ -88,6 +94,18 @@
     return a;
   }
 
+  // バンクの記載順のままだと正解の位置が偏るため、出題ごとに選択肢を混ぜる。
+  function shuffleChoices(q) {
+    var order = shuffle(q.choices.map(function (_, i) { return i; }));
+    var out = {};
+    Object.keys(q).forEach(function (k) { out[k] = q[k]; });
+    out.choices = order.map(function (i) { return q.choices[i]; });
+    out.answer = q.answer
+      .map(function (i) { return order.indexOf(i); })
+      .sort(function (a, b) { return a - b; });
+    return out;
+  }
+
   function pick(list, n, weakFirst) {
     var shuffled = shuffle(list);
     if (weakFirst) {
@@ -95,7 +113,7 @@
         return (memory.wrong[b.id] || 0) - (memory.wrong[a.id] || 0);
       });
     }
-    return shuffled.slice(0, n);
+    return shuffled.slice(0, n).map(shuffleChoices);
   }
 
   // ---- 出題 ----
@@ -167,7 +185,8 @@
 
   function same(a, b) {
     if (a.length !== b.length) { return false; }
-    var x = a.slice().sort(), y = b.slice().sort();
+    var asc = function (p, q) { return p - q; };
+    var x = a.slice().sort(asc), y = b.slice().sort(asc);
     return x.every(function (v, i) { return v === y[i]; });
   }
 
@@ -223,8 +242,9 @@
 
   // ---- 結果 ----
   function finish() {
+    // 選択肢は出題時に混ぜているので、復習表示はセッション側の並びで引く。
     var byId = {};
-    BANK.questions.forEach(function (q) { byId[q.id] = q; });
+    session.questions.forEach(function (q) { byId[q.id] = q; });
 
     var total = session.answers.length;
     var hit = session.answers.filter(function (a) { return a.correct; }).length;
@@ -314,7 +334,7 @@
       .map(function (a) { return a.id; });
     el("retry-wrong").disabled = wrongIds.length === 0;
     el("retry-wrong").onclick = function () {
-      startSession(shuffle(wrongIds.map(function (id) { return byId[id]; })), session.mode);
+      startSession(shuffle(wrongIds.map(function (id) { return shuffleChoices(byId[id]); })), session.mode);
     };
   }
 
@@ -330,6 +350,11 @@
 
   // ---- 初期化 ----
   loadStore();
+  wantedCount = parseInt(el("count").value, 10) || 10;
+  el("count").addEventListener("change", function () {
+    wantedCount = Math.max(parseInt(el("count").value, 10) || 1, 1);
+    updatePoolSize();
+  });
   BANK.categories.forEach(function (c) { chip(el("categories"), c.id, c.label, true); });
   DIFFICULTIES.forEach(function (d) { chip(el("difficulties"), d.id, d.label, true); });
   updatePoolSize();
