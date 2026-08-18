@@ -30,6 +30,17 @@ def unregister(key: str, proc: subprocess.Popen) -> None:
                 _procs.pop(key, None)
 
 
+def pids(key: str) -> list[int]:
+    """keyに登録中のprocのpid一覧を返す(生死は問わない、読み取り専用)。
+
+    スリープ復帰後のハングworker検知(orgh/orchestrator/sleep_recovery.py)が、
+    生死判定(lease.pid_alive、既存APIを流用)の材料としてここから取得する
+    pidを使う。terminate()と違い一切プロセスへ触れないため、schedulerの
+    ポーリングループから安全に何度呼んでもよい。"""
+    with _lock:
+        return [p.pid for p in _procs.get(key, ())]
+
+
 def terminate(key: str) -> int:
     """keyに登録された実行中プロセスへSIGTERMを送る。送った数を返す。"""
     with _lock:
