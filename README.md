@@ -25,7 +25,7 @@ Obsidianのメモを起点にする使い方もできるが、**必須ではな�
 
 このREADMEに載っている`orgh list`と`status --json`は、この録画のミッションが実装したものである。
 
-**ドキュメント**: 技術詳解は [docs/deep-dive.md](docs/deep-dive.md)、ITに詳しくない方は [docs/orgh-first-guide.md](docs/orgh-first-guide.md) から。
+**ドキュメント**: 技術詳解は [docs/deep-dive.md](docs/deep-dive.md)、ITに詳しくない方は [docs/orgh-first-guide.md](docs/orgh-first-guide.md) から。仕様の習熟度確認は [docs/quiz/index.html](docs/quiz/index.html)(ブラウザで開くだけの理解度クイズ、[説明](docs/quiz/README.md))。
 
 ## 組織構造
 
