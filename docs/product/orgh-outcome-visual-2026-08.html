@@ -1,0 +1,195 @@
+<title>orghアウトカム戦記 — 30日の帳簿</title>
+<style>
+  :root{
+    --paper:#FAFAF7; --panel:#FFFFFF; --ink:#1A2238; --sub:#66708A;
+    --accent:#D43D2A; --gold:#B08D1E; --line:#D8D5CC; --band:#F2F0E9;
+    --shadow:rgba(26,34,56,.08);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --paper:#12151E; --panel:#1B2030; --ink:#E8E9EF; --sub:#8B93AD;
+      --accent:#E85A47; --gold:#D4B24C; --line:#2C3247; --band:#161A26;
+      --shadow:rgba(0,0,0,.35); }
+  }
+  :root[data-theme="dark"]{ --paper:#12151E; --panel:#1B2030; --ink:#E8E9EF; --sub:#8B93AD;
+    --accent:#E85A47; --gold:#D4B24C; --line:#2C3247; --band:#161A26; --shadow:rgba(0,0,0,.35); }
+  :root[data-theme="light"]{ --paper:#FAFAF7; --panel:#FFFFFF; --ink:#1A2238; --sub:#66708A;
+    --accent:#D43D2A; --gold:#B08D1E; --line:#D8D5CC; --band:#F2F0E9; --shadow:rgba(26,34,56,.08); }
+
+  html,body{background:var(--paper);color:var(--ink);}
+  body{font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic",YuGothic,Meiryo,sans-serif;
+    line-height:1.7; margin:0; padding:0;}
+  .wrap{max-width:720px;margin:0 auto;padding:24px 20px 80px;}
+  .mono{font-family:"SF Mono",Menlo,Consolas,"Osaka-Mono",monospace;}
+
+  header.cover{padding:56px 0 40px;text-align:left;border-bottom:3px solid var(--ink);margin-bottom:36px;position:relative;}
+  .cover .series{font-size:12px;letter-spacing:.24em;color:var(--sub);text-transform:uppercase;}
+  .cover h1{font-size:clamp(30px,7vw,44px);font-weight:900;letter-spacing:.02em;line-height:1.25;margin:10px 0 8px;text-wrap:balance;}
+  .cover .sub{color:var(--sub);font-size:14px;margin:0;}
+
+  .panel{background:var(--panel);border:2.5px solid var(--ink);border-radius:4px;
+    box-shadow:5px 6px 0 var(--shadow);margin:0 0 34px;padding:26px 24px 0;position:relative;overflow:hidden;}
+  .panel .kicker{font-size:11px;letter-spacing:.22em;color:var(--sub);font-weight:700;}
+  .panel h2{font-size:clamp(22px,5.2vw,30px);font-weight:900;line-height:1.35;margin:8px 0 12px;text-wrap:balance;}
+  .panel h2 em{font-style:normal;color:var(--accent);}
+  .panel p.body{font-size:15px;margin:0 0 20px;max-width:38em;}
+  .ev{border-top:1.5px dashed var(--line);background:var(--band);margin:0 -24px;
+    padding:10px 24px 12px;font-size:11.5px;color:var(--sub);letter-spacing:.02em;}
+  .ev b{color:var(--ink);font-weight:600;}
+
+  .stamp{position:absolute;top:18px;right:16px;width:84px;height:84px;border:3px solid var(--accent);
+    border-radius:50%;color:var(--accent);display:flex;align-items:center;justify-content:center;
+    font-weight:900;font-size:17px;letter-spacing:.1em;transform:rotate(9deg);opacity:.88;
+    text-align:center;line-height:1.3;pointer-events:none;}
+  .stamp small{font-size:9px;font-weight:700;letter-spacing:.2em;display:block;}
+
+  figure{margin:4px 0 20px;}
+  figure svg{max-width:100%;height:auto;display:block;}
+  figcaption{font-size:11px;color:var(--sub);margin-top:6px;}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);}
+
+  footer{margin-top:48px;font-size:11.5px;color:var(--sub);border-top:1px solid var(--line);padding-top:14px;}
+  footer .mono{font-size:10.5px;}
+  @media (prefers-reduced-motion: no-preference){
+    .panel{transition:transform .15s ease;}
+  }
+</style>
+
+<div class="wrap">
+<header class="cover">
+  <div class="series">ORGH CASE FILE — 2026.08</div>
+  <h1>orghアウトカム戦記<br>「30日の帳簿」</h1>
+  <p class="sub">33ミッション監査 → 7つの漏れ → 作る前に測る、への全記録。読了2分。</p>
+</header>
+
+<!-- P1 -->
+<section class="panel">
+  <div class="stamp">記録<br>ナシ<small>AUDIT</small></div>
+  <div class="kicker">第1コマ — 監査</div>
+  <h2>働いた記録はある。<br><em>効いた記録がない。</em></h2>
+  <p class="body">33ミッションの完全監査。デプロイや公開の記録は断片的に残るが、構造化されたusage/outcome記録は0件だった。</p>
+  <figure>
+    <svg viewBox="0 0 640 150" role="img" aria-label="名目697ドルの行き先: orgh自身へ304ドル、業務195ドル、遊興127ドル、その他58ドル、生活13ドル。効いた記録はどの分類にもゼロ件">
+      <g font-size="12" fill="currentColor">
+        <text x="0" y="16" font-weight="700">名目697.35 USDの行き先</text>
+        <g font-size="11">
+          <rect x="120" y="30"  width="264" height="16" fill="var(--accent)" opacity=".85"/><text x="0" y="43">orgh自身(メタ)</text><text x="392" y="43" fill="var(--sub)">303.6</text>
+          <rect x="120" y="52"  width="170" height="16" fill="var(--gold)" opacity=".85"/><text x="0" y="65">業務(ontology)</text><text x="298" y="65" fill="var(--sub)">195.4</text>
+          <rect x="120" y="74"  width="110" height="16" fill="var(--sub)" opacity=".7"/><text x="0" y="87">遊興(slot)</text><text x="238" y="87" fill="var(--sub)">127.2</text>
+          <rect x="120" y="96"  width="50"  height="16" fill="var(--sub)" opacity=".5"/><text x="0" y="109">その他制作</text><text x="178" y="109" fill="var(--sub)">58.1</text>
+          <rect x="120" y="118" width="11"  height="16" fill="var(--sub)" opacity=".4"/><text x="0" y="131">生活(旅行)</text><text x="139" y="131" fill="var(--sub)">13.1</text>
+        </g>
+        <text x="470" y="80" font-size="13" font-weight="900" fill="var(--accent)">効いた記録: 全分類 0件</text>
+      </g>
+    </svg>
+  </figure>
+  <div class="ev mono">runs/ 33件・名目697.35 USD(サブスク枠内・実支出ではない)・横断集計不能</div>
+</section>
+
+<!-- P2 -->
+<section class="panel">
+  <div class="kicker">第2コマ — 現場</div>
+  <h2>orghは「done」で<em>目を閉じる。</em></h2>
+  <p class="body">業務系に名目195ドルを注いだが、実業務で使われたかを誰も知らない。単一最大の1件は見積の約2倍を使い、成果は受領されたが一部未達に終わった。</p>
+  <figure>
+    <svg viewBox="0 0 640 90" role="img" aria-label="ミッションの一生: 起票から計画・実行・検収・doneまでは記録があるが、doneの先の「使われたか」から先が暗闇になっている">
+      <g font-size="12" fill="currentColor" text-anchor="middle">
+        <g font-weight="600">
+          <rect x="10"  y="28" width="90" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="55" y="47">起票</text>
+          <rect x="130" y="28" width="90" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="175" y="47">実行</text>
+          <rect x="250" y="28" width="90" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="295" y="47">検収</text>
+          <rect x="370" y="28" width="90" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="415" y="47">done</text>
+        </g>
+        <rect x="490" y="20" width="140" height="46" rx="3" fill="currentColor" opacity=".82"/>
+        <text x="560" y="40" fill="var(--panel)" font-weight="900" font-size="13">使われたか?</text>
+        <text x="560" y="57" fill="var(--panel)" font-size="10" opacity=".8">——ここから先が暗闇</text>
+        <g stroke="currentColor" stroke-width="1.5">
+          <line x1="100" y1="43" x2="126" y2="43"/><line x1="220" y1="43" x2="246" y2="43"/>
+          <line x1="340" y1="43" x2="366" y2="43"/><line x1="460" y1="43" x2="486" y2="43" stroke-dasharray="3 3"/>
+        </g>
+      </g>
+    </svg>
+  </figure>
+  <div class="ev mono">C分類 195.4 USD 利用記録なし / fcb7bd7e: 見積50-60 → 実115.46 USD・3/4完了・成果は受領</div>
+</section>
+
+<!-- P3 -->
+<section class="panel">
+  <div class="kicker">第3コマ — 犯人</div>
+  <h2>足りないのは機能じゃない。<em>帳簿だ。</em></h2>
+  <p class="body">漏れは7つ特定した——実行信頼性から「そもそもorghでやるべきか」まで。だが、どれから塞ぐかを決める横断記録が存在しない。</p>
+  <div class="ev mono">リーク0〜6: 実行信頼性/計測不在/メタ比率43.5%/品質バー/起票律速/単発止まり/適用判定</div>
+</section>
+
+<!-- P4 -->
+<section class="panel">
+  <div class="stamp">凍結<small>30 DAYS</small></div>
+  <div class="kicker">第4コマ — 転換</div>
+  <h2>だから、<em>作る前に測る。</em></h2>
+  <p class="body">計測系の新機能は、30日の運用結果が出るまで作らない。配達と信頼性の改修は止めない。</p>
+  <div class="ev mono">凍結=計測系の実装のみ / 継続=スリープ復帰検知・3a'成立2件目→3b'</div>
+</section>
+
+<!-- P5 -->
+<section class="panel">
+  <div class="kicker">第5コマ — あなたの役割</div>
+  <h2>あなたの仕事は、<em>週90秒</em>と起票の1行。</h2>
+  <p class="body">週次はAIが選んだ最大3件に「使った?」と答えるだけ(各30秒)。起票時は期待変化を1行——該当案件だけ予算上限を足す。</p>
+  <figure>
+    <svg viewBox="0 0 640 96" role="img" aria-label="週次ループ: AIが対象を最大3件選ぶ、オーナーが各30秒で答える、帳簿が育つ、の循環">
+      <g font-size="12" fill="currentColor" text-anchor="middle">
+        <rect x="20"  y="30" width="160" height="36" rx="18" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="100" y="52">AIが最大3件選ぶ</text>
+        <rect x="240" y="30" width="160" height="36" rx="18" stroke="var(--accent)" stroke-width="2.5" fill="none"/><text x="320" y="52" font-weight="900" fill="var(--accent)">あなた: 各30秒</text>
+        <rect x="460" y="30" width="160" height="36" rx="18" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="540" y="52">帳簿が育つ</text>
+        <g stroke="currentColor" stroke-width="1.5" fill="none">
+          <line x1="180" y1="48" x2="236" y2="48"/><line x1="400" y1="48" x2="456" y2="48"/>
+          <path d="M 540 66 Q 540 88 320 88 Q 100 88 100 66" stroke-dasharray="3 3"/>
+        </g>
+        <text x="320" y="20" font-size="10" fill="var(--sub)">毎週これだけ</text>
+      </g>
+    </svg>
+  </figure>
+  <div class="ev mono">週次 最大3件×30秒 / 起票時1行 / 残りは全部セッションAIの義務(HANDOFF固定)</div>
+</section>
+
+<!-- P6 -->
+<section class="panel">
+  <div class="kicker">第6コマ — 正直設計</div>
+  <h2>入力が続かないなら、<em>人に聞くのをやめる。</em></h2>
+  <p class="body">あなたのverdict記録率は57.6%——全部は入力しない前提で設計した。記録率が5割を切ったら人手確認を捨て、機械検知だけに切り替える。</p>
+  <div class="ev mono">E1分岐: ≥70%実装 / 50-69%延長 / &lt;50%機械検知へ転換(未入力もデータ)</div>
+</section>
+
+<!-- P7 -->
+<section class="panel">
+  <div class="kicker">第7コマ — 検証</div>
+  <h2>この30日で証明するのは、成果ではなく<em>「成果を追えるか」</em>だ。</h2>
+  <p class="body">効くかは、まだ分からない。だから5つの実験で「記録が回るか」と「orghをどこに使うべきか」を検証する。</p>
+  <div class="ev mono">E1〜E5 / Codex19ラウンド・FATAL34件を経た設計 / 8月19日開始</div>
+</section>
+
+<!-- P8 -->
+<section class="panel">
+  <div class="kicker">最終コマ — 決着の日</div>
+  <h2><em>8月19日</em>に始め、<em>9月17日</em>に数字で決める。</h2>
+  <p class="body">成果そのものの判定は、宣言付き案件を90日追った12月。それまで、測れない計測機能は作らない。</p>
+  <figure>
+    <svg viewBox="0 0 640 84" role="img" aria-label="タイムライン: 8月19日プロトコル開始、9月17日30日レポートで実装判断、12月に90日アウトカム判定">
+      <g font-size="11" fill="currentColor">
+        <line x1="20" y1="42" x2="620" y2="42" stroke="currentColor" stroke-width="1.5"/>
+        <g text-anchor="middle">
+          <circle cx="60" cy="42" r="6" fill="var(--accent)"/><text x="60" y="24" font-weight="700">8/19</text><text x="60" y="68" fill="var(--sub)">記録開始</text>
+          <circle cx="320" cy="42" r="6" fill="var(--gold)"/><text x="320" y="24" font-weight="700">9/17</text><text x="320" y="68" fill="var(--sub)">30日判定=実装を決める</text>
+          <circle cx="580" cy="42" r="6" fill="none" stroke="currentColor" stroke-width="2"/><text x="580" y="24" font-weight="700">12月</text><text x="580" y="68" fill="var(--sub)">90日判定=成果を測る</text>
+        </g>
+      </g>
+    </svg>
+  </figure>
+  <div class="ev mono">実行キュー: プロトコル運用 → スリープ復帰検知 → 3a'2件目 → 3b' / 90日レポート=12月</div>
+</section>
+
+<footer>
+  一次資料: docs/strategy/outcome-2026-08.md(監査の全件付表・E1〜E5の定義・反証条件) ・
+  正本ログ: docs/ops/outcome-log-2026-08.md ・ 実行キュー: HANDOFF.md冒頭<br>
+  <span class="mono">audit 2026-08-18 / copy reviewed by Codex(GPT-5.6) / 全数値はledger実測(名目値)</span>
+</footer>
+</div>
