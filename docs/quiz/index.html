@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>orgh 仕様理解度クイズ</title>
+<link rel="stylesheet" href="quiz.css">
+</head>
+<body>
+<header>
+  <h1>orgh 仕様理解度クイズ</h1>
+  <p class="sub">設問はリポジトリの実装(<code>orgh/</code>・<code>config.example.yaml</code>・<code>README.md</code>)から作成。各解説に出典ファイルを付けている。</p>
+</header>
+
+<main>
+  <!-- 開始画面 -->
+  <section id="setup" class="card">
+    <h2>出題設定</h2>
+
+    <div class="field">
+      <div class="field-head">
+        <label>カテゴリ</label>
+        <span class="linkish" id="cat-all">全選択</span> /
+        <span class="linkish" id="cat-none">全解除</span>
+      </div>
+      <div id="categories" class="chips"></div>
+    </div>
+
+    <div class="field">
+      <label>難易度</label>
+      <div id="difficulties" class="chips"></div>
+    </div>
+
+    <div class="field row">
+      <label for="count">出題数</label>
+      <input id="count" type="number" min="1" step="1" value="10">
+      <span id="pool-size" class="muted"></span>
+    </div>
+
+    <div class="field row">
+      <label for="mode">モード</label>
+      <select id="mode">
+        <option value="learn">学習(1問ごとに正誤と解説を表示)</option>
+        <option value="exam">試験(最後にまとめて採点)</option>
+      </select>
+    </div>
+
+    <div class="field row">
+      <label><input type="checkbox" id="weak-first"> 苦手優先(過去に間違えた設問を先に出す)</label>
+    </div>
+
+    <div class="actions">
+      <button id="start" class="primary">開始</button>
+      <button id="reset-history" class="ghost">学習履歴を消去</button>
+    </div>
+
+    <div id="history" class="history"></div>
+  </section>
+
+  <!-- 出題画面 -->
+  <section id="quiz" class="card hidden">
+    <div class="progress">
+      <div class="progress-bar"><div id="progress-fill"></div></div>
+      <span id="progress-text"></span>
+    </div>
+    <div class="meta">
+      <span id="q-category" class="tag"></span>
+      <span id="q-difficulty" class="tag"></span>
+      <span id="q-multi" class="tag hidden">複数選択</span>
+    </div>
+    <h2 id="q-text"></h2>
+    <div id="choices" class="choices"></div>
+    <div id="feedback" class="feedback hidden"></div>
+    <div class="actions">
+      <button id="submit" class="primary">回答する</button>
+      <button id="next" class="primary hidden">次へ</button>
+      <button id="abort" class="ghost">中断</button>
+    </div>
+    <p class="muted hint">ショートカット: 1〜9で選択、Enterで回答/次へ</p>
+  </section>
+
+  <!-- 結果画面 -->
+  <section id="result" class="card hidden">
+    <h2>結果</h2>
+    <p id="score" class="score"></p>
+    <h3>カテゴリ別</h3>
+    <div id="by-category"></div>
+    <div id="weak-areas"></div>
+    <h3>復習</h3>
+    <div id="review"></div>
+    <div class="actions">
+      <button id="retry-wrong" class="primary">間違えた設問だけ再挑戦</button>
+      <button id="back" class="ghost">設定に戻る</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p class="muted">設問バンク: <code>docs/quiz/questions.js</code>(形式検証は <code>tests/test_quiz_bank.py</code>)。仕様変更時は設問と出典も更新すること。</p>
+</footer>
+
+<script src="questions.js"></script>
+<script src="quiz.js"></script>
+</body>
+</html>
