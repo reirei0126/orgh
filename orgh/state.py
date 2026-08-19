@@ -82,6 +82,20 @@ class SourceCfg:
 
 
 @dataclass
+class NotionCfg:
+    """Notion MCP連携(orgh notion pull。HANDOFF t1)。
+
+    mcp_commandが空(既定)ならNotion連携は無効。トークン自体はここに書かない —
+    token_envで指定した環境変数からMCPサーバ起動時に読む(orgh/notion.py参照)。
+    token_envの既定値はNotion公式MCPサーバ(notion-mcp-server)の慣習に合わせた
+    ものだが、実サーバ未検証のため利用時はサーバのドキュメントで要確認。
+    """
+    mcp_command: list[str] = field(default_factory=list)
+    database_id: str = ""
+    token_env: str = "OPENAPI_MCP_HEADERS"
+
+
+@dataclass
 class GcCfg:
     """orgh gc(playbookの代謝とruns保持)の設定(HANDOFF タスク6)。"""
     retention_days: int = 90   # これより古いミッションはruns/_archive/へ退避
@@ -122,6 +136,7 @@ class ConfigSchema:
     watch: WatchCfg | None = None
     worktree: WorktreeCfg | None = None
     source: SourceCfg | None = None
+    notion: NotionCfg | None = None
     gc: GcCfg | None = None
     personas: PersonasCfg | None = None
     notify: NotifyCfg | None = None
@@ -136,7 +151,8 @@ class ConfigSchema:
 
 _REQUIRED_KEYS = ("workers",)
 _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
-                    "worktree": WorktreeCfg, "source": SourceCfg, "gc": GcCfg,
+                    "worktree": WorktreeCfg, "source": SourceCfg,
+                    "notion": NotionCfg, "gc": GcCfg,
                     "personas": PersonasCfg, "notify": NotifyCfg,
                     "copyback": CopybackCfg}
 # from __future__ import annotations により field.type は文字列

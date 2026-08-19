@@ -1,6 +1,7 @@
 """orgh CLI
   orgh watch                      # vault監視デーモン: ノート投稿で自動着火
   orgh scan                       # vaultからミッション候補を一覧
+  orgh notion pull                # Notion MCP経由で未取込ページをinboxへミッションノート化
   orgh run --note "ノート名"       # ノート起点でplan->execute->review->retro全部
   orgh run --intent "..."         # ノートなしで直接指示
   orgh resume <mission_id>        # 中断・キャンセルしたミッションの再開
@@ -77,6 +78,11 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("scan")
+
+    np = sub.add_parser("notion")
+    np_sub = np.add_subparsers(dest="action", required=True)
+    np_sub.add_parser("pull")  # t2で writeback をここに追加できるよう notion サブパーサを共有する
+
     wp = sub.add_parser("watch")
     wp.add_argument("--watch-only", action="store_true",
                     help="検知・投入のみ(実行は別プロセスの orgh executor)")
@@ -212,6 +218,20 @@ def main() -> None:
         for n in src.list_candidates():
             print(f"- {n.title}  ({n.path})")
         return
+
+    if args.cmd == "notion":
+        import orgh.notion as notion_mod
+        if args.action == "pull":
+            try:
+                written = notion_mod.pull(cfg)
+            except notion_mod.NotionError as e:
+                sys.exit(str(e))
+            if not written:
+                print("新規ページなし(取込済みのみ、またはヒットなし)")
+            else:
+                for p in written:
+                    print(f"pulled: {p}")
+            return
 
     if args.cmd == "report":
         if args.json:
