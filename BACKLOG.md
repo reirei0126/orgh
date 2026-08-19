@@ -11,7 +11,7 @@
 | 30日運用プロトコル | E1〜E5の週次運用(usage記録・予算宣言・期待効果・未起票ログ・正解先行) | 8/19〜9/17、レポート9/17 | outcome §3 / HANDOFF |
 | 90日アウトカム判定 | 宣言付き案件の達成率で「orghが成果を増やしたか」を初判定 | 12月 | outcome §3.1 |
 | ~~H0① スリープ復帰検知~~ | **完了 2026-08-19**(620402d6・548件全緑・実機蓋閉じ試験のみ後工程) | — | outcome §3.3 |
-| Notion MCPコネクタ | MCP経由のNotion入力(DBページ→ミッションノート)+完了サマリ書き戻し+README節。転職応募(Notion FDE)の実績作りを兼ねる | **8/27目安**(応募窓8月末〜9/5) | sierra-job-hop 005-notion brief |
+| Notion MCPコネクタ | **実装完了 2026-08-19**(8b435cc4・570件全緑・11.2USD)。残=実Notion疎通(トークン設定→pull/writeback各1回)・スクショ・README公開確認 | 後工程を8/27まで | sierra-job-hop 005-notion brief |
 | 3a' 成立2件目 | 次のcopyback実運用が契約変更なしで通るか | 次のcopyback案件発生時 | direction §7 |
 | 3b' writeback_pending | 完了の書き戻し忘れを防ぐ状態機械+`writeback-ack` | 3a'成立後。**着手前にオーナー決定②(ack再提示UX)** | direction §4 |
 | A7 action部分 | 外部実行系のdry-run契約+`awaiting_external_approval` 状態新設 | 3b'の後 | direction §11 |

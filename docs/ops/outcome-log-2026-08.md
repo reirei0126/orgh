@@ -18,3 +18,5 @@ routeenum: orgh|manual|ai-session|dropped。observe_byは種別固定表(配達=
 CHECKED W34 対象0件(プロトコル初日8/19。E1対象=8/19以降の新規doneのため登録なし)
 
 E2初データ(2026-08-19): 620402d6でノートに「予算上限: 15 USD」宣言→mission.json limit_usd=None(Plannerが宣言を予算機構へ未接続)→実費16.04で1USD超過。「宣言が強制に繋がらない」経路欠陥を確認。違反カウント対象(30USD超)ではないが、E2の設計前提に関わるためPlannerの宣言取り込みを要検討事項として記録。
+
+E2データ#2(2026-08-19): 8b435cc4で承認時にmission.budget.limit_usd=40を手動接続したが、実行開始時のsetup_budget(orgh/orchestrator/budget_policy.py)がconfig loop.budget_usd(=None)で上書きし無制限化。宣言経路は「Planner未接続」+「config上書き」の二重断線と確定。実費11.2で実害なし。修正判断は9/17(または費用超過失敗の再発=outcome §5-2トリガー)。
