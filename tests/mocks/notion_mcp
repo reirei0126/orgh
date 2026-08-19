@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Notion MCP サーバの最小モック(標準ライブラリのみ、改行区切りJSON-RPC 2.0 stdio)。
+
+orgh/mcp_client.py と orgh/notion.py の結合テスト専用。実Notionへは一切接続しない。
+
+対応メソッド: initialize / notifications/initialized / tools/list / tools/call。
+tools/list は下記3ツールを返す(Notion公式MCPサーバのOpenAPI operationId慣習
+に合わせた名前):
+  API-post-database-query   ({"database_id": ...} -> そのDBのページ一覧)
+  API-get-block-children    ({"block_id": <page_id>} -> そのページのブロック本文)
+  API-post-page              ({"parent", "properties", "children": [...]} ->
+                               作成されたページ相当を返す。orgh notion writeback用)
+
+データセットは環境変数 MOCK_NOTION_DB (JSON文字列、
+  {"<database_id>": [{"id","url","properties","blocks"}, ...]})
+で差し替え可能。未設定時は組み込みの固定データセット(2ページ)を使う。
+
+挙動制御用の環境変数:
+  MOCK_NOTION_TOKEN_ENV   指定した名前の環境変数がこのプロセスに無ければ、
+                          応答を返さず非0終了する(トークン未設定試験用)
+  MOCK_NOTION_FAIL_TOOL   指定したツール名への tools/call に対し、常に
+                          JSON-RPC error レスポンスを返す(異常系試験用)
+  MOCK_NOTION_CALLS_FILE  指定したパスへ、受け取った tools/call ごとに
+                          {"name": ..., "arguments": ...} を1行JSONで追記する
+                          (テストが送信引数を検証するため。orgh notion writeback
+                          結合テスト用)
+"""
+import json
+import os
+import sys
+
+QUERY_TOOL = "API-post-database-query"
+CONTENT_TOOL = "API-get-block-children"
+CREATE_PAGE_TOOL = "API-post-page"
+
+DEFAULT_DB = {
+    "db-mock-1": [
+        {
+            "id": "page-001",
+            "url": "https://notion.so/page-001",
+            "properties": {
+                "Name": {"type": "title",
+                         "title": [{"plain_text": "最初のページ"}]},
+            },
+            "blocks": [
+                {"type": "paragraph",
+                 "paragraph": {"rich_text": [{"plain_text": "本文1行目"}]}},
+                {"type": "paragraph",
+                 "paragraph": {"rich_text": [{"plain_text": "本文2行目"}]}},
+            ],
+        },
+        {
+            "id": "page-002",
+            "url": "https://notion.so/page-002",
+            "properties": {
+                "Name": {"type": "title",
+                         "title": [{"plain_text": "2番目のページ"}]},
+            },
+            "blocks": [
+                {"type": "paragraph",
+                 "paragraph": {"rich_text": [{"plain_text": "別ページの本文"}]}},
+            ],
+        },
+    ]
+}
+
+
+def _load_db() -> dict:
+    raw = os.environ.get("MOCK_NOTION_DB")
+    return json.loads(raw) if raw else DEFAULT_DB
+
+
+def _write(obj: dict) -> None:
+    sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def _find_page(db: dict, page_id: str) -> dict | None:
+    for pages in db.values():
+        for p in pages:
+            if p["id"] == page_id:
+                return p
+    return None
+
+
+def main() -> None:
+    token_env = os.environ.get("MOCK_NOTION_TOKEN_ENV")
+    if token_env and not os.environ.get(token_env):
+        sys.stderr.write(f"missing token env {token_env}\n")
+        sys.exit(1)
+
+    fail_tool = os.environ.get("MOCK_NOTION_FAIL_TOOL")
+    calls_file = os.environ.get("MOCK_NOTION_CALLS_FILE")
+    db = _load_db()
+
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
+        req = json.loads(line)
+        method = req.get("method")
+        req_id = req.get("id")
+
+        if method == "initialize":
+            _write({"jsonrpc": "2.0", "id": req_id, "result": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "mock-notion-mcp", "version": "0.0.1"},
+            }})
+        elif method == "notifications/initialized":
+            continue  # 通知には応答しない
+        elif method == "tools/list":
+            _write({"jsonrpc": "2.0", "id": req_id, "result": {"tools": [
+                {"name": QUERY_TOOL, "description": "query a Notion database",
+                 "inputSchema": {"type": "object"}},
+                {"name": CONTENT_TOOL, "description": "get page block children",
+                 "inputSchema": {"type": "object"}},
+                {"name": CREATE_PAGE_TOOL, "description": "create a Notion page",
+                 "inputSchema": {"type": "object"}},
+            ]}})
+        elif method == "tools/call":
+            params = req.get("params") or {}
+            name = params.get("name")
+            args = params.get("arguments") or {}
+            if calls_file:
+                with open(calls_file, "a") as f:
+                    f.write(json.dumps({"name": name, "arguments": args},
+                                       ensure_ascii=False) + "\n")
+            if fail_tool and name == fail_tool:
+                _write({"jsonrpc": "2.0", "id": req_id, "error": {
+                    "code": -32000, "message": f"mock failure for {name}"}})
+                continue
+            if name == QUERY_TOOL:
+                pages = db.get(args.get("database_id"), [])
+                results = [{"id": p["id"], "url": p["url"],
+                           "properties": p["properties"]} for p in pages]
+                _write({"jsonrpc": "2.0", "id": req_id,
+                       "result": {"structuredContent": {"results": results}}})
+            elif name == CONTENT_TOOL:
+                page = _find_page(db, args.get("block_id"))
+                blocks = page["blocks"] if page else []
+                _write({"jsonrpc": "2.0", "id": req_id,
+                       "result": {"structuredContent": {"results": blocks}}})
+            elif name == CREATE_PAGE_TOOL:
+                _write({"jsonrpc": "2.0", "id": req_id, "result": {
+                    "structuredContent": {"id": "page-created-mock",
+                                          "url": "https://notion.so/page-created-mock"}}})
+            else:
+                _write({"jsonrpc": "2.0", "id": req_id, "error": {
+                    "code": -32601, "message": f"unknown tool {name}"}})
+        else:
+            _write({"jsonrpc": "2.0", "id": req_id, "error": {
+                "code": -32601, "message": f"unknown method {method}"}})
+
+
+if __name__ == "__main__":
+    main()

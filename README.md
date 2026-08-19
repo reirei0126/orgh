@@ -162,6 +162,58 @@ watcherが検知し、実行中のsubprocessをterminate・未着手タスクを
 orgh cleanup <mission_id>   # 該当ミッションのworktreeとブランチを削除
 ```
 
+### Notion MCP連携
+
+Notionをvaultと同様の入力源・書き戻し先として使える(`config.yaml` の
+`notion:` セクションでMCPサーバ起動コマンドを指定したときだけ有効。未設定
+なら完全に無効で挙動は変わらない)。**Notion REST APIを直接叩くことはなく、
+接続は必ずMCP(Model Context Protocol)経由**(`orgh/mcp_client.py`。標準
+ライブラリのみのstdio JSON-RPC 2.0クライアント)。Notion公式MCPサーバ
+(`notion-mcp-server`)をsubprocessとして起動する想定で、起動コマンドの例は
+以下の通り(実サーバのインストール・起動方法は各サーバのドキュメントに従う):
+
+```bash
+npx -y @notionhq/notion-mcp-server
+```
+
+`config.yaml` の設定例(**トークンの値そのものは書かない** — `token_env` で
+指定した環境変数名をMCPサーバの子プロセスへ渡すだけで、orghのconfig・
+コード・ログには一切残らない):
+
+```yaml
+notion:
+  mcp_command: ["npx", "-y", "@notionhq/notion-mcp-server"]
+  database_id: "your-notion-database-id"
+  token_env: "OPENAPI_MCP_HEADERS"   # この名前の環境変数を事前にexportしておく
+```
+
+```bash
+orgh notion pull                       # 未取込ページをvault inboxへミッションノート化
+orgh notion writeback <mission_id>     # doneミッションのサマリをNotionページとして作成要求
+```
+
+- `orgh notion pull`: NotionデータベースのページをMCP経由で読み、
+  `<vault>/inbox/` へミッションノートとして書き出す。取込済みページIDは
+  `<runs_dir>/_notion/pulled.json` の台帳で管理し、**冪等**(同じページを
+  再pullしてもノートは増えず、既存ノートも上書きしない)。生成ノートには
+  着火トリガタグ(既定 `#go`)を付けない設計で、人間が内容を確認してから
+  既存のObsidian経路で着火する。
+- `orgh notion writeback <mission_id>`: 指定ミッションが `done`(全タスク完了)
+  であることを確認したうえで、intent・オーナー検収裁定(verdict)の有無・
+  コスト(USD)・成果物ブランチ名をまとめ、MCP経由でNotionページの作成を
+  要求する。**best-effort**: MCPサーバへの接続失敗・ツール未提供・
+  JSON-RPCエラーのいずれが起きても例外を投げず、ミッションの状態
+  (ledger/state)は一切変更しない(`orgh/notify.py` のA1out通知と同じ
+  「失敗を握って続行する」流儀)。`done` でないミッションを指定した場合は
+  実行前に明示エラーで拒否する。CLIの終了コードは、config不備や `done`
+  でないミッション指定時のみ非0で、MCP起因のbest-effortな失敗は0のまま
+  結果メッセージだけを出す(ミッション進行を妨げないため)。
+
+制限事項: 双方向同期・リアルタイム監視(Notion側の変更をwatchが検知する
+経路)には対応しない。`orgh notion pull` はコマンドを叩いたときの一括取込
+のみで、Notion側のポーリング・webhook購読は行わない。実Notionワークスペース
+での疎通確認・スクリーンショットの取得は人間の後工程とする。
+
 ### 予算ガード
 
 `config.yaml` の `loop.budget_usd`(ミッション全体の上限)/
