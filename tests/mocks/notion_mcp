@@ -4,10 +4,12 @@
 orgh/mcp_client.py と orgh/notion.py の結合テスト専用。実Notionへは一切接続しない。
 
 対応メソッド: initialize / notifications/initialized / tools/list / tools/call。
-tools/list は下記2ツールを返す(Notion公式MCPサーバのOpenAPI operationId慣習
+tools/list は下記3ツールを返す(Notion公式MCPサーバのOpenAPI operationId慣習
 に合わせた名前):
   API-post-database-query   ({"database_id": ...} -> そのDBのページ一覧)
   API-get-block-children    ({"block_id": <page_id>} -> そのページのブロック本文)
+  API-post-page              ({"parent", "properties", "children": [...]} ->
+                               作成されたページ相当を返す。orgh notion writeback用)
 
 データセットは環境変数 MOCK_NOTION_DB (JSON文字列、
   {"<database_id>": [{"id","url","properties","blocks"}, ...]})
@@ -18,6 +20,10 @@ tools/list は下記2ツールを返す(Notion公式MCPサーバのOpenAPI opera
                           応答を返さず非0終了する(トークン未設定試験用)
   MOCK_NOTION_FAIL_TOOL   指定したツール名への tools/call に対し、常に
                           JSON-RPC error レスポンスを返す(異常系試験用)
+  MOCK_NOTION_CALLS_FILE  指定したパスへ、受け取った tools/call ごとに
+                          {"name": ..., "arguments": ...} を1行JSONで追記する
+                          (テストが送信引数を検証するため。orgh notion writeback
+                          結合テスト用)
 """
 import json
 import os
@@ -25,6 +31,7 @@ import sys
 
 QUERY_TOOL = "API-post-database-query"
 CONTENT_TOOL = "API-get-block-children"
+CREATE_PAGE_TOOL = "API-post-page"
 
 DEFAULT_DB = {
     "db-mock-1": [
@@ -83,6 +90,7 @@ def main() -> None:
         sys.exit(1)
 
     fail_tool = os.environ.get("MOCK_NOTION_FAIL_TOOL")
+    calls_file = os.environ.get("MOCK_NOTION_CALLS_FILE")
     db = _load_db()
 
     for raw_line in sys.stdin:
@@ -107,11 +115,17 @@ def main() -> None:
                  "inputSchema": {"type": "object"}},
                 {"name": CONTENT_TOOL, "description": "get page block children",
                  "inputSchema": {"type": "object"}},
+                {"name": CREATE_PAGE_TOOL, "description": "create a Notion page",
+                 "inputSchema": {"type": "object"}},
             ]}})
         elif method == "tools/call":
             params = req.get("params") or {}
             name = params.get("name")
             args = params.get("arguments") or {}
+            if calls_file:
+                with open(calls_file, "a") as f:
+                    f.write(json.dumps({"name": name, "arguments": args},
+                                       ensure_ascii=False) + "\n")
             if fail_tool and name == fail_tool:
                 _write({"jsonrpc": "2.0", "id": req_id, "error": {
                     "code": -32000, "message": f"mock failure for {name}"}})
@@ -127,6 +141,10 @@ def main() -> None:
                 blocks = page["blocks"] if page else []
                 _write({"jsonrpc": "2.0", "id": req_id,
                        "result": {"structuredContent": {"results": blocks}}})
+            elif name == CREATE_PAGE_TOOL:
+                _write({"jsonrpc": "2.0", "id": req_id, "result": {
+                    "structuredContent": {"id": "page-created-mock",
+                                          "url": "https://notion.so/page-created-mock"}}})
             else:
                 _write({"jsonrpc": "2.0", "id": req_id, "error": {
                     "code": -32601, "message": f"unknown tool {name}"}})

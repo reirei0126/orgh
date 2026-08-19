@@ -1,19 +1,20 @@
-"""`orgh notion pull`: Notion MCPサーバ経由でデータベースの未取込ページを読み、
-Obsidian vaultのinboxへミッションノート(.md)として書き出す。
+"""`orgh notion pull` / `orgh notion writeback`: Notion MCPサーバ経由の連携。
 
 - 接続は必ずMCP経由(orgh/mcp_client.py)。Notion REST APIを直接叩かない。
-- 生成ノートには着火トリガタグ(vault.trigger_tag、既定 "go")を付けない。
+- pull: 生成ノートには着火トリガタグ(vault.trigger_tag、既定 "go")を付けない。
   人間がNotion由来ノートを確認してから既存のObsidian経路(#go等)で着火する
   設計であり、watchへの新経路は作らない。
-- 冪等性: 取込済みページIDの台帳を <runs_dir>/_notion/pulled.json に
+  冪等性: 取込済みページIDの台帳を <runs_dir>/_notion/pulled.json に
   {page_id: {"note": <相対パス>, "pulled_at": <epoch秒>}} として持つ。
   台帳に載っているpage_idは再pullしても新規ノートを作らず、既存ノートも
   上書きしない(スキップ)。
+- writeback: doneミッションの結果サマリをMCP経由でNotionページとして作成
+  するよう要求する(best-effort。詳細はwriteback()のdocstring参照)。
 - トークンの値そのものはここにもconfigにも書かない。notion.token_env で
   指定した環境変数名をos.environから読み、MCPサーバの子プロセスへ渡す。
   未設定ならNotionConfigErrorで明示的に落ちる。
-- ツール名(データベース照会・ページ本文取得)はMCPサーバ実装依存のため、
-  候補名リストから解決する(_resolve_tool)。見つからなければ
+- ツール名(データベース照会・ページ本文取得・ページ作成)はMCPサーバ実装依存
+  のため、候補名リストから解決する(_resolve_tool)。見つからなければ
   NotionToolResolutionErrorで明示的に落ちる。
 """
 from __future__ import annotations
@@ -25,7 +26,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .mcp_client import McpClient
+from . import listing
+from .mcp_client import McpClient, McpError
+from .state import RunStore
 
 DEFAULT_TOKEN_ENV = "OPENAPI_MCP_HEADERS"
 
@@ -46,6 +49,13 @@ _PAGE_CONTENT_TOOL_CANDIDATES = (
     "getBlockChildren",
     "notion_get_page",
 )
+_CREATE_PAGE_TOOL_CANDIDATES = (
+    "API-post-page",
+    "create_page",
+    "create-page",
+    "createPage",
+    "notion_create_page",
+)
 
 _SLUG_RE = re.compile(r"[^\w\-ぁ-んァ-ヶ一-龠ー]+")
 
@@ -64,6 +74,11 @@ class NotionConfigError(NotionError):
 
 class NotionToolResolutionError(NotionError):
     """MCPサーバのtools/listから必要なツールを解決できなかった。"""
+
+
+class NotionWritebackStateError(NotionError):
+    """doneでないミッションへのwritebackを実行前に明示的に拒否する。
+    best-effort扱い(MCP接続失敗等)とは区別し、これは常に例外で落ちる。"""
 
 
 class _Ledger:
@@ -251,3 +266,110 @@ def pull(cfg: dict) -> list[Path]:
             written.append(note_path)
 
     return written
+
+
+def _mission_branches(mission) -> list[str]:
+    """タスクごとの成果物ブランチ名(orgh/worktree.pyが t.branch に設定する
+    f"orgh/{mission_id}/{task.id}"形式)を、登場順・重複無しで集める。"""
+    branches: list[str] = []
+    for t in mission.tasks:
+        if t.branch and t.branch not in branches:
+            branches.append(t.branch)
+    return branches
+
+
+def _writeback_summary_children(intent: str, verdict_present: bool,
+                                 cost_usd: float, branches: list[str]) -> list[dict]:
+    lines = [
+        f"intent: {intent}",
+        f"verdict: {'あり' if verdict_present else 'なし'}",
+        f"cost_usd: {cost_usd:.4f}",
+        f"branch: {', '.join(branches) if branches else '(なし)'}",
+    ]
+    return [
+        {"object": "block", "type": "paragraph",
+         "paragraph": {"rich_text": [
+             {"type": "text", "text": {"content": line}}]}}
+        for line in lines
+    ]
+
+
+def writeback(cfg: dict, mission_id: str) -> dict:
+    """doneミッションの結果サマリを、MCP経由でNotionページとして作成するよう要求する。
+
+    読み出しは既存API限定: ミッション状態は RunStore.load(reset_inflight=False)
+    (読み取り専用。実行中系ステータスの巻き戻しをしない)で、verdict有無は
+    listing.has_verdict() で取得する(新しい読み出し経路は作らない)。
+
+    doneでないミッション(全タスクが status=="done" ではない、またはtasksが
+    空)を指定した場合は NotionWritebackStateError で即座に落ちる — これは
+    MCP呼び出しの前に判定するため、MCPサーバへは一切接続しない。config不備
+    (mcp_command/database_id/token_env)も同様にNotionError系で即座に落ちる。
+
+    doneミッションに対するMCP呼び出し以降はbest-effort: MCP接続失敗
+    (McpProcessError/McpTimeoutError)・ツール未解決(NotionToolResolutionError)・
+    JSON-RPCエラー(McpRpcError)・isError付きCallToolResult(NotionError)の
+    いずれが起きても例外を外へ伝播させない。この関数はいかなる分岐でも
+    store.save()等ミッション状態の書き換えを一切行わない(読むだけ)ため、
+    MCP側の失敗でミッションのledger/stateが変化することはない
+    (orgh/notify.pyのA1out — 冪等な識別子・失敗を握って続行・記録は残す、と
+    同じ流儀。ここでの「記録」はledgerへの追記ではなくCLI出力に委ねる)。
+
+    戻り値は {"ok": bool, "error": str | None}。呼び出し元CLI
+    (orgh notion writeback)はconfig不備・doneでないミッション指定のみを
+    非0終了とし、MCP起因のbest-effortな失敗(ok=False)はorgh notion pullの
+    設定不備時と同様の「明示的な不備は落とす」方針とは別物として0終了で
+    扱う(実行はできたが連携が届かなかっただけであり、ミッション進行を
+    妨げるべきではないため)。
+    """
+    ncfg = cfg.get("notion") or {}
+    mcp_command = ncfg.get("mcp_command") or []
+    if not mcp_command:
+        raise NotionDisabledError(
+            "notion.mcp_command が未設定。Notion連携は無効(config.yamlのnotion"
+            "セクションでMCPサーバ起動コマンドを指定すること)")
+
+    database_id = ncfg.get("database_id")
+    if not database_id:
+        raise NotionConfigError("notion.database_id が未設定")
+
+    token_env = ncfg.get("token_env") or DEFAULT_TOKEN_ENV
+    token_value = os.environ.get(token_env)
+    if not token_value:
+        raise NotionConfigError(
+            f"環境変数 {token_env} が未設定。Notion MCPサーバへ渡す認証情報が無い"
+            f"(notion.token_env で指定した環境変数を先にexportすること)")
+
+    store = RunStore(cfg.get("runs_dir", "runs"), mission_id)
+    mission = store.load(reset_inflight=False)  # 読むだけ。実行状態は触らない
+    if not mission.tasks or any(t.status != "done" for t in mission.tasks):
+        raise NotionWritebackStateError(
+            f"mission '{mission_id}' はdoneではない(writebackは実行しない)")
+
+    verdict_present = listing.has_verdict(store.dir)
+    cost_usd = mission.budget.spent_usd if mission.budget else 0.0
+    branches = _mission_branches(mission)
+    title = f"orgh mission {mission.id}: {mission.intent}"[:200]
+
+    child_env = {**os.environ, token_env: token_value}
+    try:
+        with McpClient(mcp_command, env=child_env) as client:
+            client.initialize()
+            tools = client.list_tools()
+            create_tool = _resolve_tool(
+                tools, _CREATE_PAGE_TOOL_CANDIDATES, "ページ作成")
+            arguments = {
+                "parent": {"database_id": database_id},
+                "properties": {
+                    "title": {"title": [
+                        {"type": "text", "text": {"content": title}}]},
+                },
+                "children": _writeback_summary_children(
+                    mission.intent, verdict_present, cost_usd, branches),
+            }
+            result = client.call_tool(create_tool, arguments)
+            _extract_result_data(result)  # isError=true を例外化させるためだけに呼ぶ
+    except (NotionError, McpError) as e:
+        return {"ok": False, "error": str(e)}
+
+    return {"ok": True, "error": None}
