@@ -32,6 +32,9 @@ import sys
 QUERY_TOOL = "API-post-database-query"
 CONTENT_TOOL = "API-get-block-children"
 CREATE_PAGE_TOOL = "API-post-page"
+# MOCK_NOTION_ERA=datasource で2025-09世代(database→data source改名)を再現
+DS_QUERY_TOOL = "API-query-data-source"
+RETRIEVE_DB_TOOL = "API-retrieve-a-database"
 
 DEFAULT_DB = {
     "db-mock-1": [
@@ -110,14 +113,14 @@ def main() -> None:
         elif method == "notifications/initialized":
             continue  # 通知には応答しない
         elif method == "tools/list":
+            if os.environ.get("MOCK_NOTION_ERA") == "datasource":
+                names = [DS_QUERY_TOOL, RETRIEVE_DB_TOOL, CONTENT_TOOL,
+                         CREATE_PAGE_TOOL]
+            else:
+                names = [QUERY_TOOL, CONTENT_TOOL, CREATE_PAGE_TOOL]
             _write({"jsonrpc": "2.0", "id": req_id, "result": {"tools": [
-                {"name": QUERY_TOOL, "description": "query a Notion database",
-                 "inputSchema": {"type": "object"}},
-                {"name": CONTENT_TOOL, "description": "get page block children",
-                 "inputSchema": {"type": "object"}},
-                {"name": CREATE_PAGE_TOOL, "description": "create a Notion page",
-                 "inputSchema": {"type": "object"}},
-            ]}})
+                {"name": n, "description": n, "inputSchema": {"type": "object"}}
+                for n in names]}})
         elif method == "tools/call":
             params = req.get("params") or {}
             name = params.get("name")
@@ -130,7 +133,26 @@ def main() -> None:
                 _write({"jsonrpc": "2.0", "id": req_id, "error": {
                     "code": -32000, "message": f"mock failure for {name}"}})
                 continue
-            if name == QUERY_TOOL:
+            if name == RETRIEVE_DB_TOOL:
+                _write({"jsonrpc": "2.0", "id": req_id, "result": {
+                    "structuredContent": {
+                        "id": args.get("database_id"),
+                        "data_sources": [
+                            {"id": "ds-" + str(args.get("database_id"))}]}}})
+            elif name == DS_QUERY_TOOL:
+                # data-source世代: database_idでの照会は誤り(実サーバ同様に拒否)
+                dsid = args.get("data_source_id") or ""
+                if not dsid.startswith("ds-"):
+                    _write({"jsonrpc": "2.0", "id": req_id, "error": {
+                        "code": -32602,
+                        "message": "data_source_id required"}})
+                    continue
+                pages = db.get(dsid[3:], [])
+                results = [{"id": p["id"], "url": p["url"],
+                           "properties": p["properties"]} for p in pages]
+                _write({"jsonrpc": "2.0", "id": req_id,
+                       "result": {"structuredContent": {"results": results}}})
+            elif name == QUERY_TOOL:
                 pages = db.get(args.get("database_id"), [])
                 results = [{"id": p["id"], "url": p["url"],
                            "properties": p["properties"]} for p in pages]

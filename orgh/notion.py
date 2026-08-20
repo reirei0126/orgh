@@ -36,6 +36,7 @@ DEFAULT_TOKEN_ENV = "OPENAPI_MCP_HEADERS"
 # API-post-database-query / API-get-block-children はNotion公式MCPサーバ
 # (notion-mcp-server, OpenAPI operationId直訳)の慣習に合わせた第一候補。
 _DB_QUERY_TOOL_CANDIDATES = (
+    "API-query-data-source",   # 2025-09 API世代(database→data source改名)の公式サーバ
     "API-post-database-query",
     "query_database",
     "query-database",
@@ -48,6 +49,10 @@ _PAGE_CONTENT_TOOL_CANDIDATES = (
     "get-block-children",
     "getBlockChildren",
     "notion_get_page",
+)
+_RETRIEVE_DATABASE_TOOL_CANDIDATES = (
+    "API-retrieve-a-database",
+    "retrieve_database",
 )
 _CREATE_PAGE_TOOL_CANDIDATES = (
     "API-post-page",
@@ -249,7 +254,8 @@ def pull(cfg: dict) -> list[Path]:
         content_tool = _resolve_tool(
             tools, _PAGE_CONTENT_TOOL_CANDIDATES, "ページ本文取得")
 
-        query_result = client.call_tool(query_tool, {"database_id": database_id})
+        query_result = client.call_tool(
+            query_tool, _query_arguments(client, tools, query_tool, database_id))
         pages = _as_list(_extract_result_data(query_result))
 
         for page in pages:
@@ -266,6 +272,47 @@ def pull(cfg: dict) -> list[Path]:
             written.append(note_path)
 
     return written
+
+
+def _query_arguments(client, tools: list[dict], query_tool: str,
+                     database_id: str) -> dict:
+    """照会ツールへ渡す引数を組む。2025-09世代(database→data source改名)の
+    サーバ(実運用で確認: 提供ツールが API-query-data-source になっている)では
+    database_id をそのまま渡せないため、API-retrieve-a-database で先頭の
+    data_source id を解決して {"data_source_id": ...} を返す。旧世代はそのまま
+    {"database_id": ...}。解決不能(応答形が想定外)なら NotionError で明示的に
+    落とす(誤った引数で照会して空結果を「ページ0件」と誤認しないため)。"""
+    if "data-source" not in query_tool and "data_source" not in query_tool:
+        return {"database_id": database_id}
+    retrieve = _resolve_tool(
+        tools, _RETRIEVE_DATABASE_TOOL_CANDIDATES, "データベース情報取得")
+    data = _extract_result_data(
+        client.call_tool(retrieve, {"database_id": database_id}))
+    if isinstance(data, dict):
+        sources = data.get("data_sources")
+        if (isinstance(sources, list) and sources
+                and isinstance(sources[0], dict) and sources[0].get("id")):
+            return {"data_source_id": sources[0]["id"]}
+    # Notion APIエラーはisErrorでなくcontent.textにJSONで埋まることがある
+    # (実運用で確認: 404 object_not_found等)。可読なメッセージへ変換する
+    if isinstance(data, dict) and data.get("object") == "error":
+        raise NotionError(
+            f"Notion APIエラー({data.get('code')}): {data.get('message')}")
+    raise NotionError(
+        f"database {database_id} の data_source id を解決できない"
+        "(API-retrieve-a-database の応答に data_sources が無い)")
+
+
+def _create_page_parent(client, tools: list[dict], database_id: str) -> dict:
+    """ページ作成のparent。data-source世代のサーバでは
+    {"type": "data_source_id", ...} が要求されるため世代判定して組む。"""
+    names = {t.get("name") for t in tools if isinstance(t, dict)}
+    if "API-query-data-source" in names:
+        args = _query_arguments(
+            client, tools, "API-query-data-source", database_id)
+        return {"type": "data_source_id",
+                "data_source_id": args["data_source_id"]}
+    return {"database_id": database_id}
 
 
 def _mission_branches(mission) -> list[str]:
@@ -359,7 +406,7 @@ def writeback(cfg: dict, mission_id: str) -> dict:
             create_tool = _resolve_tool(
                 tools, _CREATE_PAGE_TOOL_CANDIDATES, "ページ作成")
             arguments = {
-                "parent": {"database_id": database_id},
+                "parent": _create_page_parent(client, tools, database_id),
                 "properties": {
                     "title": {"title": [
                         {"type": "text", "text": {"content": title}}]},
