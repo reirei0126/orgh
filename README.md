@@ -164,6 +164,9 @@ orgh cleanup <mission_id>   # 該当ミッションのworktreeとブランチを
 
 ### Notion MCP連携
 
+![orgh notion writeback がNotionデータベースへ書き戻したミッションサマリ](docs/assets/notion-mcp-screenshot.png)
+
+
 Notionをvaultと同様の入力源・書き戻し先として使える(`config.yaml` の
 `notion:` セクションでMCPサーバ起動コマンドを指定したときだけ有効。未設定
 なら完全に無効で挙動は変わらない)。**Notion REST APIを直接叩くことはなく、
