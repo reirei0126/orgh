@@ -9,9 +9,6 @@
 {context}
 <<<参照データここまで>>>
 
-## 組織の過去の学び(Playbooks)
-{playbooks}
-
 ## プロジェクトマップ(workdirの解決表)
 {projects}
 

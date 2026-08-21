@@ -19,26 +19,12 @@ class TestConfigDrivenPaths:
         pd = tmp_path / "myprompts"
         pd.mkdir()
         (pd / "worker_preamble.md").write_text(
-            "PROMPT_SENTINEL {title} / {prompt} / {acceptance} / {playbooks}")
+            "PROMPT_SENTINEL {title} / {prompt} / {acceptance}")
         cfg["prompts_dir"] = str(pd)
 
         out = planner.worker_prompt(cfg, _task())
         assert "PROMPT_SENTINEL" in out
         assert "題名X" in out
-
-    def test_playbooks_dir_config_driven(self, tmp_path, cfg):
-        pb = tmp_path / "mybooks"
-        pb.mkdir()
-        (pb / "coding.md").write_text("PLAYBOOK_SENTINEL 教訓")
-        cfg["playbooks_dir"] = str(pb)
-
-        out = planner.worker_prompt(cfg, _task())
-        assert "PLAYBOOK_SENTINEL" in out
-
-    def test_missing_playbooks_dir_is_tolerated(self, tmp_path, cfg):
-        cfg["playbooks_dir"] = str(tmp_path / "does-not-exist")
-        out = planner.worker_prompt(cfg, _task())
-        assert "no playbooks yet" in out
 
     def test_no_repo_relative_file_refs_in_sources(self):
         """パッケージ相対(__file__起点)のprompts/playbooks参照の全廃を強制する。"""
@@ -48,3 +34,36 @@ class TestConfigDrivenPaths:
             src = src_path.read_text()
             assert "parent.parent" not in src, \
                 f"{src_path.relative_to(REPO)} が__file__相対参照を残している"
+
+
+class TestPlaybooksNotInjected:
+    """playbooks自動注入の廃止(統治線をcriteriaへ一本化)。playbooks_dir配下に
+    何を置いてもPlanner/Workerのプロンプト構築結果には一切現れないことを保証する。"""
+
+    def test_worker_prompt_excludes_playbooks_dir_content(self, tmp_path, cfg):
+        pb = tmp_path / "mybooks"
+        pb.mkdir()
+        (pb / "coding.md").write_text("PLAYBOOK_SENTINEL 教訓")
+        cfg["playbooks_dir"] = str(pb)
+
+        out = planner.worker_prompt(cfg, _task())
+        assert "PLAYBOOK_SENTINEL" not in out
+
+    def test_plan_prompt_excludes_playbooks_dir_content(self, tmp_path, cfg,
+                                                         monkeypatch):
+        pb = tmp_path / "mybooks"
+        pb.mkdir()
+        (pb / "coding.md").write_text("PLAYBOOK_SENTINEL 教訓")
+        cfg["playbooks_dir"] = str(pb)
+
+        captured = {}
+
+        def fake_ask(cfg_, role, prompt, **kw):
+            captured["prompt"] = prompt
+            return {"tasks": [{"id": "t1", "title": "x", "prompt": "y",
+                               "worker": "claude_code", "deps": [],
+                               "acceptance": ["z"]}]}
+        monkeypatch.setattr(planner, "_ask_json", fake_ask)
+
+        planner.plan(cfg, intent="i", context_digest="c")
+        assert "PLAYBOOK_SENTINEL" not in captured["prompt"]
