@@ -8,7 +8,7 @@
   orgh resume <mission_id>        # 中断・キャンセルしたミッションの再開
   orgh status <mission_id>
   orgh cancel <mission_id>        # 実行中subprocessをterminateし未着手をcancelledに
-  orgh approve <mission_id>       # 自己改変ガードで停止したミッションを承認して続行
+  orgh approve <mission_id>       # 承認を記帳しキューへ投入(実行はorgh watchのexecutorへ委譲)
   orgh humandone <mission_id> <task_id> --note "..."  # 人間対応待ちタスクの完了報告
   orgh cleanup <mission_id>       # worktree/ブランチの掃除(worktree.enabled時)
   orgh doctor                     # 外部CLI疎通・config・vault・書き込み権限の確認
@@ -41,6 +41,7 @@ from .criteria import (approve_draft, criteria_context, criteria_list_payload,
 from .events_json import events_payload
 from .orchestrator import run_mission
 from .playbooks_json import playbooks_payload
+from .queue import enqueue
 from .sources.base import get_source
 from .state import TERMINAL, RunStore, load_config
 from .status_json import status_payload
@@ -71,6 +72,32 @@ def _format_mission_line(m: dict, label: str | None = None) -> str:
             f"完了 {_dt(m['finished_ts'])}  "
             f"{m['tasks_done']}/{m['tasks_total']} tasks  "
             f"{m['cost_usd']:.4f} USD  {m['intent']}")
+
+
+def _watch_seems_running(runs_dir: str) -> bool:
+    """orgh watch(常駐)が runs/.watch.lock を保持しているかのbest-effort判定。
+
+    watcher.watch()は多重起動防止のため起動時にこのファイルへNBロックを
+    掛け、プロセス生存中ずっと保持する(orgh/watcher.py)。ここで同じロックの
+    非ブロッキング取得を試み、取れれば非稼働(取れた分は即解放)、取れなければ
+    他プロセス(watch)が握っている=稼働中とみなす。`orgh executor`単独起動
+    (--watch-only運用)は別ロックのため検出対象外だが、その場合も判定不能側
+    (False)に倒れるだけで、案内メッセージ自体は必ず出す。"""
+    import fcntl
+    lock_path = Path(runs_dir) / ".watch.lock"
+    try:
+        fp = open(lock_path, "a+")
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return True
+    else:
+        fcntl.flock(fp, fcntl.LOCK_UN)
+        return False
+    finally:
+        fp.close()
 
 
 def main() -> None:
@@ -612,16 +639,24 @@ def main() -> None:
         store.save(mission)
         if gate_by_id:
             store.log("mission.decision_gates_answered", count=len(gate_by_id))
+        store.log("mission.approved", tasks=[t.id for t in waiting])
         # GUI(spawn_and_bridge)が承認受理を機械的に検知するための確認行。
         # これより前にsys.exitする失敗は「承認されなかった」として扱われる
         print(f"ORGH_APPROVED={mission.id}", flush=True)
-        print(f"mission {mission.id} を承認した。実行を続行する", flush=True)
-        mission = run_mission(cfg, mission, store, lock_fp=lock_fp)
-        # run/watch経路と違いapprove完走時にretroが走らないギャップの解消
-        # (決着時のみ・RETRO_DONEで二重防止)
-        planner.retro_if_finished(cfg, mission, store)
-        _sync_results_note(cfg, mission, store)
-        _summary(mission, store)
+        # R-1: approveは承認の記帳とキュー投入のみを行う。実行そのものは
+        # watch常駐のexecutorに委譲する(旧来はここでrun_missionを同期実行
+        # していたが、approveを叩いたセッション/端末が死ぬと実行ごと消え、
+        # lease失効→手動requeueという人手回収が必要になっていた実害の解消)。
+        # ロックはexecutor側が改めて取得するため、ここで解放してから投入する
+        lock_fp.close()
+        runs_dir = cfg.get("runs_dir", "runs")
+        enqueue(runs_dir, mission.id, limit=None)
+        if _watch_seems_running(runs_dir):
+            print(f"mission {mission.id} をキューに投入した。"
+                  f"orgh watch が稼働中のためまもなく実行される", flush=True)
+        else:
+            print(f"mission {mission.id} をキューに投入した。"
+                  f"実行するには `orgh watch` を起動すること", flush=True)
     elif args.cmd == "cancel":
         # フラグが唯一の停止信号: 実行中プロセス側がループごとに検知して
         # subprocessをterminateする。フラグ設置は常に行う。

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from orgh import cli, planner
+from orgh import cli, executor, planner
 from orgh.orchestrator import run_mission
 from orgh.state import Mission, RunStore, build_task
 from orgh.status_json import status_payload
@@ -123,7 +123,10 @@ class TestApprovalBriefDecisionGates:
 
 class TestApproveAnswerFlow:
     def test_answers_and_defaults_reach_worker_prompt(
-            self, cfg, mock_state_dir, tmp_path, monkeypatch):
+            self, wcfg, mock_state_dir, tmp_path, monkeypatch):
+        # executor.drainがfeedback用にvault設定を要求するためwcfgを使う
+        # (vault自体はこのテストの主眼ではない)
+        cfg = wcfg
         gates = [
             _gate(id="G-1", question="どの色にするか", options=["赤", "青"],
                  default=None, why_human="ブランド判断"),
@@ -141,9 +144,13 @@ class TestApproveAnswerFlow:
             "--answer", "G-1=赤"])
         cli.main()
 
+        # R-1: approve自体はrun_missionを呼ばずキュー投入のみで終わる。
+        # decision_contextの付与はapprove内(save)で完結するタスク状態更新
+        # なので、実行前(pending)の時点でも回答内容がプロンプトへ伝播している
+        # ことを確認できる
         reloaded = store.load()
         task = reloaded.tasks[0]
-        assert task.status == "done"
+        assert task.status == "pending"
         prompt = planner.worker_prompt(cfg, task)
         assert "オーナーが確定済みの決定事項" in prompt
         assert "どの色にするか" in prompt and "赤" in prompt   # --answerで確定した値
@@ -154,6 +161,10 @@ class TestApproveAnswerFlow:
                   if e["event"] == "mission.decision_gates_answered"]
         assert len(events) == 1
         assert events[0]["count"] == 2
+
+        # executor(watch常駐相当)がキューを消化して実際に実行することも確認する
+        executor.drain(cfg)
+        assert store.load().tasks[0].status == "done"
 
     def test_approved_file_contains_resolved_answers_as_json(
             self, cfg, mock_state_dir, tmp_path, monkeypatch):
