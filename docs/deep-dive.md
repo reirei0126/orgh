@@ -27,7 +27,7 @@ orgh は「Obsidian vault に書いたノート(または CLI 引数)」を起�
 ┌────────────────────────────────────────────────────────────────────┐
 │  Planner (orgh/planner.py: plan())                                   │
 │  prompts/planner.md をテンプレに claude -p --output-format json を1発 │
-│  playbooks(組織知)・projects_map(workdir解決表)を注入                │
+│  projects_map(workdir解決表)を注入(playbooksは注入されない。2.8節)    │
 │  出力: Mission(tasks: Task[]) の DAG(id/prompt/deps/acceptance/tools)│
 └───────────────────────────┬───────────────────────────────────────┘
                              │ Mission
@@ -61,9 +61,9 @@ orgh は「Obsidian vault に書いたノート(または CLI 引数)」を起�
 └───────────────────────────┬───────────────────────────────────────┘
                              ▼
 ┌────────────────────────────────────────────────────────────────────┐
-│  playbooks/ (組織の長期記憶)                                         │
-│  次回の Planner/Worker プロンプトに _playbook_context() で再注入      │
-│  (新しい教訓を優先して cap 内に詰める = 「増幅」の実体)               │
+│  playbooks/ (組織の長期記憶・参照ドキュメント)                       │
+│  プロンプトへの自動注入は廃止済み(criteriaとの統治線二重化のため)。   │
+│  規範化したい教訓は criteria の下書き → オーナー承認の経路で昇格させる │
 └───────────────────────────┬───────────────────────────────────────┘
                              ▼
 ┌────────────────────────────────────────────────────────────────────┐
@@ -92,9 +92,7 @@ orgh は「Obsidian vault に書いたノート(または CLI 引数)」を起�
 
 Planner はファイル冒頭のコメント(`orgh/planner.py:1-3`)どおり「`claude -p`(headless)を1発叩いてJSONを返させる薄いラッパ」であり、Planner/Reviewer/Retroの3役はすべて共通ヘルパー `_ask_json()`(`orgh/planner.py:81`)を経由する。`_ask_json()` は `res.output` から正規表現 `\{.*\}`(DOTALL)で最初の JSON ブロックを抜き出し `json.loads` する(`orgh/planner.py:92-95`)——コードフェンスや前置き説明が混ざっても頑健に拾える設計である。
 
-`plan()` は `prompts/planner.md` をテンプレートに、`intent`(ミッション文)・`context`(vault由来の文脈)・`playbooks`(過去の学び)・`projects`(workdir解決表)・`workers`(利用可能worker一覧)を埋め込み、`_ask_json(cfg, "planner", ...)` を呼ぶ。返る JSON の `tasks` から `Mission.new()`(`orgh/state.py:229`)で `Task` dataclass のリストを組み立てる。
-
-`_playbook_context()`(`orgh/planner.py:35`)の設計判断が重要である。docstring(`orgh/planner.py:36-41`)によれば、cap(`max_chars`既定8000字)は「先頭から切り捨て」ではなく「全playbookの全行をメタデータ日付(`<!-- m:<mission_id> d:<date> -->`)で降順ソートしてから詰める」方式(`orgh/planner.py:45-61`)。これにより playbook が育つほど古い教訓から溢れ、常に新しい教訓が生き残る——リポジトリ内で「増幅」と呼ばれている自己強化ループの実体である。
+`plan()` は `prompts/planner.md` をテンプレートに、`intent`(ミッション文)・`context`(vault由来の文脈)・`projects`(workdir解決表)・`workers`(利用可能worker一覧)を埋め込み、`_ask_json(cfg, "planner", ...)` を呼ぶ。返る JSON の `tasks` から `Mission.new()`(`orgh/state.py:229`)で `Task` dataclass のリストを組み立てる。playbooksはこのプロンプトに注入されない(2.8節)。
 
 `_projects_context()`(`orgh/planner.py:64`)は `config.projects_map` で指定したファイルの内容をそのまま注入する。docstring(`orgh/planner.py:65-70`)にある設計判断の理由は実運用で観測した不具合の再発防止で、「ノートに対象リポのパスが書かれていないとPlannerはworkdir "." を出力し、orgh自身のリポで実行されてしまう(実運用7307189eで実証)」ため、プロジェクトマップを明示的に注入する。
 
@@ -140,13 +138,13 @@ docstring(`orgh/planner.py:155-156`)の設計意図は「計画の欠陥が指�
 
 ### 2.7 Retro — `orgh/planner.py: retro()`(`orgh/planner.py:126`)
 
-docstring(`orgh/planner.py:127`)いわく「完了ミッションから学びを抽出して playbooks/ に追記 → 次回以降の全員が賢くなる」。`mission.tasks` から `status/title/attempts/review_notes` のサマリを組み立て `prompts/retro.md` に渡し、返る `{"playbook_name", "lessons"}` を `playbooks/<playbook_name>.md` に追記する。追記時、本文が `-` で始まる行にのみ `<!-- m:<mission_id> d:<today> -->` のメタデータコメントを付与する(`orgh/planner.py:142-146`)——これが 2.2 の `_playbook_context()` が日付ソートに使うメタデータである。
+docstring(`orgh/planner.py:127`)いわく「完了ミッションから学びを抽出して playbooks/ に追記 → 次回以降の全員が賢くなる」。`mission.tasks` から `status/title/attempts/review_notes` のサマリを組み立て `prompts/retro.md` に渡し、返る `{"playbook_name", "lessons"}` を `playbooks/<playbook_name>.md` に追記する。追記時、本文が `-` で始まる行にのみ `<!-- m:<mission_id> d:<today> -->` のメタデータコメントを付与する(`orgh/planner.py:142-146`)——これが 2.9 の `_archive_old_lessons()`(`orgh/gc.py`)が退避判定に使うメタデータである。
 
 呼び出し経路は3つあり、挙動が微妙に異なる: `orgh run` は毎回無条件に retro する(`--no-retro` で抑制可、`orgh/cli.py:119-124`)。`orgh watch` は着火ループの中で毎回 retro する(`orgh/watcher.py:85`)。`orgh resume` は `_maybe_retro()`(`orgh/cli.py:183`)経由で、**全タスクが done かつ `RETRO_DONE` マーカーが無い場合のみ** retro する——コメント(`orgh/cli.py:184-186`)の理由は「resumeは従来retroを呼ばず、resumeで完走したミッションの教訓がplaybookに残らなかった(実運用7307189eで発見)」ため。`RETRO_DONE` マーカー(`store.dir / "RETRO_DONE"`)は3経路共通で、再resume時の二重追記を防ぐ。
 
-### 2.8 playbooks — 組織知の蓄積・注入・代謝
+### 2.8 playbooks — 組織知の蓄積・代謝(注入は廃止済み)
 
-playbooks は `.md` ファイル群(`playbooks_dir`、既定 `playbooks`)で、書き手は 2.7 の Retro、読み手は 2.2 の `_playbook_context()`(Planner/Worker双方のプロンプトに注入、`worker_prompt()` は `orgh/planner.py:164-168` で `max_chars=4000` を指定)である。人手での追記も想定されている(`_META_RE` にマッチしない行は日付 `"0000-00-00"` 扱いで最古として扱われる、`orgh/planner.py:45,51`)。
+playbooks は `.md` ファイル群(`playbooks_dir`、既定 `playbooks`)で、書き手は 2.7 の Retro である。かつては `_playbook_context()` が Planner/Worker 双方のプロンプトへ内容を注入していたが、承認制の `criteria` 台帳と統治線が二重化するため廃止した(direction §3.3 / raison-detre §5-R1)。現在の playbooks は Planner/Worker プロンプトには一切現れない**参照ドキュメント**であり、`orgh playbooks` サブコマンド(`orgh/cli.py`)・`orgh/playbooks_json.py`・desktop の PlaybooksPage で人間が読む用途にのみ使われる。教訓を実際の規範として効かせたい場合は、`orgh verdict` から自動蒸留される `criteria` の下書きをオーナーが `orgh criteria approve` で承認する経路を使う(3節参照)。人手での追記も想定されている(メタデータコメントの無い行は 2.9 の `_archive_old_lessons()` で「古くない」側に残り続ける、`orgh/gc.py:50-71`)。
 
 ### 2.9 gc による代謝 — `orgh/gc.py: run_gc()`(`orgh/gc.py:115`)
 

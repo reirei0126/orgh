@@ -4,7 +4,6 @@
 - orgh gc: 実行前に playbooks/_backup/<date>/ へ全量バックアップ(なしでは走らない)、
   ファイルごとに統合Retro(重複統合・矛盾は新日付優先)、
   180日より古い教訓は playbooks/_archive/ へ退避
-- 注入時のcapは「日付降順で詰める」(新しい教訓が必ず入る)
 - runs/ 保持ポリシー: retention_days(既定90)超のミッションを runs/_archive/ へ
 - watcherの gc_interval_days(既定14)で自動gc(初回パスはベースライン記録のみ)
 """
@@ -116,18 +115,6 @@ class TestGc:
         assert not (runs / "oldmission").exists()
         assert (runs / "_archive" / "oldmission" / "mission.json").exists()
         assert (runs / "newmission" / "mission.json").exists()
-
-
-class TestInjectionCap:
-    def test_cap_keeps_newest_lessons(self, cfg, pb_dir):
-        # 古い行を先頭に大量に置いてもcap内に最新が必ず入る
-        lines = [f"- 古い教訓その{i} <!-- m:a d:{_MID} -->" for i in range(50)]
-        lines.append(f"- 最新の教訓 <!-- m:z d:{_NEW} -->")
-        (pb_dir / "coding.md").write_text("\n".join(lines) + "\n")
-
-        ctx = planner._playbook_context(cfg, max_chars=200)
-        assert "最新の教訓" in ctx
-        assert "古い教訓その49" not in ctx or len(ctx) <= 200
 
 
 class TestExecutorAutoGc:

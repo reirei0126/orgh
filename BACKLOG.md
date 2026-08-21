@@ -28,7 +28,7 @@
 | 3b' writeback_pending | 完了の書き戻し忘れを防ぐ状態機械+`writeback-ack` | 3a'成立後。**着手前にオーナー決定②(ack再提示UX)** | direction §4 |
 | A7 action部分 | 外部実行系のdry-run契約+`awaiting_external_approval` 状態新設 | 3b'の後 | direction §11 |
 | A10完全版 | アダプタ契約完全版(capabilities/config schema/lifecycle) | A7アダプタ実装の直前 | direction §4 |
-| playbook自動注入の廃止 | 統治線の二重化解消(criteria台帳へ一本化) | **次の実装可能な窓で実施(3b着手前を上限)**——raison-detre R2で前倒し決着 | direction §3.3 / raison-detre §5 |
+| ~~playbook自動注入の廃止~~ | **完了 2026-08-21**(Planner/Worker双方のプロンプトから`{playbooks}`除去・`_playbook_context()`削除、667件全緑) | — | direction §3.3 / raison-detre §5 |
 
 ## 2. 条件付き(トリガーが立てば必ずやる。立たなければやらないのが正解)
 

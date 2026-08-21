@@ -15,8 +15,6 @@ from .criteria import criteria_context, criteria_ids
 from .slots import acquire_slot
 from .state import TERMINAL, Budget, Mission, Task, acceptance_lines
 
-_META_RE = re.compile(r"<!-- m:(\S+) d:(\d{4}-\d{2}-\d{2}) -->")
-
 # retroのplaybook_name(LLM由来)は playbooks/<name>.md のファイル名に直挿し
 # されるため、単一の安全なファイル名だけを許す(../prompts/reviewer 等で
 # playbooks外へ追記し将来のプロンプトを永続汚染する経路を塞ぐ。criteria.pyの
@@ -45,35 +43,6 @@ def _read_prompt(cfg: dict, name: str) -> str:
     except FileNotFoundError:
         raise FileNotFoundError(
             f"prompt template not found: {fp}. config の prompts_dir を確認せよ")
-
-
-def _playbook_context(cfg: dict, max_chars: int = 8000) -> str:
-    """過去のRetroで蒸留された組織知をPlanner/Workerに注入する(増幅の核)。
-
-    capは「先頭から切り捨て」ではなく「日付降順で詰める」: 全playbookの全行を
-    メタデータ日付でソートし、新しい教訓から順にmax_charsへ詰める。こうすると
-    playbookが育つほど古い教訓から溢れ、常に最新の教訓が注入に生き残る。
-    """
-    playbooks_dir = _playbooks_dir(cfg)
-    if not playbooks_dir.is_dir():
-        return "(no playbooks yet)"
-    entries: list[tuple[str, str]] = []  # (date, line) メタデータ無しは最古扱い
-    for p in sorted(playbooks_dir.glob("*.md")):
-        for line in p.read_text().splitlines():
-            if not line.strip():
-                continue
-            m = _META_RE.search(line)
-            entries.append((m.group(2) if m else "0000-00-00", line))
-    entries.sort(key=lambda e: e[0], reverse=True)
-
-    picked: list[str] = []
-    total = 0
-    for _, line in entries:
-        total += len(line) + 1  # 結合時の改行分
-        if total > max_chars and picked:
-            break
-        picked.append(line)
-    return "\n".join(picked) if picked else "(no playbooks yet)"
 
 
 def _projects_context(cfg: dict) -> str:
@@ -202,7 +171,6 @@ def plan(cfg: dict, intent: str, context_digest: str,
                         task_budget_usd=lcfg.get("task_budget_usd"))
     tmpl = _read_prompt(cfg, "planner.md")
     prompt = tmpl.format(intent=intent, context=context_digest,
-                         playbooks=_playbook_context(cfg),
                          projects=_projects_context(cfg),
                          workers=", ".join(cfg["workers"]["enabled"]))
     data = _ask_json(cfg, "planner", prompt, budget=budget)
@@ -468,8 +436,7 @@ def build_human_request(mission_id: str, task: Task, reason: str) -> tuple[str, 
 def worker_prompt(cfg: dict, task: Task) -> str:
     tmpl = _read_prompt(cfg, "worker_preamble.md")
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
-                        acceptance=acceptance_lines(task),
-                        playbooks=_playbook_context(cfg, 4000))
+                        acceptance=acceptance_lines(task))
     if task.decision_context:
         # 承認時にオーナーが確定させたdecision_gates回答(orgh approve --answer)。
         # workerが同じ問いを人間へ再度返すのを防ぐため、決定済みである旨を明示する

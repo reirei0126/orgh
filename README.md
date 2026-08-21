@@ -6,11 +6,11 @@
 orgh run --intent "status --jsonとorgh listの2機能を追加"
 ```
 
-Planner(Opus)がタスクの依存グラフを設計し、各タスクをClaude Code / Codexのセッションとしてgit worktree分離で並列に走らせる。Reviewerが受け入れ条件で検収し、落ちたタスクは`--resume`で**同じセッションに差し戻される**(文脈を保ったまま直せる)。計画自体の欠陥は`REPLAN:`でPlannerへ戻る。ミッション後にRetroが教訓を`playbooks/`へ蒸留し、以後の全プロンプトに自動注入される。
+Planner(Opus)がタスクの依存グラフを設計し、各タスクをClaude Code / Codexのセッションとしてgit worktree分離で並列に走らせる。Reviewerが受け入れ条件で検収し、落ちたタスクは`--resume`で**同じセッションに差し戻される**(文脈を保ったまま直せる)。計画自体の欠陥は`REPLAN:`でPlannerへ戻る。ミッション後にRetroが教訓を`playbooks/`へ蒸留するが、プロンプトへの自動注入は廃止済み(統治線の二重化のため。下記「Playbooks」節)——教訓を規範として効かせたい場合は`criteria`の下書き→オーナー承認の経路を使う。
 
 Obsidianのメモを起点にする使い方もできるが、**必須ではない**。
 
-> **EN**: An agent-orchestration harness that turns plain notes into executed missions: a Planner (Opus) designs a task DAG, parallel workers (Claude Code / Codex sessions) implement, a Reviewer gates each task against acceptance criteria — failed reviews are sent back into the *same* session via `--resume` so context is preserved, and plan-level defects escalate back to the Planner (`REPLAN:`). After each mission a Retro distills lessons into `playbooks/`, which are auto-injected into every future prompt, so the "organization" gets smarter with each run. Includes budget guards, git-worktree isolation for parallel tasks, a self-modification approval gate, and an ops report that tracks first-attempt pass rate over time.
+> **EN**: An agent-orchestration harness that turns plain notes into executed missions: a Planner (Opus) designs a task DAG, parallel workers (Claude Code / Codex sessions) implement, a Reviewer gates each task against acceptance criteria — failed reviews are sent back into the *same* session via `--resume` so context is preserved, and plan-level defects escalate back to the Planner (`REPLAN:`). After each mission a Retro distills lessons into `playbooks/`, a reference doc that is **not** auto-injected into future prompts (that governance path is `criteria`: a draft distilled from owner verdicts, promoted only after explicit owner approval). Includes budget guards, git-worktree isolation for parallel tasks, a self-modification approval gate, and an ops report that tracks first-attempt pass rate over time.
 
 ## デモ: orghがorgh自身を改修する(実ミッションの記録)
 
@@ -41,12 +41,12 @@ Obsidian vault ──ingest──> Planner(Opus)  ……… 経営層: タスク
                        Reviewer(Sonnet) …… 品質ゲート: acceptance判定
                         pass │ fail → feedbackを --resume で同一セッションに差し戻し
                               ▼
-                       Retro ──> playbooks/*.md …… 組織知の蒸留(増幅の核)
+                       Retro ──> playbooks/*.md …… 組織知の蒸留(参照ドキュメント)
 ```
 
 「増幅」の実装は2点:
 1. **改善ループ**: レビューfailはClaude Codeの`session_id`を`--resume`して文脈を保ったまま修正させる(最大`max_attempts`回)。Reviewerのfeedbackが `REPLAN:` で始まる場合はWorkerではなく**Plannerへエスカレーション**し、タスクの指示と受け入れ条件を再設計して(attempts非消費で)再実行する — 計画自体の欠陥はWorkerを何周させても直らないため。再設計は1タスク1回まで
-2. **Playbooks**: Retroがミッションごとの教訓を`playbooks/`に追記し、次回以降のPlanner/Worker全員のプロンプトに自動注入される。回すほど組織が賢くなる
+2. **Playbooks**: Retroがミッションごとの教訓を`playbooks/`に追記する。**プロンプトへの自動注入は廃止済み**(承認制の`criteria`台帳と統治線が二重化するため)。教訓を規範として効かせたい経路は「criteria下書き → オーナー承認」の一本のみ
 
 ## 5分ではじめる
 
@@ -279,11 +279,12 @@ headlessなAIワーカーでは恒常的に実行不能なタスク(保護パス
 ### playbookの代謝(orgh gc)
 
 playbooksは追記onlyのままだと、矛盾・重複・陳腐化した教訓が淘汰されずに
-増え続け、「増幅」がある時点からノイズ増幅に反転する。`orgh gc` は各playbook
+増え続け、参照ドキュメントとしての価値が薄れる。`orgh gc` は各playbook
 に統合Retroをかけて重複を1つにまとめ、矛盾は新しい日付の教訓を優先して
 解消し、6ヶ月無参照の教訓は`playbooks/_archive/`へ退避する(実行前に必ず
-全量バックアップ)。Planner/Workerへの注入も「先頭から切り捨て」ではなく
-日付降順で詰めるため、playbookがどれだけ育っても最新の教訓が必ず注入される。
+全量バックアップ)。playbooksはプロンプトへ自動注入されない参照ドキュメント
+であり(上記「組織構造」節)、この代謝はあくまで人間が読む台帳を健全に
+保つためのもの。
 
 ### 計器(orgh report)
 
