@@ -404,6 +404,15 @@ def retro_if_finished(cfg: dict, mission: Mission, store,
     store.save(mission)
     marker.touch()
     print(f"playbook updated: {fp or '(no lessons)'}")
+    try:
+        from .criteria_feedback import distill_mission_feedback
+        workdir = next(
+            (t.workdir for t in mission.tasks if t.workdir), None)
+        drafts = distill_mission_feedback(
+            cfg, mission.id, mission.intent, workdir=workdir)
+        print(f"criteria drafts distilled: {len(drafts)}")
+    except Exception as e:
+        print(f"orgh: criteria feedback蒸留に失敗した(best-effort、無視): {e}")
     return fp
 
 
