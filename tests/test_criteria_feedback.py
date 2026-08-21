@@ -14,7 +14,7 @@ from orgh import planner
 from orgh.criteria import append_entry
 from orgh.criteria_feedback import (collect_normative_feedback,
                                     distill_mission_feedback)
-from orgh.state import RunStore
+from orgh.state import Mission, RunStore
 
 
 class TestCollectNormativeFeedback:
@@ -158,3 +158,77 @@ class TestDistillMissionFeedback:
 
         assert distill_mission_feedback(cfg, "no-such-mission", "x") == []
         assert calls == []
+
+
+def _done_mission(mission_id: str, workdir: str) -> Mission:
+    m = Mission.new(intent="筐体UI刷新", context_digest="(test)",
+                    tasks=[{"id": "t1", "title": "x", "prompt": "p",
+                           "status": "done", "workdir": workdir}])
+    m.id = mission_id
+    return m
+
+
+def _dispatch_ask(retro_response: dict, distill_response=None,
+                  distill_exc: Exception | None = None):
+    """role別に応答を出し分けるretro_if_finished配線検証用の_ask_jsonフェイク。"""
+    def fake(cfg, role, prompt, **kwargs):
+        if role == "retro":
+            return retro_response
+        if role == "criteria_feedback_distill":
+            if distill_exc is not None:
+                raise distill_exc
+            return distill_response
+        raise AssertionError(f"unexpected role: {role}")
+    return fake
+
+
+class TestRetroIfFinishedDistillWiring:
+    """retro_if_finished()がRETRO_DONEゲート内でdistill_mission_feedback()を
+    呼び、best-effortで失敗を握りつぶすことの回帰テスト(退行検知は
+    tests/test_hardening.py等の既存retro_if_finished試験と合わせて担保)。"""
+
+    def test_generates_draft_on_mission_completion(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch):
+        cfg["criteria_dir"] = str(tmp_path / "criteria")
+        workdir = str(tmp_path / "myproj")
+        m = _done_mission("m-e2e", workdir)
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.log("task.review", task="t1", passed=False,
+                  criteria_cited=[], feedback="acceptanceを満たしていない")
+        store.log("owner.interrupt", kind="owner_replan", task="t1",
+                  detail="計画自体が曖昧だった")
+        monkeypatch.setattr(planner, "_ask_json", _dispatch_ask(
+            {"playbook_name": "general", "lessons": ""},
+            distill_response={"proposals": [
+                {"category": "design", "prefix": "DESIGN", "strength": "norm",
+                 "text": "一般則その1"}]}))
+
+        result = planner.retro_if_finished(cfg, m, store)
+
+        assert result == ""  # lessons空なのでplaybookパスは無し(retro()の既定仕様)
+        assert (store.dir / "RETRO_DONE").exists()
+        drafts = list((tmp_path / "criteria" / "_drafts").glob("m-e2e-*.json"))
+        assert len(drafts) == 1
+        body = json.loads(drafts[0].read_text())
+        assert body["text"] == "一般則その1"
+        assert body["project_slug_hint"] == "myproj"
+
+    def test_distill_failure_does_not_break_retro(
+            self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
+        cfg["criteria_dir"] = str(tmp_path / "criteria")
+        cfg["playbooks_dir"] = str(tmp_path / "playbooks")
+        workdir = str(tmp_path / "myproj")
+        m = _done_mission("m-fail", workdir)
+        store = RunStore(cfg["runs_dir"], m.id)
+        store.log("task.review", task="t1", passed=False,
+                  criteria_cited=[], feedback="acceptanceを満たしていない")
+        monkeypatch.setattr(planner, "_ask_json", _dispatch_ask(
+            {"playbook_name": "general", "lessons": "- 教訓A"},
+            distill_exc=RuntimeError("蒸留LLM爆発")))
+
+        result = planner.retro_if_finished(cfg, m, store)
+
+        assert result != ""  # retro本体は正常完了しplaybookパスを返す
+        assert (store.dir / "RETRO_DONE").exists()
+        assert not (tmp_path / "criteria" / "_drafts").exists()
+        assert "蒸留LLM爆発" in capsys.readouterr().out
