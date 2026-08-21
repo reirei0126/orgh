@@ -102,7 +102,8 @@ def with_criteria_snapshot(cfg: dict, store: RunStore) -> dict:
     ペルソナへの注入のたびにディスクから読まれる。長時間ミッションやresume中に
     本台帳が変わると、同じ成果物が別基準で裁定されても監査できない。
     実行開始・resumeの時点(=プロセスのコードと確実に整合する時点)の
-    criteria/*.mdを runs/<id>/criteria/ へ写し、以後はそれだけを読む。
+    criteria/*.mdとcriteria/projects/*.mdを相対パス構造を保って
+    runs/<id>/criteria/ へ写し、以後はそれだけを読む。
     resumeのたびに上書きするのは、resumeプロセスは現行コードで動くため
     「その時点のライブ版」と揃えるのが正しいから。
     副次効果: どの判断基準で裁定されたかがミッション記録に残る。
@@ -115,16 +116,23 @@ def with_criteria_snapshot(cfg: dict, store: RunStore) -> dict:
             print("  [warn] criteria/スナップショット作成に失敗、ライブ版を使用: "
                   f"台帳ディレクトリが存在しない: {src}")
             return cfg
-        files = sorted(src.glob("*.md"), key=lambda p: p.name)
+        files = list(src.glob("*.md"))
+        projects = src / "projects"
+        if projects.is_dir():
+            files.extend(projects.glob("*.md"))
+        files.sort(key=lambda p: p.relative_to(src).as_posix())
         if tmp.exists():
             shutil.rmtree(tmp)
         tmp.mkdir(parents=True)
         digest = hashlib.sha256()
         for fp in files:
+            relative = fp.relative_to(src)
             content = fp.read_bytes()
-            digest.update(fp.name.encode())
+            digest.update(relative.as_posix().encode())
             digest.update(content)
-            (tmp / fp.name).write_bytes(content)
+            target = tmp / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
         if dst.exists():
             shutil.rmtree(dst)
         tmp.rename(dst)

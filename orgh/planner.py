@@ -230,13 +230,14 @@ def plan(cfg: dict, intent: str, context_digest: str,
     return mission
 
 
-def build_review_prompt(cfg: dict, task: Task) -> str:
+def build_review_prompt(cfg: dict, task: Task,
+                        workdir: str | Path | None = None) -> str:
     """プロンプトテンプレートへ判断基準を注入してReviewerプロンプトを構築する。"""
     tmpl = _read_prompt(cfg, "reviewer.md")
     return tmpl.format(title=task.title, prompt=task.prompt,
                        acceptance=acceptance_lines(task),
                        output=task.last_output[:12000],
-                       criteria=criteria_context(cfg))
+                       criteria=criteria_context(cfg, workdir=workdir))
 
 
 _AC_VERDICT_VALUES = frozenset({"pass", "fail", "not_applicable"})
@@ -289,13 +290,14 @@ def review(cfg: dict, task: Task, workdir: str,
           registry_key: str | None = None,
           cost_sink: list | None = None
           ) -> tuple[bool, str, list[dict], int, list[str]]:
-    data = _ask_json(cfg, "reviewer", build_review_prompt(cfg, task),
+    data = _ask_json(cfg, "reviewer",
+                     build_review_prompt(cfg, task, workdir=workdir),
                      workdir=workdir, budget=budget, registry_key=registry_key,
                      cost_sink=cost_sink)
     ac_verdicts, ac_verdicts_dropped = _sanitize_ac_verdicts(
         data.get("ac_verdicts"), task)
     criteria_cited = _sanitize_criteria_cited(
-        data.get("criteria_cited"), criteria_ids(cfg))
+        data.get("criteria_cited"), criteria_ids(cfg, workdir=workdir))
     return (bool(data.get("pass")), data.get("feedback", ""),
            ac_verdicts, ac_verdicts_dropped, criteria_cited)
 
@@ -328,7 +330,7 @@ def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
     prompt = tmpl.format(title=task.title, prompt=task.prompt,
                          acceptance=acceptance_lines(task),
                          output=task.last_output[:12000],
-                         criteria=criteria_context(cfg))
+                         criteria=criteria_context(cfg, workdir=workdir))
     data = _ask_json(cfg, role, prompt, workdir=workdir, budget=budget,
                      registry_key=registry_key, cost_sink=cost_sink)
     evidence = data.get("evidence") or []
@@ -337,7 +339,7 @@ def persona_review(cfg: dict, persona: str, task: Task, workdir: str,
             f"persona {persona} が証拠なしで合格裁定を返した(証拠チャネル原則違反)")
     if criteria_cited_sink is not None:
         criteria_cited_sink.extend(_sanitize_criteria_cited(
-            data.get("criteria_cited"), criteria_ids(cfg)))
+            data.get("criteria_cited"), criteria_ids(cfg, workdir=workdir)))
     return bool(data.get("pass")), data.get("feedback", ""), evidence
 
 

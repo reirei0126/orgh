@@ -153,8 +153,20 @@ def main() -> None:
     clp = cp_sub.add_parser("list")
     clp.add_argument("--json", action="store_true")
 
-    cap = cp_sub.add_parser("approve")
+    cap = cp_sub.add_parser(
+        "approve", formatter_class=argparse.RawTextHelpFormatter)
     cap.add_argument("name")
+    cap.add_argument(
+        "--project",
+        # RawTextHelpFormatterで改行位置を明示制御する(既定のHelpFormatterは
+        # 連結後の文字列を独自幅で再折返しし、単語(slug等)の途中で改行を
+        # 入れてしまうため)。各行は単語境界でのみ改行する。
+        help="指定するとグローバル台帳ではなく\n"
+             "criteria/projects/<slug>.md へ反映する\n"
+             "(IDはslugから決定的に導出した接頭辞で採番)。\n"
+             "存在しないslugなら台帳を新規作成する。\n"
+             "下書きJSONの project_slug_hint フィールドに\n"
+             "候補が入っていることがある")
 
     crp = cp_sub.add_parser("reject")
     crp.add_argument("name")
@@ -370,8 +382,9 @@ def main() -> None:
                 store.log("escape", mission_id=args.mission_id,
                           reason=args.reason[:500], tasks=done_tasks,
                           category=args.category)
-        drafts = distill_verdict(cfg, args.mission_id, mission.intent,
-                                 args.passed, args.reason)
+        drafts = distill_verdict(
+            cfg, args.mission_id, mission.intent, args.passed, args.reason,
+            workdir=mission.tasks[0].workdir if mission.tasks else None)
         for fp in drafts:
             print(f"draft: {fp}")
         print(f"下書き{len(drafts)}件。orgh criteria list で確認、"
@@ -468,7 +481,7 @@ def main() -> None:
                 raise SystemExit(str(e))
             return
         if args.action == "approve":
-            print(approve_draft(cfg, args.name))
+            print(approve_draft(cfg, args.name, project=args.project))
         else:
             print(f"rejected -> {reject_draft(cfg, args.name)}")
         return
