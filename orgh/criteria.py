@@ -71,6 +71,69 @@ def _project_ledger_file(cdir: Path, slug: str) -> Path | None:
     return p if p.is_file() else None
 
 
+_GLOBAL_RESERVED_PREFIXES = frozenset(
+    {"ARCH", "DESIGN", "DOMAIN", "ENG", "PROD", "QA", "SAFETY"})
+
+
+def _existing_project_prefixes(cdir: Path, exclude_slug: str) -> set[str]:
+    """exclude_slug自身の台帳を除く、他プロジェクト台帳が既に使っている
+    接頭辞の集合(衝突判定用)。exclude_slug自身の既存エントリは、再承認時に
+    同じ接頭辞を返せるよう衝突とみなさない。"""
+    prefixes: set[str] = set()
+    for p in _project_ledger_files(cdir):
+        if p.stem == exclude_slug:
+            continue
+        for line in p.read_text().splitlines():
+            m = _ENTRY_RE.match(line)
+            if m:
+                prefixes.add(m.group(1))
+    return prefixes
+
+
+def derive_project_prefix(cdir: Path, slug: str) -> str:
+    """プロジェクト台帳(criteria/projects/<slug>.md)のID接頭辞をslugから
+    機械的に導出する。
+
+    導出規則(決定的):
+    1. slug中の英字のみを抽出し大文字化する(数字・ハイフン・アンダースコアは
+       除去)。3文字に満たない場合は 'X' で3文字まで埋める(英字が皆無の
+       slugでも "XXX" を基底候補として扱えるようにするため)。
+    2. 基底候補は先頭3文字(例: "agentmenu" -> "AGM")。
+
+    衝突回避(基底候補が既存の接頭辞と衝突する場合、以下の順で決定的にずらす):
+    3. 先頭4文字を候補にする(例: "agentmenu" -> "AGEN")。
+    4. それでも衝突するなら、3文字候補の先頭2文字はそのままに、
+       末尾1文字だけを 'A'..'Z' の順に総当たりし、最初に衝突しない
+       ものを採用する(例: AGM -> AGA, AGB, ... 衝突しないものまで)。
+       この段で必ずどこかで衝突しない候補が見つかる(A-Zの26通りに対し
+       既存接頭辞の総数は現実的にそれよりずっと少ない)。
+
+    衝突判定の対象は、既存のグローバル接頭辞(ARCH/DESIGN/DOMAIN/ENG/PROD/
+    QA/SAFETY、固定集合)と、slug自身を除く他プロジェクト台帳が既に使って
+    いる接頭辞(criteria/projects/*.mdを実走査)。slug自身の既存エントリの
+    接頭辞は衝突とみなさない(同一slugへの再承認で毎回同じ接頭辞を返す
+    決定性を保つため)。
+    """
+    letters = "".join(ch for ch in slug.upper() if ch.isalpha())
+    padded = (letters + "XXXX")[:4]
+    base = padded[:3]
+    reserved = _GLOBAL_RESERVED_PREFIXES | _existing_project_prefixes(cdir, slug)
+
+    if base not in reserved:
+        return base
+
+    ext = padded[:4]
+    if ext != base and ext not in reserved:
+        return ext
+
+    for suffix in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        candidate = base[:2] + suffix
+        if candidate not in reserved:
+            return candidate
+    raise ValueError(
+        f"slug={slug!r} の接頭辞導出に失敗した(候補が全て既存接頭辞と衝突)")
+
+
 def project_slug(cfg: dict, workdir: str | Path | None) -> str | None:
     """ミッション/タスクのworkdir(絶対パス想定)末尾ディレクトリ名を
     プロジェクト台帳のslugとして返す。以下はグローバルのみ注入の現行挙動へ
@@ -214,11 +277,12 @@ def append_entry(cdir: Path, category: str, prefix: str, strength: str,
 
 
 def _find_entry_line(cdir: Path, entry_id: str) -> tuple[Path, list[str], int] | None:
-    """entry_idに一致するエントリ行を全台帳ファイル横断で探す。
+    """entry_idに一致するエントリ行を、グローバル+全プロジェクト台帳を
+    横断して探す(supersedeがグローバル↔プロジェクト間でも機能するように)。
     見つかれば (ファイル, split("\\n")した全行, 行index) を返す。
     split("\\n")を使うのは、書き戻し時に対象行以外を1文字も変えずに
     再結合するため(splitlines()は改行種別・末尾改行の情報を失う)。"""
-    for p in _ledger_files(cdir):
+    for p in _ledger_files(cdir) + _project_ledger_files(cdir):
         lines = p.read_text().split("\n")
         for i, line in enumerate(lines):
             m = _LEDGER_ENTRY_RE.match(line)
@@ -323,13 +387,40 @@ def _validate_draft_fields(p: dict, fp: Path) -> None:
             f"下書きファイルを直接編集してから再承認せよ: {fp}")
 
 
-def approve_draft(cfg: dict, name: str) -> str:
-    """下書きを本台帳へ反映する(ワンタップ承認の実体)。"""
+def approve_draft(cfg: dict, name: str, project: str | None = None) -> str:
+    """下書きを本台帳へ反映する(ワンタップ承認の実体)。
+
+    project(slug)省略時は従来どおりグローバル台帳(下書きのcategory/prefix)
+    へ反映し挙動は完全不変。project指定時は criteria/projects/<slug>.md へ
+    追記し、IDは derive_project_prefix() が決定的に導出する接頭辞で採番する
+    (append_entry内のnext_idがプロジェクト層の全ファイル横断で走査するため、
+    同一IDの再発行は起きない)。下書きのcategory/prefix/strengthに対する
+    _validate_draft_fields()の検証はこの経路でも同等に効く(textとstrength
+    のみ使うが、他フィールドが不正な下書きはオーナーが直すべきだから)。
+    """
     fp = _draft_path(cfg, name)
     p = json.loads(fp.read_text())
     _validate_draft_fields(p, fp)
-    line = append_entry(criteria_dir(cfg), p["category"], p["prefix"],
-                        p.get("strength", "pref"), p["text"], src=name)
+
+    if project is None:
+        line = append_entry(criteria_dir(cfg), p["category"], p["prefix"],
+                            p.get("strength", "pref"), p["text"], src=name)
+        fp.unlink()
+        return line
+
+    if not _SAFE_CATEGORY_RE.match(project):
+        raise ValueError(
+            f"--project の値が不正です ({project!r})。"
+            f"英数字・アンダースコア・ハイフンのみ許可(先頭に`_`は不可、"
+            f"パストラバーサル文字は不可)。")
+    cdir = criteria_dir(cfg)
+    pdir = _project_ledger_root(cdir)
+    pfile = pdir / f"{project}.md"
+    if not pfile.is_file():
+        print(f"新規プロジェクト台帳を作成します: {pfile}")
+    prefix = derive_project_prefix(cdir, project)
+    line = append_entry(pdir, project, prefix, p.get("strength", "pref"),
+                        p["text"], src=name)
     fp.unlink()
     return line
 
@@ -504,8 +595,17 @@ def criteria_list_payload(cfg: dict, include_usage: bool = False) -> dict:
 
 
 def distill_verdict(cfg: dict, mission_id: str, intent: str,
-                    passed: bool, reason: str) -> list[Path]:
-    """オーナー裁定から台帳差分の下書きを生成する(本台帳には書かない)。"""
+                    passed: bool, reason: str,
+                    workdir: str | Path | None = None) -> list[Path]:
+    """オーナー裁定から台帳差分の下書きを生成する(本台帳には書かない)。
+
+    workdirを渡すと project_slug(cfg, workdir) が導出するslug候補を
+    各下書きの "project_slug_hint" フィールドに付記する(承認時に
+    `orgh criteria approve <name> --project <slug>` で選べるようにする
+    ためのヒントであり、approve_draft自体はこのフィールドを読まない)。
+    workdir省略時(既定)は付記しない——グローバル承認しか想定しない
+    既存下書き・既存呼び出しとの後方互換を保つ。
+    """
     from .planner import _ask_json, _read_prompt, role_with_default
     cfg = role_with_default(cfg, "criteria_distill", {
         "model": "sonnet", "max_turns": 5, "allowed_tools": "Read"})
@@ -516,11 +616,14 @@ def distill_verdict(cfg: dict, mission_id: str, intent: str,
     data = _ask_json(cfg, "criteria_distill", prompt)
     drafts_dir = criteria_dir(cfg) / "_drafts"
     proposals = data.get("proposals") or []
+    slug = project_slug(cfg, workdir)
     out: list[Path] = []
     if proposals:
         drafts_dir.mkdir(parents=True, exist_ok=True)
         start = _next_draft_start(drafts_dir, mission_id)
         for i, p in enumerate(proposals, start):
+            if slug is not None:
+                p = {**p, "project_slug_hint": slug}
             fp = drafts_dir / f"{mission_id}-{i}.json"
             fp.write_text(json.dumps(p, ensure_ascii=False, indent=1))
             out.append(fp)
