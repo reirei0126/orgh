@@ -166,6 +166,19 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
     assign_personas(cfg, mission)
     store.save(mission)
     store.artifact("context_digest.md", mission.context_digest)
+    # plan lint(orgh/planner.py lint_plan)が再計画後も違反を確定させたまま
+    # 計画を通した場合のゲート: workerを一切起動させず、pendingの全タスクを
+    # awaiting_humanへ落として停止する(dispatchループへ入る前に必ず通す)。
+    # plan_lint_violationsが空なら以下は何もしない(挙動不変)
+    if mission.plan_lint_violations:
+        reason = (
+            "plan lintが計画の規範違反を検出したまま確定した: "
+            + "; ".join(mission.plan_lint_violations)
+            + "。計画をレビューして orgh resume で続行するか、"
+              "ノートを直して再起票すること")
+        for t in mission.tasks:
+            if t.status == "pending":
+                enter_awaiting_human(store, cfg, t, reason)
     # 永続lease(orgh/lease.py): 実行開始時に起動世代を取得し、以後
     # HEARTBEAT_INTERVAL_SECごとに更新する。再起動後の他プロセス(GUI/CLI)が
     # 「表示上は実行中系のタスクの背後で本当にプロセスが生きているか」を
@@ -202,12 +215,24 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                     if t.id in futures:
                         continue
                     # 自己改変ガード: orgh自身を指すworkdirは承認なしに実行しない
-                    # (watcher経由でもスキップ不可。configでも無効化不可)
-                    if (needs_approval(cfg, t.workdir)
-                            and not (store.dir / "APPROVED").exists()):
+                    # (watcher経由でもスキップ不可。configでも無効化不可)。
+                    # decision_gates(人間判断が必要な値)ゲート: mission.decision_gates
+                    # が非空のうちはAPPROVEDが置かれるまで同様に停止する(方向性文書
+                    # 2026-08 §9)。両ガードはAPPROVED作成で同時に解除される点で
+                    # 自己改変ガードと同じ仕組みを共有するが、理由は別物のため
+                    # ledgerのpayloadを混同させない(自己改変ガード発火時は従来どおり
+                    # workdirのみ、decision_gates単独発火時のみreasonを足す)
+                    self_mod = needs_approval(cfg, t.workdir)
+                    gates_pending = bool(mission.decision_gates)
+                    if not (store.dir / "APPROVED").exists() and (
+                            self_mod or gates_pending):
+                        extra = {} if self_mod else {"reason": "decision_gates"}
                         transition(store, t, "awaiting_approval",
                                    event="task.awaiting_approval",
-                                   workdir=t.workdir)
+                                   workdir=t.workdir, **extra)
+                        store.log("owner.interrupt", kind="approval_requested",
+                                  task=t.id,
+                                  detail=extra.get("reason") or t.workdir)
                         print(f"  [awaiting_approval] {t.title} — "
                               f"orgh approve {store.dir.name} で続行")
                         try:

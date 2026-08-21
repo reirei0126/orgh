@@ -314,6 +314,10 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                 t.replans += 1
                 t.attempts -= 1          # REPLAN再実行はattemptsを消費しない
             store.log("task.replan", task=t.id, reason=feedback[:500])
+            # owner.interrupt: REPLANは「計画時にオーナーが埋めるべきだった
+            # 判断を実行中に埋め直している」ため割り込みとして数える
+            store.log("owner.interrupt", kind="owner_replan", task=t.id,
+                      detail=feedback[:200])
             prompt = full_worker_prompt(cfg, t)  # 再設計後の指示で最初から
             continue
 
