@@ -302,6 +302,7 @@ class Task:
     replans: int = 0                     # REPLAN再設計の回数(1タスク1回まで)
     personas: list[str] = field(default_factory=list)  # 検収ゲートのペルソナ名(空=通常レビューのみ)
     human_request: str = ""              # awaiting_human時の依頼一文(詳細は依頼書artifact)
+    kind: str | None = None              # "reference"=参照(正解仕様)作成タスクの機械判定マーカー
 
 
 @dataclass
@@ -312,14 +313,21 @@ class Mission:
     tasks: list[Task]
     created_at: float = field(default_factory=time.time)
     budget: Budget | None = None         # 共有プール(参照渡し。再帰の前提)
+    visual_quality: bool = False         # 目視品質が合否を左右するか(Planner由来)
+    decision_gates: list[dict] = field(default_factory=list)  # 人間判断が必要な値(Planner由来)
+    plan_lint_violations: list[str] = field(default_factory=list)  # lint_plan()が確定した違反理由
 
     @staticmethod
-    def new(intent: str, context_digest: str, tasks: list[dict]) -> "Mission":
+    def new(intent: str, context_digest: str, tasks: list[dict],
+           visual_quality: bool = False,
+           decision_gates: list[dict] | None = None) -> "Mission":
         return Mission(
             id=uuid.uuid4().hex[:8],
             intent=intent,
             context_digest=context_digest,
             tasks=[build_task(t) for t in tasks],
+            visual_quality=bool(visual_quality),
+            decision_gates=_normalize_decision_gates(decision_gates or []),
         )
 
 
@@ -376,6 +384,45 @@ def _normalize_acceptance(items: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _normalize_decision_gates(items: Any) -> list[dict[str, Any]]:
+    """decision_gates配列を正規化する(Planner=LLM由来、信用しない)。
+
+    - リストでなければ空配列
+    - 要素はdictのみ許可(それ以外は黙って落とす)
+    - question: 非空str必須(欠ければその要素を落とす)
+    - options: strのリスト(無い/型不正はそのまま空リスト。要素のstr以外は落とす)
+    - default / why_human: str または None(str以外はNoneに矯正)
+    - id: 無ければ "G-1" から連番採番(採番は残った要素の順)
+    例外は投げない。
+    """
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    n = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        question = item.get("question")
+        if not isinstance(question, str) or not question:
+            continue
+        n += 1
+        gate_id = item.get("id")
+        if not isinstance(gate_id, str) or not gate_id:
+            gate_id = f"G-{n}"
+        options = item.get("options")
+        options = [o for o in options if isinstance(o, str)] \
+            if isinstance(options, list) else []
+        default = item.get("default")
+        if default is not None and not isinstance(default, str):
+            default = None
+        why_human = item.get("why_human")
+        if why_human is not None and not isinstance(why_human, str):
+            why_human = None
+        out.append({"id": gate_id, "question": question, "options": options,
+                   "default": default, "why_human": why_human})
+    return out
+
+
 def acceptance_lines(task: "Task") -> str:
     """AC配列を人間可読な箇条書きに整形する(プロンプト注入・結果ノート共用)。
 
@@ -418,6 +465,8 @@ def build_task(data: dict) -> Task:
             f"不正なtask.id: {tid!r}(英数字始まり・[A-Za-z0-9_-]・64字以内が必須)")
     if "acceptance" in known:
         known["acceptance"] = _normalize_acceptance(known["acceptance"])
+    if known.get("kind") is not None and known.get("kind") != "reference":
+        known["kind"] = None
     return Task(**known)
 
 

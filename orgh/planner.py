@@ -171,6 +171,29 @@ def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
     raise last_err
 
 
+def lint_plan(data: dict) -> list[str]:
+    """計画JSON(dict)をPythonコードのみで機械検査する(LLMに問い合わせない)。
+
+    違反理由の日本語一文のリストを返す(違反なしなら空リスト)。
+    現状の規則: visual_quality が真、かつ tasks の先頭要素の kind が
+    "reference" でない場合に違反1件を返す(DESIGN-005: 正解先行 —
+    実物を観察→正解仕様を文書化→そこからテストケースを導出)。
+    tasks が空・型不正のときは違反を返さない(既存の失敗経路に委ねる)。
+    """
+    tasks = data.get("tasks")
+    if not (data.get("visual_quality") and isinstance(tasks, list) and tasks):
+        return []
+    first = tasks[0]
+    if isinstance(first, dict) and first.get("kind") == "reference":
+        return []
+    return [
+        "visual_quality=trueだが先頭タスクがkind=\"reference\"(参照=正解仕様の"
+        "作成タスク)になっていない。DESIGN-005(正解先行: 実物を観察→正解仕様を"
+        "文書化→そこからテストケースを導出)に従い、先頭に参照作成タスクを"
+        "置いて再設計せよ"
+    ]
+
+
 def plan(cfg: dict, intent: str, context_digest: str,
         budget: Budget | None = None) -> Mission:
     if budget is None:
@@ -183,8 +206,26 @@ def plan(cfg: dict, intent: str, context_digest: str,
                          projects=_projects_context(cfg),
                          workers=", ".join(cfg["workers"]["enabled"]))
     data = _ask_json(cfg, "planner", prompt, budget=budget)
+    violations = lint_plan(data)
+    if violations:
+        print("orgh: plan lint違反を検出、再計画を1回要求する: "
+              + "; ".join(violations))
+        retry_prompt = (
+            f"{prompt}\n\n【再計画要求】前回の計画はplan lintで以下の理由により"
+            "差し戻された:\n"
+            + "\n".join(f"- {v}" for v in violations)
+            + "\n上記を満たすようタスクDAGを再設計し、説明文・コードフェンスを"
+              "付けずJSONオブジェクト1個のみを出力すること。")
+        data = _ask_json(cfg, "planner", retry_prompt, budget=budget)
+        violations = lint_plan(data)
+        if violations:
+            print("orgh: 再計画の応答も plan lint に違反した。人間エスカレー"
+                  "ションへ引き継ぐ: " + "; ".join(violations))
     mission = Mission.new(intent=intent, context_digest=context_digest,
-                          tasks=data["tasks"])
+                          tasks=data["tasks"],
+                          visual_quality=bool(data.get("visual_quality", False)),
+                          decision_gates=data.get("decision_gates"))
+    mission.plan_lint_violations = violations
     mission.budget = budget
     return mission
 

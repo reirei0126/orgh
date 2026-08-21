@@ -166,6 +166,19 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
     assign_personas(cfg, mission)
     store.save(mission)
     store.artifact("context_digest.md", mission.context_digest)
+    # plan lint(orgh/planner.py lint_plan)が再計画後も違反を確定させたまま
+    # 計画を通した場合のゲート: workerを一切起動させず、pendingの全タスクを
+    # awaiting_humanへ落として停止する(dispatchループへ入る前に必ず通す)。
+    # plan_lint_violationsが空なら以下は何もしない(挙動不変)
+    if mission.plan_lint_violations:
+        reason = (
+            "plan lintが計画の規範違反を検出したまま確定した: "
+            + "; ".join(mission.plan_lint_violations)
+            + "。計画をレビューして orgh resume で続行するか、"
+              "ノートを直して再起票すること")
+        for t in mission.tasks:
+            if t.status == "pending":
+                enter_awaiting_human(store, cfg, t, reason)
     # 永続lease(orgh/lease.py): 実行開始時に起動世代を取得し、以後
     # HEARTBEAT_INTERVAL_SECごとに更新する。再起動後の他プロセス(GUI/CLI)が
     # 「表示上は実行中系のタスクの背後で本当にプロセスが生きているか」を

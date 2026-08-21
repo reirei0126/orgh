@@ -43,6 +43,15 @@
   ]
 }}
 
+出力JSONのトップレベルには上記の "tasks" に加えて "visual_quality"(bool: 目視
+品質が合否を左右するか)と "decision_gates"(list: 人間判断が必要な値)を含めて
+よい。visual_quality を true にする場合は、DESIGN-005(正解先行: 実物を観察→
+正解仕様を文書化→そこからテストケースを導出)に従い、先頭タスクに
+"kind": "reference" を付けた参照(正解仕様)作成タスクを置くこと(orgh側の
+plan lintがこの順序を機械検査する)。decision_gates の各要素は
+{{"question": "問い", "options": ["選択肢1", "選択肢2"], "default": "既定選択肢(任意)",
+"why_human": "人間判断が必要な理由(任意)"}} の形で書くこと。
+
 acceptanceの各要素は以下の最小構造で書くこと(EARS記法等は不要):
 - "id": "AC-1"のような連番識別子(タスク内で一意)
 - "text": 検証可能な条件文(主観語禁止)
