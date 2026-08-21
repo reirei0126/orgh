@@ -20,6 +20,10 @@
 | ~~F'定義のdirection反映~~ | **完了 2026-08-21** | — | raison-detre §8 |
 | ~~H0① スリープ復帰検知~~ | **完了 2026-08-19**(620402d6・548件全緑・実機蓋閉じ試験のみ後工程) | — | outcome §3.3 |
 | Notion MCPコネクタ | **実装+実疎通完了 2026-08-21**(data-source世代互換パッチ込み・pull/writeback実Notion成功)。残=スクショ添付・README公開確認のみ | 8/27まで | sierra-job-hop 005-notion brief |
+| ~~計画ゲート+決定ゲート表+割り込み計測~~ | **完了 2026-08-22**(0bf56737・初仕事で実ゲート発動確認) | — | raison-detre §5 |
+| ~~プロジェクト別基準(namespace)~~ | **完了 2026-08-22**(af6e1e4e・656件全緑) | — | 同上 |
+| ~~指摘の自動規範化~~ | **完了 2026-08-22**(3810214a・668件全緑) | — | 同上 |
+| approveのキュー委譲統一 | インライン実行の廃止(セッション死で実行が消えた実害2回) | 次のA枠 | E4メモ 2026-08-22 |
 | 3a' 成立2件目 | 次のcopyback実運用が契約変更なしで通るか | 次のcopyback案件発生時 | direction §7 |
 | 3b' writeback_pending | 完了の書き戻し忘れを防ぐ状態機械+`writeback-ack` | 3a'成立後。**着手前にオーナー決定②(ack再提示UX)** | direction §4 |
 | A7 action部分 | 外部実行系のdry-run契約+`awaiting_external_approval` 状態新設 | 3b'の後 | direction §11 |
