@@ -96,7 +96,8 @@ def run_review_pipeline(cfg: dict, store: RunStore, t: Task, budget: Budget,
             t.cost_usd += sum(review_cost_sink)
     with store.lock:
         t.review_notes = feedback
-    log_kw: dict = {"task": t.id, "passed": passed, "criteria_cited": criteria_cited}
+    log_kw: dict = {"task": t.id, "passed": passed, "criteria_cited": criteria_cited,
+                    "feedback": feedback[:500]}
     if ac_verdicts:
         log_kw["ac_verdicts"] = ac_verdicts
     if ac_verdicts_dropped:
@@ -140,5 +141,13 @@ def run_review_pipeline(cfg: dict, store: RunStore, t: Task, budget: Budget,
                 feedback = f"[{persona}ペルソナ検収] {p_fb}"
                 with store.lock:
                     t.review_notes = feedback   # attempts枯渇時に原因が残るように
+                # reviewerの task.review は合格記録のまま残すため上書きせず、
+                # ペルソナ差し戻し理由を別途 task.review として追記する
+                # (criteria_feedback収集はtask.reviewイベントのみを見るため)。
+                # criteria_citedは空にする: persona自身の引用は
+                # task.persona_review側で既に記録済みで、ここに含めると
+                # criteria_usageの引用回数が二重計上されてしまう
+                store.log("task.review", task=t.id, passed=False,
+                          criteria_cited=[], feedback=feedback[:500])
                 break
     return passed, feedback
