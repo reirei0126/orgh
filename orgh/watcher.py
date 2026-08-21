@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import time
 import traceback
+import os
 from pathlib import Path
 
 from . import planner
@@ -27,6 +28,23 @@ def watch(cfg: dict) -> None:
     wcfg = cfg.get("watch", {})
     interval = wcfg.get("interval", 5)
     runs_dir = cfg.get("runs_dir", "runs")
+
+    # 単一インスタンス強制(2026-08-22): watchの二重起動は同一ノートの重複計画を
+    # 生む(実害: 9b18f62f=0bf56737の重複、計画費1.97USD)。ノート側のmark_processedは
+    # プロセス間の排他ではないため、runs/直下のflockで多重起動そのものを拒否する。
+    # ロックはプロセス生存中保持され、死ねばOSが自動解放する(stale lockなし)。
+    import fcntl as _fcntl
+    Path(runs_dir).mkdir(parents=True, exist_ok=True)
+    _instance_lock = open(Path(runs_dir) / ".watch.lock", "a+")
+    try:
+        _fcntl.flock(_instance_lock, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(
+            "orgh watch は既に起動している(runs/.watch.lock が取得できない)。"
+            "多重起動は同一ノートの重複計画を生むため拒否する。")
+    _instance_lock.write(f"{os.getpid()}\n")
+    _instance_lock.flush()
+
     src = get_source(cfg)
 
     print(f"watching {src.describe()} (interval={interval}s). Ctrl-C to stop.")
