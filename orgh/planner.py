@@ -456,6 +456,16 @@ def build_human_request(mission_id: str, task: Task, reason: str) -> tuple[str, 
 
 def worker_prompt(cfg: dict, task: Task) -> str:
     tmpl = _read_prompt(cfg, "worker_preamble.md")
-    return tmpl.format(title=task.title, prompt=task.prompt,
-                       acceptance=acceptance_lines(task),
-                       playbooks=_playbook_context(cfg, 4000))
+    prompt = tmpl.format(title=task.title, prompt=task.prompt,
+                        acceptance=acceptance_lines(task),
+                        playbooks=_playbook_context(cfg, 4000))
+    if task.decision_context:
+        # 承認時にオーナーが確定させたdecision_gates回答(orgh approve --answer)。
+        # workerが同じ問いを人間へ再度返すのを防ぐため、決定済みである旨を明示する
+        prompt += (
+            "\n\n## オーナーが確定済みの決定事項\n"
+            f"{task.decision_context}\n\n"
+            "これらは決定済みであり、workerはこの件について人間へ確認を返しては"
+            "ならない。"
+        )
+    return prompt

@@ -303,6 +303,7 @@ class Task:
     personas: list[str] = field(default_factory=list)  # 検収ゲートのペルソナ名(空=通常レビューのみ)
     human_request: str = ""              # awaiting_human時の依頼一文(詳細は依頼書artifact)
     kind: str | None = None              # "reference"=参照(正解仕様)作成タスクの機械判定マーカー
+    decision_context: str = ""           # 承認時に確定したdecision_gates回答(worker_promptへ注入)
 
 
 @dataclass

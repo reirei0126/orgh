@@ -145,12 +145,15 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
     if cfg is not None:
         awaiting = [t for t in mission.tasks if t.status == "awaiting_approval"]
         if awaiting:
+            decision_gates = getattr(mission, "decision_gates", None) or []
             gated_tasks = [
                 {
                     "id": t.id,
                     "title": _flatten(t.title),
                     "workdir": _flatten(t.workdir),
-                    "reason": approval_reason(cfg, t.workdir) or "(理由不明)",
+                    "reason": approval_reason(cfg, t.workdir) or (
+                        "決定ゲート(人間判断が必要な値)への回答待ち"
+                        if decision_gates else "(理由不明)"),
                 }
                 for t in awaiting
             ]
@@ -169,6 +172,17 @@ def status_payload(mission: Any, cfg: dict | None = None) -> dict:
                 "gated_tasks": gated_tasks,
                 "pending_task_count": pending_task_count,
             }
+            if decision_gates:
+                payload["approval_brief"]["decision_gates"] = [
+                    {
+                        "id": g["id"],
+                        "question": g["question"],
+                        "options": list(g["options"]),
+                        "default": g["default"],
+                        "why_human": g["why_human"],
+                    }
+                    for g in decision_gates
+                ]
 
     # awaiting_human タスクが1件以上あるときのみ human_requests キーを追加する
     # (approval_brief と同じく、対象なしのときはキー自体を省いて後方互換を保つ)。

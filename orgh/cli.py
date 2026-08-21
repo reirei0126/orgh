@@ -123,6 +123,10 @@ def main() -> None:
             sp.add_argument("--json", action="store_true")
         if name == "approve":
             sp.add_argument("--yes", action="store_true")
+            sp.add_argument("--answer", action="append", default=[],
+                            metavar="GATE_ID=VALUE",
+                            help="decision_gatesの回答(複数指定可、例: "
+                                 "--answer G-1=A)")
 
     vp = sub.add_parser("verdict")   # オーナー検収裁定の記録と基準蒸留
     vp.add_argument("mission_id", nargs="?")
@@ -523,6 +527,53 @@ def main() -> None:
             for t in brief["gated_tasks"]:
                 print(f"  - {t['title']}  ({t['workdir']})")
 
+        # decision_gates(人間判断が必要な値)の表示: ORGH_APPROVED= 確認行より
+        # 必ず前に出す(承認と同時に全ゲートへ回答させるため、内容を先に見せる)
+        gate_by_id = {g["id"]: g for g in mission.decision_gates}
+        if gate_by_id:
+            print()
+            print("## 決定ゲート(承認と同時に --answer で回答すること)")
+            for gid, g in gate_by_id.items():
+                print(f"- [{gid}] {g['question']}")
+                if g["options"]:
+                    print(f"  選択肢: {', '.join(g['options'])}")
+                default_display = (g["default"] if g["default"] is not None
+                                   else "(既定なし・回答必須)")
+                print(f"  既定値: {default_display}")
+                if g["why_human"]:
+                    print(f"  なぜ人間が必要か: {g['why_human']}")
+                print(f"  回答例: orgh approve {mission.id} "
+                      f"--answer {gid}=<value>")
+
+        # --answer の検証: 形式不正・未知gate_idは黙って捨てず承認自体を中止する
+        answers: dict[str, str] = {}
+        for raw in args.answer:
+            if "=" not in raw:
+                sys.exit(f"orgh approve: --answer の形式が不正(=が無い): {raw!r}")
+            gate_id, value = raw.split("=", 1)
+            if gate_id not in gate_by_id:
+                sys.exit(f"orgh approve: 存在しないgate_id: {gate_id!r}"
+                         f"(有効なid: {', '.join(gate_by_id) or '(なし)'})")
+            answers[gate_id] = value
+
+        # 未回答ゲートはdefaultで埋める。defaultが無い(None)ゲートが未回答のまま
+        # 承認されようとした場合はここで中止する(実行中の割り込みへ噴き出させない)
+        resolved: dict[str, str] = {}
+        unanswered = []
+        for gid, g in gate_by_id.items():
+            if gid in answers:
+                resolved[gid] = answers[gid]
+            elif g["default"] is not None:
+                resolved[gid] = g["default"]
+            else:
+                unanswered.append(gid)
+        if unanswered:
+            sys.exit(
+                "orgh approve: 既定値が無いdecision_gateが未回答: "
+                + ", ".join(f"{gid}({gate_by_id[gid]['question']})"
+                           for gid in unanswered)
+                + "。--answer で回答してから承認せよ")
+
         # --yesが無くTTY接続時のみ対話確認する。watch/GUI(非TTY)や--yes指定は
         # 従来どおり即続行(後方互換優先。ブリーフは表示済み)
         if not args.yes and sys.stdin.isatty():
@@ -531,10 +582,19 @@ def main() -> None:
                 print("承認を中止した")
                 sys.exit(0)
 
-        (store.dir / "APPROVED").touch()
+        (store.dir / "APPROVED").write_text(json.dumps(
+            {"decision_gates_answered": resolved} if gate_by_id else {},
+            ensure_ascii=False))
+        decision_context = "\n".join(
+            f"- 質問: {g['question']} → 確定値: {resolved[gid]}"
+            for gid, g in gate_by_id.items())
         for t in waiting:
             t.status = "pending"
+            if decision_context:
+                t.decision_context = decision_context
         store.save(mission)
+        if gate_by_id:
+            store.log("mission.decision_gates_answered", count=len(gate_by_id))
         # GUI(spawn_and_bridge)が承認受理を機械的に検知するための確認行。
         # これより前にsys.exitする失敗は「承認されなかった」として扱われる
         print(f"ORGH_APPROVED={mission.id}", flush=True)

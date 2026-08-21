@@ -215,12 +215,21 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                     if t.id in futures:
                         continue
                     # 自己改変ガード: orgh自身を指すworkdirは承認なしに実行しない
-                    # (watcher経由でもスキップ不可。configでも無効化不可)
-                    if (needs_approval(cfg, t.workdir)
-                            and not (store.dir / "APPROVED").exists()):
+                    # (watcher経由でもスキップ不可。configでも無効化不可)。
+                    # decision_gates(人間判断が必要な値)ゲート: mission.decision_gates
+                    # が非空のうちはAPPROVEDが置かれるまで同様に停止する(方向性文書
+                    # 2026-08 §9)。両ガードはAPPROVED作成で同時に解除される点で
+                    # 自己改変ガードと同じ仕組みを共有するが、理由は別物のため
+                    # ledgerのpayloadを混同させない(自己改変ガード発火時は従来どおり
+                    # workdirのみ、decision_gates単独発火時のみreasonを足す)
+                    self_mod = needs_approval(cfg, t.workdir)
+                    gates_pending = bool(mission.decision_gates)
+                    if not (store.dir / "APPROVED").exists() and (
+                            self_mod or gates_pending):
+                        extra = {} if self_mod else {"reason": "decision_gates"}
                         transition(store, t, "awaiting_approval",
                                    event="task.awaiting_approval",
-                                   workdir=t.workdir)
+                                   workdir=t.workdir, **extra)
                         print(f"  [awaiting_approval] {t.title} — "
                               f"orgh approve {store.dir.name} で続行")
                         try:
