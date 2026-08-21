@@ -1,6 +1,9 @@
 # orgh やることの全量台帳(2026-08-19)
 
-> **これが「やるべきことは最終的に全部やる」の正本。** 全項目に状態とトリガーが付いており、
+> **正本原則(2026-08-21改定・raison-detre R3)**: トリガー成立後も、着手時点の
+> **キャリア優先度を再通過したものだけやる**(「全部やる」はキューの完全性の約束であり、
+> 無条件実行の約束ではない)。9/17までorgh自己改善(A分類)は週1ミッション/owner60分上限。
+> 全項目に状態とトリガーが付いており、
 > 迷子はない。短期の実行順は `HANDOFF.md` 冒頭の実行キュー、詳細定義は各参照先。
 > 更新規約: 項目の完了・着火・棄却はこのファイルを即日更新する(セッションAIの義務)。
 
@@ -9,14 +12,17 @@
 | 項目 | 内容 | 期日/順序 | 定義 |
 |---|---|---|---|
 | 30日運用プロトコル | E1〜E5の週次運用(usage記録・予算宣言・期待効果・未起票ログ・正解先行) | 8/19〜9/17、レポート9/17 | outcome §3 / HANDOFF |
-| 90日アウトカム判定 | 宣言付き案件の達成率で「orghが成果を増やしたか」を初判定 | 12月 | outcome §3.1 |
+| 90日アウトカム判定+**F'存続判定** | 宣言付き案件の達成率に加え、**F'敗北条件4件**(非メタ実需月3件/再利用1件/owner_min純減/統治で防げた実escape 1件)を判定。未達ならC(CC拡張)/E(解消)へ縮退 | 12月 | outcome §3.1 / raison-detre §5-R3 |
+| E6比較実験の候補数判定 | 適格候補6件以上なら次期に3マッチドペア無作為化パイロット | 9/17 | raison-detre §5-R2 |
+| owner_benefit軸の導入 | outcome-logに career/life/business/learning/joy を追記(Notion案件=A+career) | 次回週次で | raison-detre §5-R3 |
+| F'定義のdirection反映 | direction §1(orghの定義)をF'(証拠駆動の実行保証器+承認制台帳)へ改稿 | 次の文書作業窓 | raison-detre §8 |
 | ~~H0① スリープ復帰検知~~ | **完了 2026-08-19**(620402d6・548件全緑・実機蓋閉じ試験のみ後工程) | — | outcome §3.3 |
 | Notion MCPコネクタ | **実装+実疎通完了 2026-08-21**(data-source世代互換パッチ込み・pull/writeback実Notion成功)。残=スクショ添付・README公開確認のみ | 8/27まで | sierra-job-hop 005-notion brief |
 | 3a' 成立2件目 | 次のcopyback実運用が契約変更なしで通るか | 次のcopyback案件発生時 | direction §7 |
 | 3b' writeback_pending | 完了の書き戻し忘れを防ぐ状態機械+`writeback-ack` | 3a'成立後。**着手前にオーナー決定②(ack再提示UX)** | direction §4 |
 | A7 action部分 | 外部実行系のdry-run契約+`awaiting_external_approval` 状態新設 | 3b'の後 | direction §11 |
 | A10完全版 | アダプタ契約完全版(capabilities/config schema/lifecycle) | A7アダプタ実装の直前 | direction §4 |
-| playbook自動注入の廃止 | 統治線の二重化解消(criteria台帳へ一本化) | A7前後の窓で | direction §3.3 |
+| playbook自動注入の廃止 | 統治線の二重化解消(criteria台帳へ一本化) | **次の実装可能な窓で実施(3b着手前を上限)**——raison-detre R2で前倒し決着 | direction §3.3 / raison-detre §5 |
 
 ## 2. 条件付き(トリガーが立てば必ずやる。立たなければやらないのが正解)
 
