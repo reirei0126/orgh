@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from orgh import cli, executor, watcher
+from orgh import cli, executor, queue, watcher
 from orgh.orchestrator import run_mission
 from orgh.state import Mission, RunStore
 
@@ -65,8 +65,15 @@ class TestSelfModificationGuard:
         run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
         assert m.tasks[0].status == "done"
 
-    def test_approve_continues_mission(self, cfg, mock_state_dir, tmp_path,
-                                       monkeypatch):
+    def test_approve_enqueues_and_executor_continues_mission(
+            self, wcfg, mock_state_dir, tmp_path, monkeypatch):
+        # R-1: approve自体はrun_missionを呼ばずキュー投入のみで終わる
+        # (実行はwatch常駐のexecutorに委譲、orgh/queue.py参照)。
+        # 承認直後は素通しされないこと(pendingに留まる)と、executorが
+        # キューを消化すれば実際に実行が続くこと(委譲経路が生きていること)
+        # の両方を確認する(executor.drainがfeedback用にvault設定を要求する
+        # ためwcfgを使う。vault自体はこのテストの主眼ではない)
+        cfg = wcfg
         m = _mission([_task("t1", workdir=str(REPO))])
         store = RunStore(cfg["runs_dir"], m.id)
         run_mission(cfg, m, store)
@@ -78,7 +85,11 @@ class TestSelfModificationGuard:
         cli.main()
 
         reloaded = store.load()
-        assert reloaded.tasks[0].status == "done"
+        assert reloaded.tasks[0].status == "pending"
+        assert [e["mission_id"] for e in queue.pending(cfg["runs_dir"])] == [m.id]
+
+        executor.drain(cfg)
+        assert store.load().tasks[0].status == "done"
 
     def test_watcher_cannot_skip_approval(self, wcfg, vault, one_pass,
                                           mock_state_dir, monkeypatch):
@@ -167,8 +178,9 @@ class TestApproveConfirmationGate:
         out = capsys.readouterr().out
         assert "承認すると残り" in out
         assert "ORGH_APPROVED=" in out
+        # R-1: approve自体はミッションを実行しない(実行はキュー経由でexecutorへ委譲)
         reloaded = store.load()
-        assert reloaded.tasks[0].status == "done"
+        assert reloaded.tasks[0].status == "pending"
 
     def test_interactive_decline_does_not_create_approved(
             self, cfg, mock_state_dir, tmp_path, monkeypatch, capsys):
@@ -207,8 +219,9 @@ class TestApproveConfirmationGate:
 
         out = capsys.readouterr().out
         assert "ORGH_APPROVED=" in out
+        # R-1: approve自体はミッションを実行しない(実行はキュー経由でexecutorへ委譲)
         reloaded = store.load()
-        assert reloaded.tasks[0].status == "done"
+        assert reloaded.tasks[0].status == "pending"
 
 
 class TestDoctor:
