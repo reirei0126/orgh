@@ -15,7 +15,7 @@
 | 90日アウトカム判定+**F'存続判定** | 宣言付き案件の達成率に加え、**F'敗北条件4件**(非メタ実需月3件/再利用1件/owner_min純減/統治で防げた実escape 1件)を判定。未達ならC(CC拡張)/E(解消)へ縮退 | 12月 | outcome §3.1 / raison-detre §5-R3 |
 | E6比較実験の候補数判定 | 適格候補6件以上なら次期に3マッチドペア無作為化パイロット | 9/17 | raison-detre §5-R2 |
 | owner_benefit軸の導入 | outcome-logに career/life/business/learning/joy を追記(Notion案件=A+career) | 次回週次で | raison-detre §5-R3 |
-| F'定義のdirection反映 | direction §1(orghの定義)をF'(証拠駆動の実行保証器+承認制台帳)へ改稿 | 次の文書作業窓 | raison-detre §8 |
+| ~~F'定義のdirection反映~~ | **完了 2026-08-21** | — | raison-detre §8 |
 | ~~H0① スリープ復帰検知~~ | **完了 2026-08-19**(620402d6・548件全緑・実機蓋閉じ試験のみ後工程) | — | outcome §3.3 |
 | Notion MCPコネクタ | **実装+実疎通完了 2026-08-21**(data-source世代互換パッチ込み・pull/writeback実Notion成功)。残=スクショ添付・README公開確認のみ | 8/27まで | sierra-job-hop 005-notion brief |
 | 3a' 成立2件目 | 次のcopyback実運用が契約変更なしで通るか | 次のcopyback案件発生時 | direction §7 |
