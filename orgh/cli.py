@@ -440,6 +440,10 @@ def main() -> None:
         task.human_request = brief
         store.artifact(f"human_request_{task.id}.md", body)
         store.log("task.awaiting_human", task=task.id, brief=brief)
+        # owner.interrupt: enter_awaiting_human()を経由しない経路のため別途記録
+        # (orgh/orchestrator/transitions.py参照。片方だけだと計測が欠ける)
+        store.log("owner.interrupt", kind="awaiting_human", task=task.id,
+                  detail=reason[:200])
         store.save(mission)
         lock_fp.close()
         print(f"task {task.id} の完了報告はレビューで差し戻された — {brief}")

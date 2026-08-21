@@ -14,12 +14,16 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from . import listing
 
 # escapeのcategory表示順(方向性文書2026-08 §3.4 A4のcategory定義と揃える)。
 # 未知のcategoryは末尾にアルファベット順で追加する
 _ESCAPE_CATEGORY_ORDER = ("visual", "factual", "premise", "other")
+
+# owner.interruptのkind表示順(raison-detre-2026-08 §5-R3補遺の割り込みゼロ設計)
+_INTERRUPT_KIND_ORDER = ("awaiting_human", "approval_requested", "owner_replan")
 
 
 def _load_missions(runs_dir: str | Path) -> tuple[list[tuple[dict, list[dict]]], list[dict]]:
@@ -201,10 +205,36 @@ def _escape_stats(
     return total, by_category
 
 
-def _ordered_categories(by_category: dict[str, int]) -> list[str]:
-    known = [c for c in _ESCAPE_CATEGORY_ORDER if c in by_category]
-    unknown = sorted(c for c in by_category if c not in _ESCAPE_CATEGORY_ORDER)
+def _ordered_categories(
+        by_category: dict[str, int],
+        order: tuple[str, ...] = _ESCAPE_CATEGORY_ORDER) -> list[str]:
+    known = [c for c in order if c in by_category]
+    unknown = sorted(c for c in by_category if c not in order)
     return known + unknown
+
+
+def _owner_interrupt_stats(
+        missions: list[tuple[dict, list[dict]]]) -> dict[str, Any]:
+    """owner.interruptイベント(HANDOFF 割り込みゼロ設計の唯一の計測指標)の
+    総件数・種別別内訳・対象ミッション数・ミッションあたり割り込み回数を返す。
+
+    「対象ミッション数」はこのレポートのスコープ(days絞り込み後)にある
+    ミッション総数(割り込みが0件のミッションも含む)。ミッション数0のときは
+    ミッションあたり割り込み回数も0とする。
+    """
+    total = 0
+    by_kind: dict[str, int] = {}
+    for _mission, events in missions:
+        for e in events:
+            if e.get("event") != "owner.interrupt":
+                continue
+            total += 1
+            kind = e.get("kind") or "other"
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+    mission_count = len(missions)
+    per_mission = round(total / mission_count, 2) if mission_count else 0
+    return {"total": total, "by_kind": by_kind,
+            "mission_count": mission_count, "per_mission": per_mission}
 
 
 def build_report(cfg: dict, days: int | None = None) -> str:
@@ -252,6 +282,15 @@ def build_report(cfg: dict, days: int | None = None) -> str:
     for cat in _ordered_categories(by_category):
         lines.append(f"  - {cat}: {by_category[cat]}")
 
+    lines.append("")
+    lines.append("## オーナー割り込み")
+    oi = _owner_interrupt_stats(missions)
+    lines.append(
+        f"- ミッションあたり割り込み回数: {oi['per_mission']:.2f} "
+        f"(総件数 {oi['total']} / ミッション数 {oi['mission_count']})")
+    for kind in _ordered_categories(oi["by_kind"], _INTERRUPT_KIND_ORDER):
+        lines.append(f"  - {kind}: {oi['by_kind'][kind]}")
+
     if skipped:
         lines.append("")
         lines.append("## 集計から除外した壊れたデータ")
@@ -298,6 +337,13 @@ def report_payload(cfg: dict, days: int | None = None) -> dict:
             "duration_sec": _mission_duration(events),
             "tasks_done": sum(1 for t in tasks if t.get("status") == "done"),
             "tasks_total": len(tasks),
+            # ミッション単位のowner.interrupt件数。report_payloadはGUI連携の
+            # 既存契約(desktop/API.md §1.6)のためトップレベルキー集合を変更
+            # しない(tests/test_verdict_report_metrics.py::
+            # test_payload_unchanged_no_new_top_level_keys)。集計(合計・種別
+            # 内訳・ミッションあたり率)はbuild_reportのテキスト版のみに出す
+            "owner_interrupts": sum(
+                1 for e in events if e.get("event") == "owner.interrupt"),
         })
 
     # テキスト版の _worker_stats はworker未割当(None)も辞書に含めてしまい

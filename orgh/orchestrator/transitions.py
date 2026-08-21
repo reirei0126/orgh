@@ -40,6 +40,13 @@ def enter_awaiting_human(store: RunStore, cfg: dict, t: Task, reason: str, *,
             t.attempts -= 1
     store.artifact(f"human_request_{t.id}.md", body)
     store.log("task.awaiting_human", task=t.id, brief=brief)
+    # owner.interrupt(HANDOFF 割り込みゼロ設計の計測指標): 既存の
+    # task.awaiting_human と並べて追加記録する。enter_awaiting_humanの全呼び
+    # 出し元(scheduler/task_executor/copyback_gate/sleep_recovery)を一箇所で
+    # 網羅する。cli.py humandoneの差し戻し経路はこの関数を経由しないため別途
+    # 記録が必要(orgh/report.py参照)
+    store.log("owner.interrupt", kind="awaiting_human", task=t.id,
+              detail=reason[:200])
     print(f"  [awaiting_human] {t.title} — {brief}")
     try:
         event = notify.human_task_requested_event(store.dir.name, t, reason)

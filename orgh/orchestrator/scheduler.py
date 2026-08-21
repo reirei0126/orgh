@@ -230,6 +230,9 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                         transition(store, t, "awaiting_approval",
                                    event="task.awaiting_approval",
                                    workdir=t.workdir, **extra)
+                        store.log("owner.interrupt", kind="approval_requested",
+                                  task=t.id,
+                                  detail=extra.get("reason") or t.workdir)
                         print(f"  [awaiting_approval] {t.title} — "
                               f"orgh approve {store.dir.name} で続行")
                         try:
