@@ -238,11 +238,14 @@ class Budget:
     プールを split() で親から子へ分割し、参照渡しする。子の charge() は親へ
     伝播し、親プールの枯渇は子の exceeded() にも波及する。
 
-    永続化されるのは limit/task_limit/spent のみ(親リンクは実行時の参照)。
+    永続化されるのは limit/task_limit/spent/source のみ(親リンクは実行時の参照)。
     """
     limit_usd: float | None = None       # このプール(割当)の上限。None=無制限
     task_budget_usd: float | None = None  # 1タスクあたりの上限
     spent_usd: float = 0.0
+    source: str | None = None            # limit_usdの出所: "note"(ノート宣言)/
+    # "config"(config既定)/"manual"(手動設定)/None(未設定・旧形式からのロード)。
+    # setup_budget()の優先順位判定とledger監査に使う(orgh/orchestrator/budget_policy.py)
 
     def __post_init__(self) -> None:
         self._lock = threading.Lock()

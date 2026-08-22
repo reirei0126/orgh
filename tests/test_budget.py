@@ -15,8 +15,9 @@ from pathlib import Path
 
 import yaml
 
-from orgh import executor, cli, watcher
+from orgh import executor, cli, planner, watcher
 from orgh.orchestrator import run_mission
+from orgh.orchestrator.budget_policy import setup_budget
 from orgh.state import Budget, Mission, RunStore
 
 from .conftest import age, mission_dirs, read_calls, read_ledger, write_config
@@ -143,6 +144,132 @@ class TestRoleCostsCounted:
         data = json.loads((mdir / "mission.json").read_text())
         # planner 0.01 + worker 0.01 + reviewer 0.01 + retro 0.01
         assert abs(data["budget"]["spent_usd"] - 0.04) < 1e-9
+
+
+class TestNoteBudgetDeclarationWiring:
+    """AC-1: ノート予算宣言の配線(Planner接続)。"""
+
+    def test_note_declared_budget_survives_planner_and_setup_budget(
+            self, cfg, monkeypatch):
+        def fake_ask(cfg_, role, prompt, **kw):
+            return {"tasks": [_task("t1")], "budget_usd": 15}
+        monkeypatch.setattr(planner, "_ask_json", fake_ask)
+
+        mission = planner.plan(cfg, intent="やること\n予算上限: 15 USD",
+                               context_digest="(test)")
+        assert mission.budget.limit_usd == 15
+        assert mission.budget.source == "note"
+
+        budget = setup_budget(cfg, mission)
+        assert budget.limit_usd == 15   # config(未指定=None)で上書きされない
+        assert budget is mission.budget
+
+    def test_declared_budget_hits_limit_and_stops(self, cfg, mock_state_dir,
+                                                   monkeypatch):
+        """AC-3: 宣言付きミッションが上限到達で既存のbudget stop機構に入る。"""
+        orig_ask = planner._ask_json
+
+        def fake_ask(cfg_, role, prompt, **kw):
+            if role != "planner":
+                return orig_ask(cfg_, role, prompt, **kw)
+            return {"tasks": [_task("t1"), _task("t2", deps=["t1"])],
+                   "budget_usd": 0.015}
+        monkeypatch.setattr(planner, "_ask_json", fake_ask)
+
+        mission = planner.plan(cfg, intent="予算上限: 0.015 USD",
+                               context_digest="(test)")
+        store = RunStore(cfg["runs_dir"], mission.id)
+        run_mission(cfg, mission, store)
+
+        by_id = {t.id: t for t in mission.tasks}
+        assert by_id["t1"].status == "done"
+        assert by_id["t2"].status == "skipped"
+        assert any(e["event"] == "mission.budget_exceeded"
+                   for e in read_ledger(cfg["runs_dir"], mission.id))
+
+
+class TestSetupBudgetPriority:
+    """AC-4: setup_budget()の優先順位(ミッション固有宣言 > config既定)。
+    config側が大きい場合のみ引き上げ、小さい/未指定の場合は据え置く。"""
+
+    def test_config_raises_when_bigger_than_declared(self, cfg):
+        mission = _mission([_task("t1")])
+        mission.budget = Budget(limit_usd=10.0, source="note")
+        cfg["loop"]["budget_usd"] = 50.0
+        b = setup_budget(cfg, mission)
+        assert b.limit_usd == 50.0
+
+    def test_raise_keeps_note_source_so_a_later_unset_resume_does_not_uncap(
+            self, cfg):
+        """レビュー差し戻し対応: 引き上げ時にsourceを"config"へ書き換えると、
+        2回目以降のconfig未指定(=None、実運用の既定)な通常resumeが「宣言
+        なし」と誤認されて無制限化してしまう(mission 8b435cc4の断線の再発)。
+        引き上げ後もsourceは"note"のまま保たれ、以後のconfig=None resumeでも
+        宣言値が保護され続けること。"""
+        mission = _mission([_task("t1")])
+        mission.budget = Budget(limit_usd=15.0, source="note")
+        cfg["loop"]["budget_usd"] = 40.0
+        b = setup_budget(cfg, mission)
+        assert b.limit_usd == 40.0
+        assert b.source == "note"          # sourceは書き換わらない
+
+        cfg["loop"]["budget_usd"] = None   # 通常resume(config未指定の既定)
+        b = setup_budget(cfg, mission)
+        assert b.limit_usd == 40.0         # 無制限化しない
+        assert b.source == "note"
+
+    def test_config_does_not_lower_declared_value(self, cfg):
+        mission = _mission([_task("t1")])
+        mission.budget = Budget(limit_usd=10.0, source="note")
+        cfg["loop"]["budget_usd"] = 5.0
+        b = setup_budget(cfg, mission)
+        assert b.limit_usd == 10.0
+
+    def test_config_none_does_not_relax_declared_value_to_unlimited(self, cfg):
+        mission = _mission([_task("t1")])
+        mission.budget = Budget(limit_usd=10.0, source="note")
+        # cfg["loop"] に budget_usd キーを設定しない(=None)
+        b = setup_budget(cfg, mission)
+        assert b.limit_usd == 10.0
+
+    def test_manual_source_gets_same_protection_as_note(self, cfg):
+        mission = _mission([_task("t1")])
+        mission.budget = Budget(limit_usd=10.0, source="manual")
+        cfg["loop"]["budget_usd"] = 5.0
+        b = setup_budget(cfg, mission)
+        assert b.limit_usd == 10.0
+
+    def test_undeclared_mission_always_follows_config_even_downward(self, cfg):
+        """宣言なしミッション(source="config")はconfig値へ常時追従する(挙動不変)。"""
+        mission = _mission([_task("t1")])
+        mission.budget = Budget(limit_usd=10.0, source="config")
+        cfg["loop"]["budget_usd"] = 5.0
+        b = setup_budget(cfg, mission)
+        assert b.limit_usd == 5.0
+
+
+class TestBudgetSourceInLedger:
+    """AC-5: budget.source の監査(note/config/manual)がledgerに記録される。"""
+
+    def test_note_source_recorded_in_ledger(self, cfg, mock_state_dir,
+                                            monkeypatch):
+        orig_ask = planner._ask_json
+
+        def fake_ask(cfg_, role, prompt, **kw):
+            if role != "planner":
+                return orig_ask(cfg_, role, prompt, **kw)
+            return {"tasks": [_task("t1")], "budget_usd": 5}
+        monkeypatch.setattr(planner, "_ask_json", fake_ask)
+
+        mission = planner.plan(cfg, intent="予算上限: 5 USD",
+                               context_digest="(test)")
+        store = RunStore(cfg["runs_dir"], mission.id)
+        run_mission(cfg, mission, store)
+
+        events = [e for e in read_ledger(cfg["runs_dir"], mission.id)
+                 if e["event"] == "mission.budget_setup"]
+        assert events
+        assert events[0]["source"] == "note"
 
 
 class TestStatusShowsBudget:

@@ -41,13 +41,21 @@
 }}
 
 出力JSONのトップレベルには上記の "tasks" に加えて "visual_quality"(bool: 目視
-品質が合否を左右するか)と "decision_gates"(list: 人間判断が必要な値)を含めて
-よい。visual_quality を true にする場合は、DESIGN-005(正解先行: 実物を観察→
+品質が合否を左右するか)と "decision_gates"(list: 人間判断が必要な値)、
+"budget_usd"(number|null: ミッション全体の予算上限)を含めてよい。
+visual_quality を true にする場合は、DESIGN-005(正解先行: 実物を観察→
 正解仕様を文書化→そこからテストケースを導出)に従い、先頭タスクに
 "kind": "reference" を付けた参照(正解仕様)作成タスクを置くこと(orgh側の
 plan lintがこの順序を機械検査する)。decision_gates の各要素は
 {{"question": "問い", "options": ["選択肢1", "選択肢2"], "default": "既定選択肢(任意)",
 "why_human": "人間判断が必要な理由(任意)"}} の形で書くこと。
+
+"budget_usd" は、上記「ミッション」または「文脈」の本文に「予算上限: 15 USD」
+「予算15ドルまで」のような予算宣言があれば、その数値(USD換算)をそのまま
+設定すること。予算宣言が本文のどこにも見当たらない場合は null にすること
+(推測で数値を作るな)。ここで設定した budget_usd は実行時のミッション予算
+上限として強制される(orgh側のconfig既定より優先される)。予算宣言があるのに
+budget_usd を null にした計画は、orgh側のplan lintが機械的に差し戻す。
 
 acceptanceの各要素は以下の最小構造で書くこと(EARS記法等は不要):
 - "id": "AC-1"のような連番識別子(タスク内で一意)

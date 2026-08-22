@@ -47,6 +47,41 @@ class TestLintPlanPureFunction:
         assert planner.lint_plan({"tasks": [{"id": "t1"}]}) == []
 
 
+class TestLintPlanBudgetDeclaration:
+    """ノート原文に予算宣言があるのにbudget_usdがnullの計画を差し戻す
+    (二重断線の1つ目、Planner未接続の機械検査)。"""
+
+    def test_note_declares_budget_but_plan_budget_usd_null_is_a_violation(self):
+        v = planner.lint_plan({"tasks": [{"id": "t1"}], "budget_usd": None},
+                              note_text="やること\n予算上限: 15 USD\n")
+        assert len(v) == 1
+        assert "budget_usd" in v[0]
+
+    def test_note_declares_budget_and_plan_sets_budget_usd_is_clean(self):
+        assert planner.lint_plan(
+            {"tasks": [{"id": "t1"}], "budget_usd": 15},
+            note_text="やること\n予算上限: 15 USD\n") == []
+
+    def test_money_until_phrasing_without_the_word_joogen_is_also_detected(self):
+        """レビュー差し戻し対応: prompts/planner.mdが例示するもう一方の言い回し
+        「予算15ドルまで」(「上限」の語を含まない)も検出できること。旧regexは
+        「予算上限」のliteralを必須にしており、この表現に限り安全網が機能
+        しない断線が残っていた。"""
+        v = planner.lint_plan({"tasks": [{"id": "t1"}], "budget_usd": None},
+                              note_text="やること\n予算15ドルまで\n")
+        assert len(v) == 1
+        assert "budget_usd" in v[0]
+
+    def test_no_note_text_skips_the_check_entirely(self):
+        """note_text未指定(既定None)は後方互換のため予算チェックをスキップする。"""
+        assert planner.lint_plan({"tasks": [{"id": "t1"}], "budget_usd": None}) == []
+
+    def test_note_without_budget_declaration_is_clean(self):
+        assert planner.lint_plan(
+            {"tasks": [{"id": "t1"}], "budget_usd": None},
+            note_text="ただの作業ノート、予算の記述なし") == []
+
+
 class TestPlanReplanOnViolation:
     def test_ac1_replans_once_then_all_tasks_await_human_on_repeat_violation(
             self, cfg, monkeypatch):
