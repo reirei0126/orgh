@@ -140,27 +140,53 @@ def _ask_json(cfg: dict, role: str, prompt: str, workdir: str = ".",
     raise last_err
 
 
-def lint_plan(data: dict) -> list[str]:
+# prompts/planner.mdが例示する2パターン両方を検出する(「予算上限: 15 USD」
+# 「予算15ドルまで」)。デザイナー検収の指摘: 旧regexは「予算上限」の literal
+# を必須にしており、prompt側が正当な表現として例示した「予算Nドルまで」
+# (上限を含まない)を検出できず、その言い回しに限り安全網が機能しない
+# 断線が残っていた。金額の単位($/USD/ドル/円)を要求することで、
+# 「予算15%削減」のような無関係な数値混入を誤検知しない
+_BUDGET_DECLARATION_RE = re.compile(
+    r"予算(?:上限)?\s*[:：]?\s*(?:\$\s*\d+(?:\.\d+)?"
+    r"|\d+(?:\.\d+)?\s*(?:USD|ドル|円))")
+
+
+def lint_plan(data: dict, note_text: str | None = None) -> list[str]:
     """計画JSON(dict)をPythonコードのみで機械検査する(LLMに問い合わせない)。
 
     違反理由の日本語一文のリストを返す(違反なしなら空リスト)。
-    現状の規則: visual_quality が真、かつ tasks の先頭要素の kind が
-    "reference" でない場合に違反1件を返す(DESIGN-005: 正解先行 —
-    実物を観察→正解仕様を文書化→そこからテストケースを導出)。
-    tasks が空・型不正のときは違反を返さない(既存の失敗経路に委ねる)。
+
+    規則1: visual_quality が真、かつ tasks の先頭要素の kind が "reference"
+    でない場合に違反1件(DESIGN-005: 正解先行 — 実物を観察→正解仕様を文書化
+    →そこからテストケースを導出)。tasks が空・型不正のときは違反を返さない
+    (既存の失敗経路に委ねる)。
+
+    規則2: note_text(ノート原文=intent/context_digest相当のテキスト)に
+    「予算上限: N USD」等の予算宣言があるのに、計画の budget_usd が null の
+    場合に違反1件(実測: mission 620402d6でPlannerが予算宣言を計画に載せず
+    実行時の上限が効かなかった二重断線の1つ目)。note_text 省略時(既定None)は
+    このチェックをスキップする(後方互換: 呼び出し元がノート原文を渡さない
+    限り挙動不変)。
     """
+    violations: list[str] = []
     tasks = data.get("tasks")
-    if not (data.get("visual_quality") and isinstance(tasks, list) and tasks):
-        return []
-    first = tasks[0]
-    if isinstance(first, dict) and first.get("kind") == "reference":
-        return []
-    return [
-        "visual_quality=trueだが先頭タスクがkind=\"reference\"(参照=正解仕様の"
-        "作成タスク)になっていない。DESIGN-005(正解先行: 実物を観察→正解仕様を"
-        "文書化→そこからテストケースを導出)に従い、先頭に参照作成タスクを"
-        "置いて再設計せよ"
-    ]
+    if (data.get("visual_quality") and isinstance(tasks, list) and tasks):
+        first = tasks[0]
+        if not (isinstance(first, dict) and first.get("kind") == "reference"):
+            violations.append(
+                "visual_quality=trueだが先頭タスクがkind=\"reference\"(参照="
+                "正解仕様の作成タスク)になっていない。DESIGN-005(正解先行: "
+                "実物を観察→正解仕様を文書化→そこからテストケースを導出)に"
+                "従い、先頭に参照作成タスクを置いて再設計せよ"
+            )
+    if (note_text and _BUDGET_DECLARATION_RE.search(note_text)
+            and data.get("budget_usd") is None):
+        violations.append(
+            "ノート本文に予算宣言(例: 「予算上限: N USD」)があるが計画の"
+            "budget_usdがnull(見積もり超過を防ぐ上限が実行時に反映されない)。"
+            "ノート本文の予算宣言を読み取りbudget_usdへ設定して再設計せよ"
+        )
+    return violations
 
 
 def plan(cfg: dict, intent: str, context_digest: str,
@@ -168,13 +194,15 @@ def plan(cfg: dict, intent: str, context_digest: str,
     if budget is None:
         lcfg = cfg.get("loop", {})
         budget = Budget(limit_usd=lcfg.get("budget_usd"),
-                        task_budget_usd=lcfg.get("task_budget_usd"))
+                        task_budget_usd=lcfg.get("task_budget_usd"),
+                        source="config")
     tmpl = _read_prompt(cfg, "planner.md")
     prompt = tmpl.format(intent=intent, context=context_digest,
                          projects=_projects_context(cfg),
                          workers=", ".join(cfg["workers"]["enabled"]))
+    note_text = f"{intent}\n{context_digest}"
     data = _ask_json(cfg, "planner", prompt, budget=budget)
-    violations = lint_plan(data)
+    violations = lint_plan(data, note_text=note_text)
     if violations:
         print("orgh: plan lint違反を検出、再計画を1回要求する: "
               + "; ".join(violations))
@@ -185,10 +213,17 @@ def plan(cfg: dict, intent: str, context_digest: str,
             + "\n上記を満たすようタスクDAGを再設計し、説明文・コードフェンスを"
               "付けずJSONオブジェクト1個のみを出力すること。")
         data = _ask_json(cfg, "planner", retry_prompt, budget=budget)
-        violations = lint_plan(data)
+        violations = lint_plan(data, note_text=note_text)
         if violations:
             print("orgh: 再計画の応答も plan lint に違反した。人間エスカレー"
                   "ションへ引き継ぐ: " + "; ".join(violations))
+    # ノートの予算宣言(Planner接続): 数値のbudget_usdがあればミッション予算の
+    # 上限へ反映する(実行時のsetup_budgetがconfig既定より優先させる)
+    declared_budget = data.get("budget_usd")
+    if (isinstance(declared_budget, (int, float))
+            and not isinstance(declared_budget, bool) and declared_budget > 0):
+        budget.limit_usd = float(declared_budget)
+        budget.source = "note"
     mission = Mission.new(intent=intent, context_digest=context_digest,
                           tasks=data["tasks"],
                           visual_quality=bool(data.get("visual_quality", False)),

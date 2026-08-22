@@ -170,7 +170,7 @@ def run_mission(cfg: dict, mission: Mission, store: RunStore,
 def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
                         on_update=None, poll_cancel=None) -> Mission:
     workers = cfg.get("loop", {}).get("parallel", 3)
-    budget = setup_budget(cfg, mission)
+    budget = setup_budget(cfg, mission, store)
     assign_personas(cfg, mission)
     store.save(mission)
     store.artifact("context_digest.md", mission.context_digest)
