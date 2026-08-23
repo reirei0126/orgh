@@ -9,7 +9,7 @@ routeenum: orgh|manual|ai-session|dropped。observe_byは種別固定表(配達=
 
 | date | mission | 分類 | usd | route | usage | outcome宣言 | observe_by | 判定 | outcome_result | evidence | owner_min |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-08-21 | 8b435cc4 | A | 11.20 | orgh | deployed | 8/27までにREADME公開・応募書類にMCP実績記載(E3宣言) | 2026-09-05 | pending | pending | Notion実疎通成功(pull/writeback各1回)・README節あり | 15 |
+| 2026-08-23 | 8b435cc4 | A | 11.20 | orgh | published | 8/27までにREADME公開・応募書類にMCP実績記載(E3宣言) | 2026-09-05 | used | **achieved** | 応募提出済み・orghリポへのリンク記載をオーナー確認(期限9/5に対し8/23達成) | 15 |
 
 ## E5補助表(正解先行の非劣性判定用。対象発生時に開始前登録)
 
@@ -27,3 +27,5 @@ CHECKED W34-2(2026-08-21): E1登録1件(8b435cc4=outcome宣言付きのため任
 E2早期判定(2026-08-23・オーナー合意): 実験の問い「予算宣言は機構として機能するか」への答えは2回の実測(データ#1: Planner未接続/データ#2: setup_budgetのconfig上書き)で確定的にNO。追加観察の限界情報価値ゼロと判断し、30日を待たず判定を確定。帰結: 予算配線修理を実装可へ昇格(エージェント経済の前提工事①を兼ねる)。E1/E4/E5/E6は予定どおり9/17判定。
 
 2026-08-23 オーナー報告: Notion応募を提出(観測期限9/5に対し早期)。8b435cc4のoutcome_result判定はリンク記載の確認後に確定(暫定: achieved見込み)。
+
+2026-08-23: 8b435cc4 achieved確定(オーナー確認: リンク記載あり)。**outcome達成の第1号**。
