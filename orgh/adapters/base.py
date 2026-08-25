@@ -196,7 +196,12 @@ class ShellAdapter(BaseAdapter):
 REGISTRY = {a.name: a for a in (ClaudeCodeAdapter, CodexAdapter, ShellAdapter)}
 
 
-def get_adapter(name: str, cfg: dict) -> BaseAdapter:
+def get_adapter(name: str, cfg: dict, model: str | None = None) -> BaseAdapter:
+    """model が非Noneの場合のみ、そのworkerのcfgへ {"model": model} を上書き注入する。
+    Noneのときはcfg.get(name, {})をそのまま渡し、既存挙動を1バイトも変えない。"""
     if name not in REGISTRY:
         raise KeyError(f"unknown worker '{name}'. available: {list(REGISTRY)}")
-    return REGISTRY[name](cfg.get(name, {}))
+    worker_cfg = cfg.get(name, {})
+    if model is not None:
+        worker_cfg = {**worker_cfg, "model": model}
+    return REGISTRY[name](worker_cfg)

@@ -147,6 +147,7 @@ class ConfigSchema:
     criteria_max_inject_chars: int = 4000  # 台帳注入の上限字数。超過分は日付降順詰めで切り捨て
     playbooks_dir: str = "playbooks"
     projects_map: str | None = None      # 対象リポの絶対パス⇔説明の対応表(Planner注入)
+    model_allowlist: list[str] | None = None  # タスクmodel指定の許可リスト(既定["haiku","sonnet","opus"]はplanner.py側で適用)
 
 
 _REQUIRED_KEYS = ("workers",)
@@ -210,6 +211,11 @@ def validate_config(data: Any) -> dict:
     for name in ("runs_dir", "prompts_dir", "playbooks_dir", "projects_map"):
         if data.get(name) is not None and not isinstance(data[name], str):
             raise ConfigError(f"config: {name} は文字列で指定すること")
+    model_allowlist = data.get("model_allowlist")
+    if model_allowlist is not None and (
+            not isinstance(model_allowlist, list)
+            or not all(isinstance(m, str) for m in model_allowlist)):
+        raise ConfigError("config: model_allowlist は文字列のリストで指定すること")
     copyback = data.get("copyback")
     if copyback is not None:
         for root in copyback.get("allowed_roots") or []:
@@ -307,6 +313,8 @@ class Task:
     human_request: str = ""              # awaiting_human時の依頼一文(詳細は依頼書artifact)
     kind: str | None = None              # "reference"=参照(正解仕様)作成タスクの機械判定マーカー
     decision_context: str = ""           # 承認時に確定したdecision_gates回答(worker_promptへ注入)
+    model: str | None = None             # Plannerが明示付与するworkerモデル等級(worker既定を上書き)。Noneはconfig既定
+    model_reason: str = ""               # model指定時のモデル選択理由1行(plan lintが強制)
 
 
 @dataclass

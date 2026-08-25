@@ -54,6 +54,10 @@ class TestPlaybookNameValidation:
         import json as _json
         monkeypatch.setenv("MOCK_RETRO_JSON", _json.dumps(
             {"playbook_name": "../prompts/reviewer", "lessons": "- evil"}))
+        # playbooks_dirをtmpへ隔離する(cfgフィクスチャ既定は実リポジトリの
+        # playbooks/を指しており、隔離しないままplanner.retro()を呼ぶと
+        # 実ファイルへ教訓行を書き込んでしまう)
+        cfg["playbooks_dir"] = str(tmp_path / "playbooks")
         m = Mission.new("i", "c", [{"id": "t1", "title": "x", "prompt": "p",
                                     "status": "done"}])
         m.budget = Budget(limit_usd=None, spent_usd=0.0)
@@ -76,8 +80,12 @@ class TestGcSkipsActiveMissions:
             "tasks": tasks, "budget": None,
             "created_at": time.time() - days_old * 86400}))
 
-    def test_awaiting_human_not_archived(self, cfg):
+    def test_awaiting_human_not_archived(self, cfg, tmp_path):
         from orgh import gc
+        # playbooks_dirをtmpへ隔離する(cfgフィクスチャ既定は実リポジトリの
+        # playbooks/を指しており、隔離しないままgc.run_gc()を呼ぶと実ファイルを
+        # 書き換えてしまう。他のgcテストはpb_dirフィクスチャで隔離している)
+        cfg["playbooks_dir"] = str(tmp_path / "playbooks")
         runs = Path(cfg["runs_dir"])
         self._mk(runs, "activeold", "awaiting_human", 200)
         self._mk(runs, "doneold", "done", 200)

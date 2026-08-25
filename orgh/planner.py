@@ -150,8 +150,13 @@ _BUDGET_DECLARATION_RE = re.compile(
     r"予算(?:上限)?\s*[:：]?\s*(?:\$\s*\d+(?:\.\d+)?"
     r"|\d+(?:\.\d+)?\s*(?:USD|ドル|円))")
 
+# config.model_allowlist未設定時の既定(config.example.yaml/orgh/state.pyの
+# ConfigSchemaと同じ値を保つ)
+DEFAULT_MODEL_ALLOWLIST = ["haiku", "sonnet", "opus"]
 
-def lint_plan(data: dict, note_text: str | None = None) -> list[str]:
+
+def lint_plan(data: dict, note_text: str | None = None,
+             model_allowlist: list[str] | None = None) -> list[str]:
     """計画JSON(dict)をPythonコードのみで機械検査する(LLMに問い合わせない)。
 
     違反理由の日本語一文のリストを返す(違反なしなら空リスト)。
@@ -167,9 +172,41 @@ def lint_plan(data: dict, note_text: str | None = None) -> list[str]:
     実行時の上限が効かなかった二重断線の1つ目)。note_text 省略時(既定None)は
     このチェックをスキップする(後方互換: 呼び出し元がノート原文を渡さない
     限り挙動不変)。
+
+    規則3: タスクに model が指定(非None・非空)されているのに model_reason
+    が空/欠落なら違反1件(過剰なモデル使用を避けるための「逸脱には理由を
+    残す」運用を機械強制する)。
+
+    規則4: model が model_allowlist(既定 ["haiku", "sonnet", "opus"]。
+    config.model_allowlistで上書き可能)に無い値なら違反1件。
+
+    規則3/4とも、tasks が list でない/空、要素が dict でない場合は違反を
+    返さず既存の失敗経路に委ねる(規則1と同じ流儀)。
     """
+    if model_allowlist is None:
+        model_allowlist = DEFAULT_MODEL_ALLOWLIST
     violations: list[str] = []
     tasks = data.get("tasks")
+    if isinstance(tasks, list) and tasks:
+        for t in tasks:
+            if not isinstance(t, dict):
+                continue
+            model = t.get("model")
+            if not model:
+                continue
+            if not t.get("model_reason"):
+                violations.append(
+                    f"タスク{t.get('id', '?')!r}: modelが指定されている"
+                    f"({model!r})のにmodel_reasonが空/欠落している。モデル"
+                    "選択の逸脱には理由を残す運用に反する。model_reasonへ"
+                    "選択理由を1行で書いて再設計せよ"
+                )
+            if model not in model_allowlist:
+                violations.append(
+                    f"タスク{t.get('id', '?')!r}: model={model!r}が許可リスト"
+                    f"{model_allowlist!r}に無い。許可リスト内のモデルへ"
+                    "変更して再設計せよ"
+                )
     if (data.get("visual_quality") and isinstance(tasks, list) and tasks):
         first = tasks[0]
         if not (isinstance(first, dict) and first.get("kind") == "reference"):
@@ -201,8 +238,10 @@ def plan(cfg: dict, intent: str, context_digest: str,
                          projects=_projects_context(cfg),
                          workers=", ".join(cfg["workers"]["enabled"]))
     note_text = f"{intent}\n{context_digest}"
+    model_allowlist = cfg.get("model_allowlist") or DEFAULT_MODEL_ALLOWLIST
     data = _ask_json(cfg, "planner", prompt, budget=budget)
-    violations = lint_plan(data, note_text=note_text)
+    violations = lint_plan(data, note_text=note_text,
+                           model_allowlist=model_allowlist)
     if violations:
         print("orgh: plan lint違反を検出、再計画を1回要求する: "
               + "; ".join(violations))
@@ -213,7 +252,8 @@ def plan(cfg: dict, intent: str, context_digest: str,
             + "\n上記を満たすようタスクDAGを再設計し、説明文・コードフェンスを"
               "付けずJSONオブジェクト1個のみを出力すること。")
         data = _ask_json(cfg, "planner", retry_prompt, budget=budget)
-        violations = lint_plan(data, note_text=note_text)
+        violations = lint_plan(data, note_text=note_text,
+                               model_allowlist=model_allowlist)
         if violations:
             print("orgh: 再計画の応答も plan lint に違反した。人間エスカレー"
                   "ションへ引き継ぐ: " + "; ".join(violations))
