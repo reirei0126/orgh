@@ -9,6 +9,7 @@ routeenum: orgh|manual|ai-session|dropped。observe_byは種別固定表(配達=
 
 | date | mission | 分類 | usd | route | usage | outcome宣言 | observe_by | 判定 | outcome_result | evidence | owner_min |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-08-25 | df1a8a35 | B | 6.38 | orgh | delivered | -(宣言なし。箱庭由来のためF分子から除外) | 2026-09-01 | used | - | main環境復旧が即時に開発の前提として機能・処遇一覧はオーナー判断待ち。verdict pass | 1 |
 | 2026-08-23 | 8b435cc4 | A | 11.20 | orgh | published | 8/27までにREADME公開・応募書類にMCP実績記載(E3宣言) | 2026-09-05 | used | **achieved** | 応募提出済み・orghリポへのリンク記載をオーナー確認(期限9/5に対し8/23達成) | 15 |
 
 ## E5補助表(正解先行の非劣性判定用。対象発生時に開始前登録)
@@ -29,3 +30,5 @@ E2早期判定(2026-08-23・オーナー合意): 実験の問い「予算宣言�
 2026-08-23 オーナー報告: Notion応募を提出(観測期限9/5に対し早期)。8b435cc4のoutcome_result判定はリンク記載の確認後に確定(暫定: achieved見込み)。
 
 2026-08-23: 8b435cc4 achieved確定(オーナー確認: リンク記載あり)。**outcome達成の第1号**。
+
+CHECKED W35(2026-08-25): E1登録1件(df1a8a35=B分類・箱庭由来のためF存続条件の分子からは除外)・判定used。E2=修理済み配線が実戦初機能(6.378/8.0)。E3=箱庭ミッションは雇用契約が包絡。E4新規メモなし。E5該当なし。
