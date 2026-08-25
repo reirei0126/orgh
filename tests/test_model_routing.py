@@ -1,16 +1,43 @@
-"""計画契約の拡張(model/model_reason)とplan lintでの機械強制。
+"""計画契約の拡張(model/model_reason)とplan lintでの機械強制、および実行系接続。
 
 タスクごとにworkerモデル等級(haiku/sonnet/opus)をPlannerが選べるようにする。
 判定はPythonのコードのみで行う(LLMには問い合わせない)。model未指定タスクの
-挙動は完全不変(config既定のまま)。実行系(実際のモデル起動)は本タスクの範囲外。
+挙動は完全不変(config既定のまま)。
+
+TestModelRoutingExecution 以降は実行系(worker起動argv・差し戻し昇格・ledger記録)
+の接続を検証する(orgh/adapters/base.py get_adapter・orgh/orchestrator/task_executor.py)。
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 from orgh import planner
+from orgh.orchestrator import run_mission
+from orgh.state import Mission, RunStore
+
+from .conftest import read_calls, read_ledger
 
 REPO = Path(__file__).resolve().parent.parent
+
+
+def _mission(tasks: list[dict]) -> Mission:
+    return Mission.new(intent="モデル振り分け試験", context_digest="(test)",
+                       tasks=tasks)
+
+
+def _task(id: str, model: str | None = None, worker: str = "claude_code") -> dict:
+    task = {"id": id, "title": f"task {id}", "prompt": f"作業せよ [[MARK:{id}]]",
+           "worker": worker, "deps": [], "acceptance": ["mock acceptance"],
+           "workdir": "."}
+    if model is not None:
+        task["model"] = model
+        task["model_reason"] = "テスト用の明示指定"
+    return task
+
+
+def _worker_calls(mock_state_dir, marker: str) -> list[dict]:
+    return [c for c in read_calls(mock_state_dir)
+           if c["role"] == "worker" and c["marker"] == marker]
 
 
 def _plan_json(model: str | None = None, model_reason: str = "") -> dict:
@@ -66,3 +93,131 @@ class TestPlannerPromptContract:
         text = (REPO / "prompts" / "planner.md").read_text()
         assert "model_reason" in text
         assert "worker: haiku" in text
+
+
+class TestModelRoutingExecution:
+    """AC-1/AC-4: worker起動argvへのmodel通しと、未指定タスクの完全不変。"""
+
+    def test_explicit_model_reaches_worker_argv(self, cfg, mock_state_dir):
+        m = _mission([_task("t1", model="haiku")])
+        run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
+
+        assert m.tasks[0].status == "done"
+        [call] = _worker_calls(mock_state_dir, "t1")
+        argv = call["argv"]
+        assert "--model" in argv
+        assert argv[argv.index("--model") + 1] == "haiku"
+
+    def test_unspecified_model_keeps_config_default_only(self, cfg,
+                                                          mock_state_dir):
+        # cfgフィクスチャのclaude_code既定は model: "sonnet"。タスク由来の
+        # 追加/上書きが起きなければ --model は1回だけ・値はconfig既定のまま。
+        m = _mission([_task("t2")])
+        run_mission(cfg, m, RunStore(cfg["runs_dir"], m.id))
+
+        assert m.tasks[0].status == "done"
+        [call] = _worker_calls(mock_state_dir, "t2")
+        argv = call["argv"]
+        assert argv.count("--model") == 1
+        assert argv[argv.index("--model") + 1] == "sonnet"
+
+    def test_task_start_event_includes_model(self, cfg, mock_state_dir):
+        m = _mission([_task("t3", model="haiku")])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        starts = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                 if e["event"] == "task.start"]
+        assert starts and starts[0]["model"] == "haiku"
+
+    def test_task_start_event_model_is_none_when_unspecified(self, cfg,
+                                                              mock_state_dir):
+        m = _mission([_task("t4")])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        starts = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                 if e["event"] == "task.start"]
+        assert starts and starts[0]["model"] is None
+
+
+class TestModelEscalationOnRejection:
+    """AC-2/AC-3: 差し戻し後の1段昇格(haiku->sonnet)とopusの据え置き。"""
+
+    def test_haiku_escalates_to_sonnet_after_rejection(self, cfg,
+                                                        mock_state_dir,
+                                                        monkeypatch):
+        monkeypatch.setenv("MOCK_REJECT_ONCE", "t1")
+        m = _mission([_task("t1", model="haiku")])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        assert m.tasks[0].status == "done"
+        assert m.tasks[0].attempts == 2
+        calls = _worker_calls(mock_state_dir, "t1")
+        assert len(calls) == 2
+        argv1, argv2 = calls[0]["argv"], calls[1]["argv"]
+        assert argv1[argv1.index("--model") + 1] == "haiku"
+        assert argv2[argv2.index("--model") + 1] == "sonnet"
+
+        events = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                 if e["event"] == "model.escalated"]
+        assert len(events) == 1
+        assert events[0]["task"] == "t1"
+        assert events[0]["from_"] == "haiku"
+        assert events[0]["to"] == "sonnet"
+
+    def test_opus_stays_put_after_rejection(self, cfg, mock_state_dir,
+                                            monkeypatch):
+        monkeypatch.setenv("MOCK_REJECT_ONCE", "t1")
+        m = _mission([_task("t1", model="opus")])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        assert m.tasks[0].status == "done"
+        calls = _worker_calls(mock_state_dir, "t1")
+        assert len(calls) == 2
+        for call in calls:
+            argv = call["argv"]
+            assert argv[argv.index("--model") + 1] == "opus"
+
+        events = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                 if e["event"] == "model.escalated"]
+        assert events == []
+
+    def test_unspecified_model_never_escalates(self, cfg, mock_state_dir,
+                                               monkeypatch):
+        monkeypatch.setenv("MOCK_REJECT_ONCE", "t1")
+        m = _mission([_task("t1")])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        assert m.tasks[0].status == "done"
+        calls = _worker_calls(mock_state_dir, "t1")
+        assert len(calls) == 2
+        for call in calls:
+            argv = call["argv"]
+            assert argv.count("--model") == 1
+            assert argv[argv.index("--model") + 1] == "sonnet"
+
+        events = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                 if e["event"] == "model.escalated"]
+        assert events == []
+
+
+class TestCodexModelIgnored:
+    """model指定がcodexタスクに付いた場合はargvを変えずledgerへ1回だけ記録する。"""
+
+    def test_codex_model_is_ignored_but_logged(self, cfg, mock_state_dir):
+        m = _mission([_task("t1", model="haiku", worker="codex")])
+        store = RunStore(cfg["runs_dir"], m.id)
+        run_mission(cfg, m, store)
+
+        assert m.tasks[0].status == "done"
+
+        events = [e for e in read_ledger(cfg["runs_dir"], m.id)
+                 if e["event"] == "task.model_ignored"]
+        assert len(events) == 1
+        assert events[0]["task"] == "t1"
+        assert events[0]["worker"] == "codex"
+        assert events[0]["model"] == "haiku"

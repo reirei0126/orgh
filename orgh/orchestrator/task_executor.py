@@ -56,6 +56,10 @@ def is_capability_error(output: str) -> bool:
     return bool(CAPABILITY_ERROR_RE.search(output or ""))
 
 
+# 差し戻し昇格の順序(モデル未指定タスクには適用しない。opusは終端で昇格なし)
+_MODEL_ESCALATION = {"haiku": "sonnet", "sonnet": "opus"}
+
+
 def run_task(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
     """最外周の薄いラッパ: 実処理(attempt_loop)の全例外を1タスクのfailedに閉じ込め、
     ミッション全体を道連れにしない。"""
@@ -136,7 +140,21 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                 t.workdir, t.branch = str(path), branch
             store.log("task.worktree", task=t.id, path=str(path), branch=branch)
 
-    adapter = get_adapter(t.worker, cfg["workers"])
+    # タスク単位のmodel指定(Planner明示)をworker起動へ通す(HANDOFF後続)。
+    # t.model が None のタスクは effective_model も常にNoneのままで、
+    # get_adapter(model=None)は既存cfgをそのまま渡すため挙動は完全不変。
+    # codexアダプタはmodel引数をargvへ通す口が無いため、指定があっても
+    # 無視してledgerに1回だけ記録し、argv/実行は既定のまま続行する。
+    effective_model = t.model
+    if t.worker == "codex" and effective_model is not None:
+        store.log("task.model_ignored", task=t.id, worker=t.worker,
+                  model=effective_model)
+
+    def _adapter_for(model: str | None):
+        return get_adapter(t.worker, cfg["workers"],
+                           model=None if t.worker == "codex" else model)
+
+    adapter = _adapter_for(effective_model)
     # A2限定版(方向性文書2026-08 §3.1): 注入したcapability_allowlistを監査記録する。
     # 「そのタスクに何が許可されていたか」を事後追跡できるようにするための記録
     # であって、セキュリティ保証ではない(orgh/adapters/base.py build_allowed_tools参照)
@@ -175,7 +193,7 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
                     t.status = "running"
                 my_attempt = t.attempts
                 store.log("task.start", task=t.id, worker=t.worker,
-                          attempt=t.attempts)
+                          attempt=t.attempts, model=effective_model)
                 res = adapter.run(prompt, workdir=t.workdir,
                                   resume=t.session_id,
                                   timeout=lcfg.get("task_timeout", 3600),
@@ -334,6 +352,17 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             adapter, cfg, t,
             f"レビューで差し戻し。以下を修正して受け入れ条件を満たせ。\n"
             f"## Feedback\n{feedback}")
+        # 差し戻し昇格: タスクにmodelが明示指定されている場合のみ、次attemptの
+        # 実効モデルを1段昇格する(haiku -> sonnet -> opus)。opusは据え置き
+        # (昇格イベントも記録しない)。model未指定タスクは完全不変。
+        if t.model is not None:
+            next_model = _MODEL_ESCALATION.get(effective_model)
+            if next_model:
+                store.log("model.escalated", task=t.id, from_=effective_model,
+                          to=next_model, attempt=t.attempts + 1,
+                          reason="review_rejected")
+                effective_model = next_model
+                adapter = _adapter_for(effective_model)
 
     transition(store, t, "failed")
     return t
