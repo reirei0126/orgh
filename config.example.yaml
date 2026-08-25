@@ -1,6 +1,7 @@
 runs_dir: runs
 prompts_dir: prompts         # 役割プロンプト(planner/reviewer/retro/worker_preamble)の置き場
 playbooks_dir: playbooks     # Retroが蒸留した組織知の置き場
+# model_allowlist: [haiku, sonnet, opus]  # タスクmodel指定の許可リスト(省略時の既定も同じ値)
 
 criteria_dir: criteria       # オーナー判断基準台帳。Reviewer/ペルソナ検収に注入され、
 criteria_max_inject_chars: 4000     # 台帳注入の上限字数。超過分は日付降順で古い方から注入対象外(既定4000)

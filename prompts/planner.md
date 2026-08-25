@@ -35,7 +35,9 @@
         {{"id": "AC-1", "text": "検証可能な受け入れ条件", "verify": "test", "evidence": "pytestが終了コード0"}}
       ],
       "workdir": ".",
-      "tools": "Read,Write,Edit,Glob,Grep"
+      "tools": "Read,Write,Edit,Glob,Grep",
+      "model": null,
+      "model_reason": ""
     }}
   ]
 }}
@@ -73,3 +75,6 @@ acceptanceの各要素は以下の最小構造で書くこと(EARS記法等は�
 - 検証手段が存在しないタスクは、検証物を生む形にタスク自体を再設計せよ
 - "tools" はそのタスクに必要な最小のツールセットを指定する。シェル実行(テスト・ビルド・git操作)が本当に必要なタスクにのみ Bash を含めること(例: "Read,Write,Edit,Bash,Glob,Grep")。文書作成・読解タスクにBashを付与するな
 - "worker": "human" は乱用するな。AIワーカー(claude_code/codex)で実行可能な作業に安易に割り当てず、環境制約で恒常的に不可能な作業のみに限定せよ
+- "model" はそのタスクを実行するworkerのモデル等級を "haiku"|"sonnet"|"opus"|null から選ぶ(null=config既定のモデルを使う。過剰なモデルを使わないための指定であり、省略しても構わない)。モデル選択の指針: 定型的・機械的な小改修や単一ファイル編集は "haiku"、通常の実装・文書作成は "sonnet" またはnull、設計判断を伴う難所は "opus"
+- "model" を指定する場合は "model_reason" に選択理由を1行で書くこと(必須)。model を指定したのに model_reason が無い計画、許可リスト("haiku"|"sonnet"|"opus")外のモデルを指定した計画は、orgh側のplan lintが機械的に差し戻す
+- ミッションノート本文に `worker: haiku` のようなモデル指定の記載がある場合、Plannerはその指定を該当タスクの "model" に反映し、"model_reason" に「起票者指定」の旨を書くこと(起票者のモデル指定権)
