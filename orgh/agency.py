@@ -17,8 +17,11 @@ notify.mission_settled_event が作る mission.settled イベントを入力に�
 """
 from __future__ import annotations
 
+import datetime
 import pathlib
 import re
+
+from .state import Mission, RunStore
 
 DEFAULT_AGENTS_DIR = "private/agents"
 DEFAULT_SALARY_USD = 3.0
@@ -184,3 +187,42 @@ def record(*, event: dict, cfg: dict, agent_id: str, date: str,
 
     path.write_text(_append_rows(text, rows), encoding="utf-8")
     return {"action": "written", "rows": rows, "path": str(path)}
+
+
+def on_settled(store: RunStore, cfg: dict, mission: Mission, event: dict, *,
+               date: str | None = None,
+               repo_root: pathlib.Path | None = None) -> None:
+    """mission.settledの発行直後にscheduler側から1行で呼ぶ配線点。
+
+    起案者(resolve_drafter)を解決できないミッションは記帳対象外とし、
+    台帳ファイルには一切触れない(agency.skipped reason=no_drafter のみ記録)。
+    それ以外はrecord()の結果に応じて ledger.jsonl へ
+    agency.would_write / agency.recorded / agency.skipped のいずれかを記録する。
+    記帳処理の例外はミッション進行を止めない(notify.emitのwebhook失敗時と
+    同じ方針。agency.failedに留める)。"""
+    try:
+        agent_id = resolve_drafter(mission.context_digest)
+        if agent_id is None:
+            store.log("agency.skipped", reason="no_drafter",
+                      event_id=event.get("event_id"), mission_id=mission.id)
+            return
+
+        result = record(
+            event=event, cfg=cfg, agent_id=agent_id,
+            date=date or datetime.date.today().isoformat(),
+            repo_root=repo_root or pathlib.Path.cwd())
+
+        action = result["action"]
+        if action == "would_write":
+            store.log("agency.would_write", event_id=event.get("event_id"),
+                      agent=agent_id, rows=result["rows"], path=result["path"])
+        elif action == "written":
+            store.log("agency.recorded", event_id=event.get("event_id"),
+                      agent=agent_id, rows=result["rows"], path=result["path"])
+        else:  # skipped(no_ledger / duplicate)
+            store.log("agency.skipped", reason=result["reason"],
+                      event_id=event.get("event_id"), agent=agent_id,
+                      path=result.get("path"))
+    except Exception as exc:
+        store.log("agency.failed", error=str(exc)[:300],
+                  event_id=event.get("event_id"), mission_id=mission.id)

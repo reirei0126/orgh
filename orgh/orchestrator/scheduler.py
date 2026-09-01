@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
-from .. import lease, listing, notify
+from .. import agency, lease, listing, notify
 from ..guard import needs_approval
 from ..state import TERMINAL, Mission, RunStore, Task
 from .budget_policy import initiate_budget_stop, setup_budget
@@ -317,13 +317,14 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
     except Exception:
         pass  # 通知処理の失敗でミッション進行を止めない
     try:
-        # 箱庭事務局の記帳自動化(agency)の土台。実記帳(economy-ledger.md書き込み)
-        # はここでは行わない(後続タスク)
+        # 箱庭事務局の記帳自動化(agency)。起案者解決・dry_run判定・実記帳は
+        # agency.on_settledに委譲する(そちら側で例外はagency.failedに留められる)
         outcome = settlement_outcome(mission)
         if outcome is not None:
             cost_usd = mission.budget.spent_usd if mission.budget else 0.0
             event = notify.mission_settled_event(mission, outcome, cost_usd)
             notify.emit(store, cfg, event)
+            agency.on_settled(store, cfg, mission, event)
     except Exception:
         pass  # 通知処理の失敗でミッション進行を止めない
     return mission
