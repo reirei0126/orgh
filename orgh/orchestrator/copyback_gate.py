@@ -23,10 +23,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
 from ..copyback import (
+    DEFAULT_STAGING_DIR,
     MANIFEST_FILENAME,
     CopybackError,
     run_copyback,
@@ -39,6 +41,72 @@ from .transitions import enter_awaiting_human, transition
 
 def has_manifest(t: Task) -> bool:
     return (Path(t.workdir) / MANIFEST_FILENAME).exists()
+
+
+def _worktree_repo_root(workdir: str) -> Path | None:
+    """t.workdir が `<repo>/.orgh-worktrees/<mission>-<task>` 形の場合、
+    `.orgh-worktrees` の親(=対象リポのルート)を返す。純粋なパス演算のみ
+    (gitコマンド不要)。その形でなければNone。"""
+    parts = Path(workdir).parts
+    if ".orgh-worktrees" not in parts:
+        return None
+    idx = parts.index(".orgh-worktrees")
+    if idx == 0:
+        return None
+    return Path(*parts[:idx])
+
+
+def _git_repo_root_candidate(workdir: str) -> Path | None:
+    """git-common-dirの親から本体リポを導く補助経路。gitが無い/失敗する場合は
+    静かにNoneを返す(例外を外へ出さない)。"""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(workdir), "rev-parse",
+             "--path-format=absolute", "--git-common-dir"],
+            capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        return Path(r.stdout.strip()).parent
+    except Exception:
+        return None
+
+
+def _detect_misplacement(t: Task) -> Path | None:
+    """has_manifest(t)がFalseのとき、実リポ直下への誤配置(escape第2号
+    実測 runs/af7c4832)を疑い、候補ディレクトリに manifest と staging の
+    両方が存在すればその候補パスを返す。候補が無ければNone(挙動不変)。"""
+    candidates: list[Path] = []
+    primary = _worktree_repo_root(t.workdir)
+    if primary is not None:
+        candidates.append(primary)
+    secondary = _git_repo_root_candidate(t.workdir)
+    if secondary is not None and secondary not in candidates:
+        candidates.append(secondary)
+    for c in candidates:
+        if (c / MANIFEST_FILENAME).exists() and (c / DEFAULT_STAGING_DIR).exists():
+            return c
+    return None
+
+
+def check_misplaced(store: RunStore, cfg: dict, t: Task) -> bool:
+    """has_manifest(t)がFalseの場合に呼ぶ。誤配置を検知したら
+    copyback.misplaced をledgerへ記録し、awaiting_humanへ差し戻してTrueを
+    返す(呼び出し側はレビューへ進まずtaskを返すこと)。誤配置候補が無ければ
+    何もせずFalse(=従来動作)。"""
+    misplaced_root = _detect_misplacement(t)
+    if misplaced_root is None:
+        return False
+    store.log("copyback.misplaced", task=t.id, misplaced_root=str(misplaced_root))
+    enter_awaiting_human(
+        store, cfg, t,
+        f"copyback成果物(orgh-manifest.json / {DEFAULT_STAGING_DIR})が割り当て"
+        f"られたworktree直下ではなく実リポ直下({misplaced_root})に作られた"
+        f"疑いがある(機械検知。escape第2号 runs/af7c4832 相当)。",
+        refund_attempt=False)
+    return True
 
 
 def _read_dest_root(workdir: str) -> str | None:
