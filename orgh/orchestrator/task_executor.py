@@ -284,6 +284,8 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
         # orgh-manifest.json を出力した場合のみ発動する(無ければNone=従来動作)。
         # 検収開始時点でstagingを凍結扱いにして照合するため、reviewer呼び出し
         # (成果物を書き換えない前提)より前にここで行う
+        if not copyback_gate.has_manifest(t) and copyback_gate.check_misplaced(store, cfg, t):
+            return t   # 実リポ直下への誤配置を検知し人間裁定へ差し戻し済み(成果は保持)
         copyback_ctx = copyback_gate.start_review_gate(store, t)
         verdict = run_review_pipeline(cfg, store, t, budget, infra_wait)
         if verdict is None:

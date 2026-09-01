@@ -168,6 +168,55 @@ class TestManifestConflict:
         assert (dest / "existing.txt").read_text() == "edited-by-someone-else\n"
 
 
+class TestMisplacedManifestDetection:
+    """workerがcopyback成果物(orgh-manifest.json / _orgh_staging)を割り当てられた
+    worktree直下ではなく実リポ直下へ誤って作った場合(escape第2号 実測
+    runs/af7c4832)、has_manifest(t)はFalseのまま(=従来経路)copyback契約が
+    発動しないため、機械検知で copyback.misplaced を記録し差し戻す。"""
+
+    def test_manifest_in_repo_root_instead_of_worktree_triggers_misplaced(
+            self, cfg, mock_state_dir, tmp_path):
+        repo_root = tmp_path / "repo"
+        workdir = repo_root / ".orgh-worktrees" / "cb-misplaced-t1"
+        workdir.mkdir(parents=True)
+        # worktree直下(workdir)ではなく実リポ直下(repo_root)へ誤配置した状態を再現
+        _write_staging(repo_root, {"a.txt": "A\n"},
+                       dest_root=str(tmp_path / "dest_mp"))
+        store = RunStore(cfg["runs_dir"], "cb-misplaced")
+        t = _task("t1", workdir)
+
+        result = run_task(cfg, store, t, _budget())
+
+        assert result.status != "done"
+        assert result.status == "awaiting_human"
+        events = read_ledger(cfg["runs_dir"], "cb-misplaced")
+        by_event = [e["event"] for e in events]
+        assert "copyback.misplaced" in by_event
+        misplaced_ev = next(e for e in events if e["event"] == "copyback.misplaced")
+        assert misplaced_ev["misplaced_root"] == str(repo_root)
+        # 誤配置検知時は通常のcopyback契約(manifest/completed)を発動させない
+        assert "copyback.manifest" not in by_event
+
+
+class TestNoMisplacementForNormalTask:
+    """worktree形のworkdirでも、manifestも誤配置も無ければ copyback.misplaced は
+    記録されず、従来どおりdoneになる(挙動不変)。"""
+
+    def test_worktree_shaped_workdir_without_manifest_stays_unchanged(
+            self, cfg, mock_state_dir, tmp_path):
+        repo_root = tmp_path / "repo"
+        workdir = repo_root / ".orgh-worktrees" / "cb-clean-t1"
+        workdir.mkdir(parents=True)
+        store = RunStore(cfg["runs_dir"], "cb-clean")
+        t = _task("t1", workdir)
+
+        result = run_task(cfg, store, t, _budget())
+
+        assert result.status == "done"
+        events = [e["event"] for e in read_ledger(cfg["runs_dir"], "cb-clean")]
+        assert "copyback.misplaced" not in events
+
+
 class TestAllowedRootsRejection:
     """allowed_roots外の宛先は拒否され、タスクがdoneにならない。"""
 

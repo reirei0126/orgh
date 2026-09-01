@@ -5,5 +5,12 @@
 ## タスク: {title}
 {prompt}
 
+## copyback成果物の配置(厳守)
+git管理外の宛先へ成果物を書き戻す必要がある場合、`_orgh_staging/` と
+`orgh-manifest.json` は必ず**カレントworktree直下**に作ること。指示文に
+絶対パスで実リポの場所が書かれていても、その配下へ `_orgh_staging/` や
+`orgh-manifest.json` を直接書き込むな(読み取りは可)。worktree外に作ると
+copyback契約が発動せず、成果物が届かないまま検収を通過してしまう。
+
 ## 受け入れ条件(レビュアーがこれで判定する)
 {acceptance}
