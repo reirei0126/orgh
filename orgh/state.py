@@ -117,6 +117,17 @@ class NotifyCfg:
 
 
 @dataclass
+class AgencyCfg:
+    """箱庭事務局の記帳自動化(agency)の土台設定。実際の記帳処理(economy-ledger.md
+    への書き込み)は後続タスクで実装する — このタスクではmission.settledイベントの
+    発行までしか行わない。dry_run=true(既定)の間は実書き込みを行わず、
+    ledgerへagency.would_writeのみ記録する想定(fail-safe: 未指定でもtrue扱い)。"""
+    dry_run: bool = True
+    agents_dir: str = "private/agents"   # <agents_dir>/<agent_id>/economy-ledger.md
+    salary_usd: float = 3.0              # done時に支払う給料(雇用契約の固定値)
+
+
+@dataclass
 class CopybackCfg:
     """非git成果物領域への書き戻し許可(方向性文書2026-08 §4 3a')。
     allowed_rootsが空ならcopyback無効(既定)。各要素は絶対パス必須で、
@@ -141,6 +152,7 @@ class ConfigSchema:
     personas: PersonasCfg | None = None
     notify: NotifyCfg | None = None
     copyback: CopybackCfg | None = None
+    agency: AgencyCfg | None = None
     runs_dir: str = "runs"
     prompts_dir: str = "prompts"
     criteria_dir: str = "criteria"
@@ -155,7 +167,7 @@ _SECTION_SCHEMAS = {"vault": VaultCfg, "loop": LoopCfg, "watch": WatchCfg,
                     "worktree": WorktreeCfg, "source": SourceCfg,
                     "notion": NotionCfg, "gc": GcCfg,
                     "personas": PersonasCfg, "notify": NotifyCfg,
-                    "copyback": CopybackCfg}
+                    "copyback": CopybackCfg, "agency": AgencyCfg}
 # from __future__ import annotations により field.type は文字列
 _TYPE_MAP: dict[str, type | tuple[type, ...]] = {
     "int": int, "float": (int, float), "str": str, "bool": bool,
