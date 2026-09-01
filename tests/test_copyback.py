@@ -298,6 +298,120 @@ class TestAtomicCopy:
         assert not (dest / "a.txt").exists()  # 競合検知時はコピーを行わない
 
 
+class TestBaselineAwareOverwrite:
+    """既存ファイルの『更新』配達の三分岐(skip / baseline不変なら上書き / blocked)。
+
+    旧実装は宛先に内容の異なる既存ファイルがあれば baseline_snapshot の有無に
+    関わらず無条件で blocked にしていたため、git管理外領域への更新配達が構造的に
+    不可能だった(人力ゼロの更新配達が成立しない)。このクラスがその修正を固定する。
+    """
+
+    def _worktree_with_files(self, tmp_path, files: dict[str, str]) -> Path:
+        worktree = tmp_path / "worktree"
+        staging = _staging(worktree)
+        entries = []
+        for rel, content in files.items():
+            _write(staging / rel, content)
+            entries.append(_entry_for(staging, rel))
+        _manifest(worktree, entries)
+        return worktree
+
+    def test_overwrites_existing_file_unchanged_since_baseline(self, tmp_path):
+        """宛先の既存ファイルがbaseline記録と一致 → completed かつ内容が更新される。"""
+        worktree = self._worktree_with_files(tmp_path, {"a.txt": "NEW\n"})
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / "a.txt").write_text("OLD\n")
+
+        from orgh.copyback import snapshot_tree
+        baseline = snapshot_tree(dest)  # 検収開始時のスナップショット
+
+        verification, result = run_copyback(
+            worktree, dest, [str(dest)], baseline_snapshot=baseline)
+
+        assert verification.ok is True
+        assert result.status == "completed"
+        assert result.copied == ["a.txt"]
+        assert result.blocked == []
+        assert (dest / "a.txt").read_text() == "NEW\n"
+
+    def test_conflict_when_existing_file_changed_since_baseline(self, tmp_path):
+        """宛先の既存ファイルがbaseline記録から変化 → conflict でコピーは一切行わない。"""
+        worktree = self._worktree_with_files(
+            tmp_path, {"a.txt": "NEW\n", "fresh.txt": "F\n"})
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / "a.txt").write_text("OLD\n")
+
+        from orgh.copyback import snapshot_tree
+        baseline = snapshot_tree(dest)
+
+        # 検収開始後に第三者が宛先を書き換えた
+        (dest / "a.txt").write_text("EDITED-BY-SOMEONE-ELSE\n")
+
+        verification, result = run_copyback(
+            worktree, dest, [str(dest)], baseline_snapshot=baseline)
+
+        assert verification.ok is True
+        assert result.status == "conflict"
+        assert result.copied == []
+        assert (dest / "a.txt").read_text() == "EDITED-BY-SOMEONE-ELSE\n"
+        assert not (dest / "fresh.txt").exists()  # 新規分もコピーしない
+
+    def test_blocked_when_existing_file_absent_from_baseline(self, tmp_path):
+        """検収開始後に第三者が新規作成した既存ファイル(baseline記録なし)
+        → partial かつ blocked。宛先は書き換わらない。"""
+        worktree = self._worktree_with_files(tmp_path, {"a.txt": "NEW\n"})
+        dest = tmp_path / "dest"
+        dest.mkdir()
+
+        from orgh.copyback import snapshot_tree
+        baseline = snapshot_tree(dest)  # この時点では a.txt は存在しない
+        assert "a.txt" not in baseline
+
+        # 検収開始後に第三者が同名ファイルを作った
+        (dest / "a.txt").write_text("CREATED-BY-SOMEONE-ELSE\n")
+
+        verification, result = run_copyback(
+            worktree, dest, [str(dest)], baseline_snapshot=baseline)
+
+        assert verification.ok is True
+        assert result.status == "partial"
+        assert result.blocked == ["a.txt"]
+        assert result.copied == []
+        assert (dest / "a.txt").read_text() == "CREATED-BY-SOMEONE-ELSE\n"
+
+    def test_backward_compatible_without_baseline_stays_partial(self, tmp_path):
+        """後方互換: baseline_snapshotを渡さない呼び出しでは、内容不一致の既存
+        ファイルは従来どおり blocked / partial のまま(宛先は不変)。"""
+        worktree = self._worktree_with_files(tmp_path, {"a.txt": "NEW\n"})
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / "a.txt").write_text("OLD\n")
+
+        verification, result = run_copyback(worktree, dest, [str(dest)])
+
+        assert verification.ok is True
+        assert result.status == "partial"
+        assert result.blocked == ["a.txt"]
+        assert result.copied == []
+        assert (dest / "a.txt").read_text() == "OLD\n"
+
+    def test_signature_keeps_baseline_snapshot_keyword_only(self):
+        """AC-4: 新規の必須引数を足していない(baseline_snapshotはkeyword-onlyのまま)。"""
+        import inspect
+
+        params = inspect.signature(run_copyback).parameters
+        positional = [n for n, p in params.items()
+                      if p.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD]
+        assert positional == ["worktree_dir", "dest_root", "allowed_roots"]
+        keyword_only = {n: p for n, p in params.items()
+                        if p.kind is inspect.Parameter.KEYWORD_ONLY}
+        assert sorted(keyword_only) == ["baseline_snapshot", "manifest_filename"]
+        assert all(p.default is not inspect.Parameter.empty
+                   for p in keyword_only.values())
+
+
 class TestIdempotentRerun:
     def test_rerun_skips_matching_and_stops_on_mismatch(self, tmp_path):
         worktree = tmp_path / "worktree"
