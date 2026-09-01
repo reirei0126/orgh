@@ -280,10 +280,13 @@ def attempt_loop(cfg: dict, store: RunStore, t: Task, budget: Budget) -> Task:
             continue
 
         transition(store, t, "review")
-        # 非git成果物の配達契約(direction-2026-08 §4 3a'): workerがworktree直下に
-        # orgh-manifest.json を出力した場合のみ発動する(無ければNone=従来動作)。
+        # 非git成果物の配達契約(direction-2026-08 §4 3a'): workerが
+        # orgh-manifest.json を worktree直下(第1優先)または staging直下
+        # (第2優先)に出力した場合のみ発動する(無ければNone=従来動作)。
         # 検収開始時点でstagingを凍結扱いにして照合するため、reviewer呼び出し
         # (成果物を書き換えない前提)より前にここで行う
+        if copyback_gate.check_manifest_conflict(store, cfg, t):
+            return t   # manifestが両所在・内容不一致。人間裁定へ差し戻し済み
         if not copyback_gate.has_manifest(t) and copyback_gate.check_misplaced(store, cfg, t):
             return t   # 実リポ直下への誤配置を検知し人間裁定へ差し戻し済み(成果は保持)
         copyback_ctx = copyback_gate.start_review_gate(store, t)

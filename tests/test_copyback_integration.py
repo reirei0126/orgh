@@ -28,10 +28,18 @@ def _sha256(data: bytes) -> str:
 
 
 def _write_staging(workdir: Path, files: dict[str, str],
-                   dest_root: str | None) -> None:
+                   dest_root: str | None,
+                   manifest_at: str = "root",
+                   staging_manifest_dest_root: str | None = None) -> None:
     """workdir(worktree直下)に orgh-manifest.json を置き、成果物は
     `_orgh_staging/` サブディレクトリ配下へ出力する(staging専用サブ
-    ディレクトリ契約)。"""
+    ディレクトリ契約)。
+
+    manifest_at で manifest の所在を切り替える(2箇所対応の検証用):
+    "root"(既定・従来どおりworktree直下) / "staging"(staging直下のみ) /
+    "both"(両所在)。"both" のとき staging_manifest_dest_root を渡すと
+    staging側のmanifestだけ dest_root を変えて内容不一致(conflict)にできる。
+    """
     staging = workdir / DEFAULT_STAGING_DIR
     staging.mkdir(parents=True, exist_ok=True)
     entries = []
@@ -44,8 +52,17 @@ def _write_staging(workdir: Path, files: dict[str, str],
     manifest: dict = {"files": entries}
     if dest_root is not None:
         manifest["dest_root"] = dest_root
-    (workdir / "orgh-manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False))
+    payload = json.dumps(manifest, ensure_ascii=False)
+
+    if manifest_at in ("root", "both"):
+        (workdir / "orgh-manifest.json").write_text(payload)
+    if manifest_at in ("staging", "both"):
+        staging_payload = payload
+        if staging_manifest_dest_root is not None:
+            staging_manifest = dict(manifest)
+            staging_manifest["dest_root"] = staging_manifest_dest_root
+            staging_payload = json.dumps(staging_manifest, ensure_ascii=False)
+        (staging / "orgh-manifest.json").write_text(staging_payload)
 
 
 def _task(id: str, workdir: Path) -> Task:
@@ -102,6 +119,122 @@ class TestManifestCompleted:
         assert manifest_ev["file_count"] == 2
         completed_ev = next(e for e in events if e["event"] == "copyback.completed")
         assert sorted(completed_ev["copied"]) == ["a.txt", "sub/b.txt"]
+
+
+class TestManifestInStaging:
+    """manifestがstaging直下(`_orgh_staging/orgh-manifest.json`)にしか無い場合
+    でも検収ゲートが発火し、配達完了(copyback.completed)まで通る。
+
+    workerがmanifestをstagingへ入れてしまうと、旧実装ではhas_manifest()が
+    Falseとなりcopyback契約が空振りし、成果物が届かないまま検収を通過していた。
+    """
+
+    def test_staging_only_manifest_fires_gate_and_delivers(
+            self, cfg, mock_state_dir, tmp_path):
+        workdir = tmp_path / "staging6"
+        dest = tmp_path / "dest6"
+        _write_staging(workdir, {"a.txt": "A\n", "sub/b.txt": "B\n"},
+                       dest_root=str(dest), manifest_at="staging")
+        assert not (workdir / "orgh-manifest.json").exists()
+        cfg["copyback"] = {"allowed_roots": [str(dest)]}
+        store = RunStore(cfg["runs_dir"], "cb-staging")
+        t = _task("t6", workdir)
+
+        result = run_task(cfg, store, t, _budget())
+
+        assert result.status == "done"
+        assert (dest / "a.txt").read_text() == "A\n"
+        assert (dest / "sub" / "b.txt").read_text() == "B\n"
+        assert not (dest / "orgh-manifest.json").exists()
+        events = read_ledger(cfg["runs_dir"], "cb-staging")
+        by_event = [e["event"] for e in events]
+        assert "copyback.completed" in by_event
+        assert "copyback.manifest_conflict" not in by_event
+        assert "copyback.misplaced" not in by_event
+        manifest_evs = [e for e in events if e["event"] == "copyback.manifest"]
+        assert manifest_evs, "copyback.manifest が記録されていない"
+        assert all(e["manifest_location"] == "staging" for e in manifest_evs)
+        assert manifest_evs[0]["ok"] is True
+        # staging内のmanifest自身が「未列挙ファイル」として拒否されていない
+        assert all(e["rejected"] == {} for e in manifest_evs)
+
+
+class TestManifestLocationRecorded:
+    """copyback.manifest ledgerイベントにmanifestの発見位置が載る
+    (review_start / pre_copy の双方)。"""
+
+    def test_root_manifest_location_recorded_at_both_stages(
+            self, cfg, mock_state_dir, tmp_path):
+        workdir = tmp_path / "staging7"
+        dest = tmp_path / "dest7"
+        _write_staging(workdir, {"a.txt": "A\n"}, dest_root=str(dest))
+        cfg["copyback"] = {"allowed_roots": [str(dest)]}
+        store = RunStore(cfg["runs_dir"], "cb-location")
+        t = _task("t7", workdir)
+
+        result = run_task(cfg, store, t, _budget())
+
+        assert result.status == "done"
+        events = read_ledger(cfg["runs_dir"], "cb-location")
+        manifest_evs = [e for e in events if e["event"] == "copyback.manifest"]
+        stages = {e["stage"]: e for e in manifest_evs}
+        assert set(stages) == {"review_start", "pre_copy"}
+        assert stages["review_start"]["manifest_location"] == "worktree_root"
+        assert stages["pre_copy"]["manifest_location"] == "worktree_root"
+
+
+class TestManifestBothLocations:
+    """manifestが両所在にある場合: 内容同一なら直下採用で通し、内容不一致は
+    conflictとして人間裁定(awaiting_human)へ回す。"""
+
+    def test_identical_manifests_in_both_locations_complete_as_root(
+            self, cfg, mock_state_dir, tmp_path):
+        workdir = tmp_path / "staging8"
+        dest = tmp_path / "dest8"
+        _write_staging(workdir, {"a.txt": "A\n"}, dest_root=str(dest),
+                       manifest_at="both")
+        cfg["copyback"] = {"allowed_roots": [str(dest)]}
+        store = RunStore(cfg["runs_dir"], "cb-both-same")
+        t = _task("t8", workdir)
+
+        result = run_task(cfg, store, t, _budget())
+
+        assert result.status == "done"
+        assert (dest / "a.txt").read_text() == "A\n"
+        events = read_ledger(cfg["runs_dir"], "cb-both-same")
+        by_event = [e["event"] for e in events]
+        assert "copyback.manifest_conflict" not in by_event
+        assert "copyback.completed" in by_event
+        manifest_evs = [e for e in events if e["event"] == "copyback.manifest"]
+        assert all(e["manifest_location"] == "worktree_root" for e in manifest_evs)
+
+    def test_differing_manifests_in_both_locations_go_to_awaiting_human(
+            self, cfg, mock_state_dir, tmp_path):
+        workdir = tmp_path / "staging9"
+        dest = tmp_path / "dest9"
+        _write_staging(workdir, {"a.txt": "A\n"}, dest_root=str(dest),
+                       manifest_at="both",
+                       staging_manifest_dest_root=str(tmp_path / "dest9-other"))
+        cfg["copyback"] = {"allowed_roots": [str(dest)]}
+        store = RunStore(cfg["runs_dir"], "cb-both-diff")
+        t = _task("t9", workdir)
+
+        result = run_task(cfg, store, t, _budget())
+
+        assert result.status == "awaiting_human"
+        events = read_ledger(cfg["runs_dir"], "cb-both-diff")
+        by_event = [e["event"] for e in events]
+        assert "copyback.manifest_conflict" in by_event
+        conflict_ev = next(e for e in events
+                           if e["event"] == "copyback.manifest_conflict")
+        assert conflict_ev["root_path"] == str(workdir / "orgh-manifest.json")
+        assert conflict_ev["staging_paths"] == [
+            str(workdir / DEFAULT_STAGING_DIR / "orgh-manifest.json")]
+        assert conflict_ev["reason"]
+        # conflict時はレビューへ進ませず、コピーも行わない
+        assert "copyback.manifest" not in by_event
+        assert "copyback.completed" not in by_event
+        assert not dest.exists()
 
 
 class TestManifestPartial:
