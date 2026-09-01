@@ -21,6 +21,14 @@ branch→diff受け渡しが全て空振りするため、workerがworktree直�
   symlink・manifest未列挙ファイルはすべて拒否する。
 - コピーは「一時ディレクトリへ全量配置→再検証→rename」の順で行い、途中失敗時に
   宛先が半端な状態で汚染されないようにする(= copyback_partial)。
+- 宛先に既存ファイルがある場合の扱いは三分岐:
+  (a) 内容がstaging側と一致 → skip(冪等再実行)
+  (b) 内容は違うが `baseline_snapshot`(検収開始時の宛先スナップショット)に
+      記録があり現在のhashがその記録と一致 → 「第三者に触られていない既存ファイル
+      の更新」とみなし上書きを許可する(一時ディレクトリ→再検証→`os.replace`
+      の原子的経路をそのまま通るため、途中失敗時に宛先は汚染されない)
+  (c) それ以外(baseline未提供/baselineに無いパス/baseline記録と食い違う)
+      → blockedとして人間裁定へ回す(自動上書きしない)
 - ⚠ 宛先の事前hashとの突合による競合検知(copyback_conflict)は暫定運用であり、
   セキュリティ保証ではない(同じhashでも同時書き込みや悪意ある置き換えは検知できない。
   強制可能な土台(sandbox等)が入るまでの「忘れないための検知」でしかない)。
@@ -92,9 +100,11 @@ class CopybackResult:
 
     status: "completed" | "partial" | "conflict" | "manifest_invalid"
     dest_root: 宛先ルート(文字列)
-    copied: 実際にコピーした正規化済み相対パス
+    copied: 実際にコピーした正規化済み相対パス(新規配達に加え、baseline記録と
+            一致する=第三者に触られていない既存ファイルへの更新配達も含む)
     skipped: 既に宛先にhash一致で存在するためskipした相対パス(冪等再実行)
-    blocked: 宛先に既存かつhash不一致のため自動上書きせず人間裁定へ回した相対パス
+    blocked: 宛先に既存かつhash不一致で、かつbaseline記録から不変とも確認できず、
+             自動上書きせず人間裁定へ回した相対パス
              (`copyback_conflict` 相当の"third-partyが書き換えた宛先"もここに乗る)
     failed: コピー処理中に例外で失敗した相対パス
     reason: 人間可読な失敗・停止理由(partial/conflict/manifest_invalid時)
@@ -330,9 +340,15 @@ def run_copyback(worktree_dir: Path | str, dest_root: Path | str,
     3. baseline_snapshotが渡されていれば、宛先の該当ファイルが記録時から
        変化していないか突合する。変化していれば `copyback_conflict`
        (⚠ 暫定運用でありセキュリティ保証ではない)
-    4. 宛先ファイルごとにhash一致ならskip、不一致(既存かつ違う内容)なら
-       blockedとして人間裁定へ回し、この時点で停止する(自動上書きしない)
-    5. 残る新規ファイルを一時ディレクトリへ全量コピーし、再検証してから
+    4. 宛先ファイルごとに三分岐で判定する:
+       (a) 宛先の内容がstaging側と一致(size/sha256一致)→ skip
+       (b) 内容は不一致だが、`baseline_snapshot` に当該相対パスの記録があり、
+           宛先の現在のsha256がその記録値と一致する(=検収開始時から第三者に
+           変更されていない)→ 上書きを許可し、コピー計画に載せる
+       (c) それ以外(baseline未提供/baselineに記録が無いパス/記録値と現在値が
+           食い違う)→ blockedとして人間裁定へ回し、この時点で停止する
+           (自動上書きしない)
+    5. 残る配達対象((b)の上書きを含む)を一時ディレクトリへ全量コピーし、再検証してから
        rename で最終宛先へ配置する(=copyback_partialの回避: 途中失敗時は
        renameフェーズへ進まないため宛先は書き換わらない)
 
@@ -376,9 +392,16 @@ def run_copyback(worktree_dir: Path | str, dest_root: Path | str,
             if dest_path.is_symlink() or not dest_path.is_file():
                 blocked.append(entry.path)
                 continue
-            if (dest_path.stat().st_size == entry.size and
-                    _sha256(dest_path) == entry.sha256):
+            dest_hash = _sha256(dest_path)
+            if dest_path.stat().st_size == entry.size and dest_hash == entry.sha256:
                 skipped.append(entry.path)
+                continue
+            # 内容不一致。baselineに記録があり現在値がそれと一致する場合のみ
+            # 「検収開始時から第三者に触られていない既存ファイルの更新」として
+            # 上書きを許可する(それ以外は従来どおり人間裁定)。
+            if (baseline_snapshot is not None and
+                    baseline_snapshot.get(entry.path) == dest_hash):
+                plan_copy.append(entry)
                 continue
             blocked.append(entry.path)
             continue
