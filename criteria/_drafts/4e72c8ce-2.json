@@ -1,0 +1,7 @@
+{
+ "category": "qa",
+ "prefix": "QA",
+ "strength": "norm",
+ "text": "音声を伴う動画等のマルチメディア成果物を検収する際は、視覚的な崩れの確認に加えて、音声トラックが存在し無音でないことを独立の検収項目として確認しなければならない。",
+ "project_slug_hint": "interview-drill"
+}

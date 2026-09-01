@@ -1,0 +1,7 @@
+{
+ "category": "design",
+ "prefix": "DESIGN",
+ "strength": "pref",
+ "text": "類似構成の成果物を複数の実行者・タスクで並行生成させるミッションでは、承認済みの単一の実例を構成・トーン等の型として明示参照させ、各生成物が当該の型に沿っていることを検収項目に含めることが望ましい。",
+ "project_slug_hint": "interview-drill"
+}

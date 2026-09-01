@@ -1,0 +1,7 @@
+{
+ "category": "prod",
+ "prefix": "PROD",
+ "strength": "norm",
+ "text": "参照素材(下書き・骨子等)の内容が既存の設計思想・仕様と矛盾するために不採用と判断した場合、実行者はその不採用理由を成果物と同じ場所に記録として残さなければならず、代替内容を独自に創作してはならない。",
+ "project_slug_hint": "interview-drill"
+}

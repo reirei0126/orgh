@@ -1,0 +1,7 @@
+{
+ "category": "qa",
+ "prefix": "QA",
+ "strength": "norm",
+ "text": "処理ログに想定外の代替実行経路(フォールバック処理等)が使用された痕跡がないかを検収時に確認しなければならず、使用が検出された場合はその事実を成果物の記録に明記しなければならない。",
+ "project_slug_hint": "interview-drill"
+}
