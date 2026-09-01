@@ -24,6 +24,7 @@ from orgh.copyback import (
     DEFAULT_STAGING_DIR,
     MANIFEST_FILENAME,
     CopybackError,
+    resolve_manifest,
     run_copyback,
     verify_manifest,
 )
@@ -410,6 +411,213 @@ class TestBaselineAwareOverwrite:
         assert sorted(keyword_only) == ["baseline_snapshot", "manifest_filename"]
         assert all(p.default is not inspect.Parameter.empty
                    for p in keyword_only.values())
+
+
+class TestManifestLocationResolution:
+    """manifest所在の2箇所対応: worktree直下(第1優先)/ staging直下(第2優先)。
+
+    workerがmanifestを `_orgh_staging/` 配下に置いてしまうとゲートが空振りし、
+    成果物が届かないまま検収を通過する。その救済として2箇所を探索するが、
+    両所在で内容が異なる場合は「どちらが正か」を機械が決めずconflictとする。
+    """
+
+    def _staged(self, worktree: Path, files: dict[str, str]) -> list[dict]:
+        staging = _staging(worktree)
+        staging.mkdir(parents=True, exist_ok=True)
+        entries = []
+        for rel, content in files.items():
+            _write(staging / rel, content)
+            entries.append(_entry_for(staging, rel))
+        return entries
+
+    def _manifest_bytes(self, entries: list[dict], **extra) -> str:
+        return json.dumps({"files": entries, **extra})
+
+    def test_resolves_worktree_root_when_only_root(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n"})
+        _manifest(worktree, entries)
+
+        resolution = resolve_manifest(worktree)
+
+        assert resolution.found is True
+        assert resolution.conflict is False
+        assert resolution.location == "worktree_root"
+        assert resolution.path == worktree / MANIFEST_FILENAME
+
+    def test_resolves_staging_when_only_staging(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n"})
+        (_staging(worktree) / MANIFEST_FILENAME).write_text(
+            self._manifest_bytes(entries))
+
+        resolution = resolve_manifest(worktree)
+
+        assert resolution.found is True
+        assert resolution.conflict is False
+        assert resolution.location == "staging"
+        assert resolution.path == _staging(worktree) / MANIFEST_FILENAME
+
+    def test_not_found_when_neither_location_has_manifest(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        _staging(worktree).mkdir(parents=True)
+
+        resolution = resolve_manifest(worktree)
+
+        assert resolution.found is False
+        assert resolution.conflict is False
+        assert resolution.location is None
+
+    def test_identical_content_in_both_locations_adopts_root(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n"})
+        payload = self._manifest_bytes(entries)
+        (worktree / MANIFEST_FILENAME).write_text(payload)
+        (_staging(worktree) / MANIFEST_FILENAME).write_text(payload)
+
+        resolution = resolve_manifest(worktree)
+
+        assert resolution.conflict is False
+        assert resolution.found is True
+        assert resolution.location == "worktree_root"
+
+    def test_differing_content_in_both_locations_is_conflict(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n"})
+        (worktree / MANIFEST_FILENAME).write_text(self._manifest_bytes(entries))
+        (_staging(worktree) / MANIFEST_FILENAME).write_text(
+            self._manifest_bytes(entries, dest_root="/tmp/elsewhere"))
+
+        resolution = resolve_manifest(worktree)
+
+        assert resolution.conflict is True
+        assert resolution.found is False        # どちらも勝手に採用しない
+        assert resolution.path is None
+        assert resolution.location is None
+        assert resolution.reason
+
+    def test_custom_staging_dir_from_root_manifest_is_also_searched(self, tmp_path):
+        """直下manifestの staging_dir が既定と異なる場合、その解決先直下も
+        conflict判定の探索対象になる(既定`_orgh_staging`は常に探索)。"""
+        worktree = tmp_path / "worktree"
+        custom = worktree / "out"
+        _write(custom / "a.txt", "A\n")
+        entries = [{"path": "a.txt", "size": len(b"A\n"), "sha256": _sha256(b"A\n")}]
+        (worktree / MANIFEST_FILENAME).write_text(
+            self._manifest_bytes(entries, staging_dir="out"))
+        (custom / MANIFEST_FILENAME).write_text(
+            self._manifest_bytes(entries, staging_dir="out", dest_root="/tmp/other"))
+
+        resolution = resolve_manifest(worktree)
+
+        assert resolution.conflict is True
+        assert custom / MANIFEST_FILENAME in resolution.staging_paths
+
+    def test_verify_ok_with_manifest_inside_staging(self, tmp_path):
+        """staging内のみにmanifestがあってもverifyが成立し、manifest自身は
+        『未列挙ファイル』として拒否されない。"""
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n", "sub/b.txt": "B\n"})
+        (_staging(worktree) / MANIFEST_FILENAME).write_text(
+            self._manifest_bytes(entries))
+
+        result = verify_manifest(worktree)
+
+        assert result.ok is True
+        assert result.rejected == {}
+        assert MANIFEST_FILENAME not in result.rejected
+        assert sorted(e.path for e in result.entries) == ["a.txt", "sub/b.txt"]
+        assert result.manifest_location == "staging"
+        assert result.staging_dir == _staging(worktree)
+
+    def test_verify_reports_location_for_root_manifest(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n"})
+        _manifest(worktree, entries)
+
+        result = verify_manifest(worktree)
+
+        assert result.ok is True
+        assert result.manifest_location == "worktree_root"
+        assert result.as_ledger_payload()["manifest_location"] == "worktree_root"
+
+    def test_verify_rejects_when_both_locations_conflict(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n"})
+        (worktree / MANIFEST_FILENAME).write_text(self._manifest_bytes(entries))
+        (_staging(worktree) / MANIFEST_FILENAME).write_text(
+            self._manifest_bytes(entries, dest_root="/tmp/elsewhere"))
+
+        result = verify_manifest(worktree)
+
+        assert result.ok is False
+        assert MANIFEST_FILENAME in result.rejected
+        assert result.manifest_location is None
+
+    def test_staging_dir_resolves_from_worktree_even_if_manifest_in_staging(
+            self, tmp_path):
+        """manifestがstaging内にあっても staging_dir はworktree_dirからの相対
+        として解決する(manifestの所在ディレクトリ基準にしない)。"""
+        worktree = tmp_path / "worktree"
+        custom = worktree / "out"
+        _write(custom / "a.txt", "A\n")
+        entries = [{"path": "a.txt", "size": len(b"A\n"), "sha256": _sha256(b"A\n")}]
+        # manifestは既定stagingの直下に置くが、staging_dirは "out" を指す
+        _staging(worktree).mkdir(parents=True, exist_ok=True)
+        (_staging(worktree) / MANIFEST_FILENAME).write_text(
+            self._manifest_bytes(entries, staging_dir="out"))
+
+        result = verify_manifest(worktree)
+
+        assert result.ok is True
+        assert result.staging_dir == custom
+        assert result.manifest_location == "staging"
+
+    def test_run_copyback_with_manifest_inside_staging(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n", "sub/b.txt": "B\n"})
+        (_staging(worktree) / MANIFEST_FILENAME).write_text(
+            self._manifest_bytes(entries))
+        dest = tmp_path / "dest"
+
+        verification, result = run_copyback(worktree, dest, [str(dest)])
+
+        assert verification.ok is True
+        assert verification.manifest_location == "staging"
+        assert result.status == "completed"
+        assert sorted(result.copied) == ["a.txt", "sub/b.txt"]
+        assert (dest / "a.txt").read_text() == "A\n"
+        assert (dest / "sub" / "b.txt").read_text() == "B\n"
+        assert not (dest / MANIFEST_FILENAME).exists()  # manifest自体は配達しない
+
+    def test_run_copyback_stops_on_manifest_conflict(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n"})
+        (worktree / MANIFEST_FILENAME).write_text(self._manifest_bytes(entries))
+        (_staging(worktree) / MANIFEST_FILENAME).write_text(
+            self._manifest_bytes(entries, dest_root="/tmp/elsewhere"))
+        dest = tmp_path / "dest"
+
+        verification, result = run_copyback(worktree, dest, [str(dest)])
+
+        assert verification.ok is False
+        assert result.status == "manifest_invalid"
+        assert not (dest / "a.txt").exists()
+
+    def test_identical_both_locations_copyback_completes(self, tmp_path):
+        worktree = tmp_path / "worktree"
+        entries = self._staged(worktree, {"a.txt": "A\n"})
+        payload = self._manifest_bytes(entries)
+        (worktree / MANIFEST_FILENAME).write_text(payload)
+        (_staging(worktree) / MANIFEST_FILENAME).write_text(payload)
+        dest = tmp_path / "dest"
+
+        verification, result = run_copyback(worktree, dest, [str(dest)])
+
+        assert verification.ok is True
+        assert verification.manifest_location == "worktree_root"
+        assert result.status == "completed"
+        assert (dest / "a.txt").read_text() == "A\n"
 
 
 class TestIdempotentRerun:

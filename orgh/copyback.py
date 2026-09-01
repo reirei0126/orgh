@@ -3,14 +3,20 @@
 対象領域がgit管理外(例: decision-osの private/cases/)の場合、orghのworktree→
 branch→diff受け渡しが全て空振りするため、workerがworktree直下の`_orgh_staging/`
 (既定。manifestの`staging_dir`キーで変更可)配下に出力した成果物を、
-`orgh-manifest.json`(worktree直下に配置。相対パス・サイズ・SHA-256の一覧)と
-照合しながらstaging→宛先ルートへ原子的にコピーバックする。orchestratorへの結線は
-別モジュール(orgh/orchestrator/copyback_gate.py)。
+`orgh-manifest.json`(worktree直下、またはstaging直下。相対パス・サイズ・
+SHA-256の一覧)と照合しながらstaging→宛先ルートへ原子的にコピーバックする。
+orchestratorへの結線は別モジュール(orgh/orchestrator/copyback_gate.py)。
 
 契約の要点:
-- `orgh-manifest.json` は worktree 直下に置く。`files[].path` は、staging
+- `orgh-manifest.json` の所在は2箇所を許容する: worktree直下(第1優先)と
+  staging直下(第2優先)。workerがstaging配下に置いてしまってもゲートが
+  空振りしないための救済であり、両所在で内容が同一なら「直下相当」として
+  直下を採用、内容が異なれば conflict として人間裁定へ回す(どちらかを
+  勝手に採用しない)。探索規則の詳細は resolve_manifest() のdocstring参照。
+- `files[].path` は、staging
   サブディレクトリ(既定 `_orgh_staging`。manifestの `staging_dir` キーで
-  worktree直下からの相対パスとして変更可)からの相対パスとして解釈する。
+  worktree直下からの相対パスとして変更可。manifestがstaging内にあっても
+  `staging_dir` の解決基準は常にworktree直下)からの相対パスとして解釈する。
   実worktreeにはgit管理下の通常ファイルが多数存在するが、`_orgh_staging/`
   配下以外は verify_manifest() の走査・照合・未列挙拒否の対象外であり、
   拒否もコピー対象にもならない(staging専用サブディレクトリ契約)。
@@ -60,6 +66,37 @@ class ManifestEntry:
     sha256: str
 
 
+MANIFEST_LOCATION_ROOT = "worktree_root"
+MANIFEST_LOCATION_STAGING = "staging"
+
+
+@dataclass
+class ManifestResolution:
+    """manifestの所在解決の結果(resolve_manifest()の戻り値)。
+
+    path: 採用したmanifestの絶対パス。未発見およびconflict時はNone
+          (conflict時にどちらかを勝手に採用しないため)
+    location: "worktree_root" | "staging" | None(未発見/conflict時)
+    conflict: 直下とstagingの両方にmanifestがあり、バイト内容が異なる場合True
+    root_path: worktree直下の候補パス(存在有無に関わらず算出値)
+    root_exists: 直下候補が実在するか
+    staging_paths: 実在したstaging側候補manifestのパス一覧(探索順)
+    reason: conflict時などの人間可読な説明(日本語)
+    """
+    path: Path | None = None
+    location: str | None = None
+    conflict: bool = False
+    root_path: Path | None = None
+    root_exists: bool = False
+    staging_paths: list[Path] = field(default_factory=list)
+    reason: str | None = None
+
+    @property
+    def found(self) -> bool:
+        """どちらかの位置に採用可能なmanifestがあるか(conflict時はFalse)。"""
+        return self.path is not None
+
+
 @dataclass
 class ManifestVerification:
     """`copyback.manifest` ledgerイベントの情報源。
@@ -76,6 +113,8 @@ class ManifestVerification:
                  読めない/'files'が不正/staging_dirが閉包違反の場合はNone。
                  run_copyback()はここに記録された同一の解決結果をコピー元
                  として使う(verifyとcopyでの解決のずれを防ぐ)。
+    manifest_location: manifestの発見位置("worktree_root" | "staging")。
+                 未発見・conflictの場合はNone(ledgerへそのまま記録される)。
     """
     ok: bool
     entries: list[ManifestEntry] = field(default_factory=list)
@@ -83,6 +122,7 @@ class ManifestVerification:
     mismatches: dict[str, str] = field(default_factory=dict)
     missing: list[str] = field(default_factory=list)
     staging_dir: Path | None = None
+    manifest_location: str | None = None
 
     def as_ledger_payload(self) -> dict[str, Any]:
         return {
@@ -91,6 +131,7 @@ class ManifestVerification:
             "rejected": self.rejected,
             "mismatches": self.mismatches,
             "missing": self.missing,
+            "manifest_location": self.manifest_location,
         }
 
 
@@ -187,10 +228,113 @@ def _walk_files(root: Path):
             yield full.relative_to(root).as_posix()
 
 
+def _declared_staging_dir(manifest_path: Path, worktree_dir: Path) -> Path | None:
+    """manifestの`staging_dir`キーをworktree_dirからの相対として解決する。
+
+    読めない/型が不正/閉包違反(絶対パス・'..'・symlink)の場合はNone。
+    manifest所在の探索段階で使う軽量な先読みであり、本検証は
+    verify_manifest()側で改めて行う(ここでの失敗は「候補なし」に潰す)。
+    """
+    try:
+        raw = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    value = raw.get("staging_dir")
+    if not isinstance(value, str) or not value:
+        return None
+    if _safe_relpath_reason(worktree_dir, value) is not None:
+        return None
+    return worktree_dir / "/".join(PurePosixPath(value).parts)
+
+
+def resolve_manifest(worktree_dir: Path | str,
+                     manifest_filename: str = MANIFEST_FILENAME) -> ManifestResolution:
+    """manifestの所在を解決する(worktree直下が第1優先、staging直下が第2優先)。
+
+    探索規則(実装どおり):
+    1. 第1候補は `<worktree>/orgh-manifest.json`(=従来の契約位置)。
+    2. 第2候補は staging 直下の manifest。staging側を探す時点ではまだ
+       manifestを読めていないため、`DEFAULT_STAGING_DIR`(`_orgh_staging`)は
+       必ず探索する。加えて第1候補が実在する場合はその内容の `staging_dir`
+       キーを先読みし、既定と異なりかつworktree内へ閉包していれば、その
+       解決先の直下も候補に加える(候補は 既定 → 宣言値 の順)。
+       第1候補が無い場合は先読み元が無いため、探索は既定stagingのみとなる。
+    3. 第1候補のみ実在 → 直下を採用(location="worktree_root")。
+    4. 第2候補のみ実在 → staging側を採用(location="staging")。
+       複数のstaging候補が実在する場合は探索順で最初のものを採用する。
+    5. 両方実在する場合、バイト内容を比較する:
+       - 全staging候補が第1候補とバイト一致 → conflictではなく「直下相当」
+         として直下を採用(location="worktree_root")。
+       - 1件でも内容が異なる → conflict=True を返し、pathはNoneのままとする
+         (曖昧さを通さない=どちらかを勝手に採用しない)。呼び出し側は
+         人間裁定へ回すこと。
+    6. どちらも実在しない → found=False(path=None, conflict=False)。
+
+    比較はJSONの意味論ではなくバイト列で行う(整形差も「内容が異なる」と
+    みなす保守的な判定)。
+    """
+    worktree_dir = Path(worktree_dir)
+    root_path = worktree_dir / manifest_filename
+    root_exists = root_path.is_file()
+
+    staging_candidates: list[Path] = [worktree_dir / DEFAULT_STAGING_DIR]
+    if root_exists:
+        declared = _declared_staging_dir(root_path, worktree_dir)
+        if declared is not None and declared not in staging_candidates:
+            staging_candidates.append(declared)
+
+    staging_paths: list[Path] = []
+    for cand in staging_candidates:
+        mp = cand / manifest_filename
+        if mp.is_file() and mp not in staging_paths:
+            staging_paths.append(mp)
+
+    if root_exists and staging_paths:
+        try:
+            root_bytes = root_path.read_bytes()
+            differing = [mp for mp in staging_paths
+                         if mp.read_bytes() != root_bytes]
+        except OSError as e:
+            return ManifestResolution(
+                conflict=True, root_path=root_path, root_exists=True,
+                staging_paths=staging_paths,
+                reason=f"manifestの読み取りに失敗し所在を裁定できない: {e}")
+        if differing:
+            return ManifestResolution(
+                conflict=True, root_path=root_path, root_exists=True,
+                staging_paths=staging_paths,
+                reason=("manifestがworktree直下とstaging("
+                        + ", ".join(str(p) for p in differing)
+                        + ")の両方に存在し内容が異なる"))
+        # 内容が同一なら「直下相当」として直下を採用する(conflictではない)
+        return ManifestResolution(
+            path=root_path, location=MANIFEST_LOCATION_ROOT,
+            root_path=root_path, root_exists=True, staging_paths=staging_paths)
+
+    if root_exists:
+        return ManifestResolution(
+            path=root_path, location=MANIFEST_LOCATION_ROOT,
+            root_path=root_path, root_exists=True)
+
+    if staging_paths:
+        return ManifestResolution(
+            path=staging_paths[0], location=MANIFEST_LOCATION_STAGING,
+            root_path=root_path, root_exists=False, staging_paths=staging_paths)
+
+    return ManifestResolution(root_path=root_path, root_exists=False)
+
+
 def verify_manifest(worktree_dir: Path | str,
                      manifest_filename: str = MANIFEST_FILENAME) -> ManifestVerification:
-    """worktree直下のmanifestを読み、staging(既定`_orgh_staging`。manifestの
-    `staging_dir`キーで変更可)配下の実ファイルと再計算したsize/SHA-256を突合する。
+    """manifest(worktree直下が第1優先、staging直下が第2優先。resolve_manifest()
+    参照)を読み、staging(既定`_orgh_staging`。manifestの`staging_dir`キーで
+    変更可)配下の実ファイルと再計算したsize/SHA-256を突合する。
+
+    manifestがstaging内にあっても`staging_dir`は常にworktree_dirからの相対
+    として解決する(解決基準は従来どおりworktree_dir)。staging直下のmanifest
+    自身は走査対象から除外され、「manifest未列挙ファイル」として拒否されない。
 
     走査・照合・未列挙拒否の対象はstagingサブディレクトリ配下のみであり、
     worktree直下のgit管理下ファイル等(staging外)は無視する(拒否もコピー対象
@@ -200,15 +344,23 @@ def verify_manifest(worktree_dir: Path | str,
     ="staging凍結の検証"であり、キャッシュは持たない)。
     """
     worktree_dir = Path(worktree_dir)
-    manifest_path = worktree_dir / manifest_filename
-    if not manifest_path.exists():
+    resolution = resolve_manifest(worktree_dir, manifest_filename)
+    if resolution.conflict:
+        return ManifestVerification(
+            ok=False,
+            rejected={manifest_filename: resolution.reason or
+                      "manifestが直下とstagingの両方に存在し内容が異なる"})
+    if resolution.path is None:
         return ManifestVerification(
             ok=False, rejected={manifest_filename: "manifestファイルが存在しない"})
+    manifest_path = resolution.path
+    location = resolution.location
     try:
         raw = json.loads(manifest_path.read_text())
     except (OSError, json.JSONDecodeError) as e:
         return ManifestVerification(
-            ok=False, rejected={manifest_filename: f"manifestの読み取りに失敗: {e}"})
+            ok=False, manifest_location=location,
+            rejected={manifest_filename: f"manifestの読み取りに失敗: {e}"})
 
     if isinstance(raw, dict):
         items = raw.get("files")
@@ -219,16 +371,21 @@ def verify_manifest(worktree_dir: Path | str,
 
     if not isinstance(items, list):
         return ManifestVerification(
-            ok=False, rejected={manifest_filename: "'files'がリストでない"})
+            ok=False, manifest_location=location,
+            rejected={manifest_filename: "'files'がリストでない"})
 
     if not isinstance(staging_dir_raw, str) or not staging_dir_raw:
         return ManifestVerification(
-            ok=False, rejected={"staging_dir": "staging_dirが空または文字列でない"})
+            ok=False, manifest_location=location,
+            rejected={"staging_dir": "staging_dirが空または文字列でない"})
 
+    # staging_dirの解決基準は常にworktree_dir(manifestがstaging内にある場合も
+    # manifestの所在ディレクトリ基準にはしない)
     staging_reason = _safe_relpath_reason(worktree_dir, staging_dir_raw)
     if staging_reason:
         return ManifestVerification(
-            ok=False, rejected={"staging_dir": staging_reason})
+            ok=False, manifest_location=location,
+            rejected={"staging_dir": staging_reason})
 
     staging_dir = worktree_dir / "/".join(PurePosixPath(staging_dir_raw).parts)
 
@@ -273,8 +430,11 @@ def verify_manifest(worktree_dir: Path | str,
             continue
         entries.append(ManifestEntry(path=normalized, size=size, sha256=sha256))
 
+    # staging直下のmanifest自身(2箇所対応で許容している所在)は成果物では
+    # ないため未列挙拒否の対象にしない
+    excluded = {staging_dir / manifest_filename, *resolution.staging_paths}
     for rel in _walk_files(staging_dir):
-        if rel == manifest_filename:
+        if rel == manifest_filename or (staging_dir / rel) in excluded:
             continue
         if rel not in listed:
             rejected[rel] = "manifest未列挙ファイル"
@@ -282,7 +442,8 @@ def verify_manifest(worktree_dir: Path | str,
     ok = not rejected and not mismatches and not missing
     return ManifestVerification(ok=ok, entries=entries, rejected=rejected,
                                 mismatches=mismatches, missing=missing,
-                                staging_dir=staging_dir)
+                                staging_dir=staging_dir,
+                                manifest_location=location)
 
 
 def snapshot_tree(root: Path | str) -> dict[str, str]:
@@ -331,6 +492,11 @@ def run_copyback(worktree_dir: Path | str, dest_root: Path | str,
                   ) -> tuple[ManifestVerification, CopybackResult]:
     """manifestを再検証し、staging(worktree直下の`_orgh_staging/`。manifestの
     `staging_dir`キーで変更可)→dest_rootへ原子的にコピーバックする。
+
+    manifestの所在は verify_manifest() 経由で resolve_manifest() が解決する
+    (worktree直下が第1優先、staging直下が第2優先。両所在で内容が異なる場合は
+    conflictとして manifest_invalid で停止する)。staging_dirの解決基準は
+    manifestの所在に関わらず常に worktree_dir。
 
     手順(§4 3a'契約どおり):
     1. dest_rootがallowed_roots配下か検査(外れていればCopybackError)
