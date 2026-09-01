@@ -78,6 +78,19 @@ def mission_completed_event(mission: Mission,
     return _build_event("mission.completed", mission.id, None, summary)
 
 
+def mission_settled_event(mission: Mission, outcome: str, cost_usd: float) -> dict:
+    """ミッション決着(done/failed)通知。箱庭事務局の記帳自動化(agency)の土台と
+    なるイベントで、economy-ledger.mdへの実記帳はこの関数では一切行わない
+    (後続タスクで実装)。"""
+    if outcome not in ("done", "failed"):
+        raise ValueError(f"不正なoutcome: {outcome!r}(doneまたはfailedのみ許可)")
+    summary = f"ミッション「{mission.intent}」決着: {outcome}・実費 {cost_usd:.3f} USD"
+    event = _build_event("mission.settled", mission.id, None, summary)
+    event["outcome"] = outcome
+    event["cost_usd"] = cost_usd
+    return event
+
+
 def _post_webhook(url: str, event: dict, timeout: float) -> None:
     # "text" はSlack Incoming Webhook互換のための別名(無いと400 no_textで拒否される。
     # 2026-08-16 実URLで確認)。汎用コンシューマにはsummaryと同値の冗長キーであり無害。

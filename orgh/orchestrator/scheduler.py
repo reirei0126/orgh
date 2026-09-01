@@ -29,6 +29,17 @@ def ready(m: Mission) -> list[Task]:
             if t.status == "pending" and all(d in done for d in t.deps)]
 
 
+def settlement_outcome(m: Mission) -> str | None:
+    """記帳自動化(agency)向けの決着判定。全taskがdoneなら"done"、failedタスクが
+    1件以上あれば"failed"。それ以外(cancelled/skippedのみ等)はNone(未決着=
+    mission.settledを発行しない)。"""
+    if m.tasks and all(t.status == "done" for t in m.tasks):
+        return "done"
+    if any(t.status == "failed" for t in m.tasks):
+        return "failed"
+    return None
+
+
 def blocked_forever(m: Mission) -> bool:
     dead = {t.id for t in m.tasks if t.status in ("failed", "cancelled")}
     pend = [t for t in m.tasks if t.status == "pending"]
@@ -303,6 +314,16 @@ def _run_mission_locked(cfg: dict, mission: Mission, store: RunStore,
         event = notify.mission_completed_event(
             mission, pending_verdict_count=len(pending))
         notify.emit(store, cfg, event)
+    except Exception:
+        pass  # 通知処理の失敗でミッション進行を止めない
+    try:
+        # 箱庭事務局の記帳自動化(agency)の土台。実記帳(economy-ledger.md書き込み)
+        # はここでは行わない(後続タスク)
+        outcome = settlement_outcome(mission)
+        if outcome is not None:
+            cost_usd = mission.budget.spent_usd if mission.budget else 0.0
+            event = notify.mission_settled_event(mission, outcome, cost_usd)
+            notify.emit(store, cfg, event)
     except Exception:
         pass  # 通知処理の失敗でミッション進行を止めない
     return mission

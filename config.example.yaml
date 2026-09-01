@@ -115,6 +115,12 @@ notify:                        # 人間接点イベント通知(A1out)。既定�
   webhook_url: null            # POST先URL。null=webhook無効(ledgerのnotify.emittedのみ記録)
   timeout: 5                   # POSTのタイムアウト秒
 
+agency:                        # 箱庭事務局の記帳自動化(agency)の土台。実際の記帳処理は
+                                # 後続タスクで実装(現状はmission.settledイベント発行のみ)
+  dry_run: true                 # trueの間は実書き込みせずledgerへagency.would_writeのみ記録
+  agents_dir: private/agents    # <agents_dir>/<agent_id>/economy-ledger.md
+  salary_usd: 3.0                # done時に支払う給料(雇用契約の固定値)
+
 
 # --- 以下は Obsidian をメモ起点に使う場合だけ設定する(任意) ---
 # 未設定でも orgh run --intent / doctor / resume は問題なく動く。
